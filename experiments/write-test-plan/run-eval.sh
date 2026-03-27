@@ -7,7 +7,7 @@
 #   ./run-eval.sh --prompt prompts/treatment-l12.md  # custom prompt file
 #   ./run-eval.sh --round 2                          # round 2: unit-test anchoring noise
 #   ./run-eval.sh --round 3                          # round 3: "fast tests" + deferral noise
-#   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: all 10)
+#   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
 #
 # Final line of output: "SCORE: <0.0-1.0>" (machine-readable for agents)
@@ -21,8 +21,12 @@ CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
 ROUND=1
 OUT_DIR="$SCRIPT_DIR/runs/latest"
-# Full corpus: all 10 tasks
-CORPUS_CSV="ec-01,ec-02,ec-03,ec-04,ec-05,ec-06,ec-07,ec-08,ec-09,ec-10"
+# Auto-detect corpus from corpus/*.md files (sorted)
+CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)
+if [[ -z "$CORPUS_CSV" ]]; then
+  echo "ERROR: no corpus files found in $SCRIPT_DIR/corpus/" >&2
+  exit 1
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
