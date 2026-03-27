@@ -42,7 +42,7 @@ This experiment has three conditions. You iterate on **treatment only**.
 | treatment-l12 | `prompts/treatment-l12.md` (fixed, never edit) | Rejected — read to avoid repeating |
 
 **Score history and per-task breakdowns**: see `leaderboard.md` in this directory.
-**Past prompt versions**: `git log --follow prompts/treatment.md`
+**Past prompt versions**: `git log --follow experiments/write-test-plan/prompts/treatment.md`
 **Read the rejected prompts** (`baseline.md`, `treatment-l12.md`) to understand what was tried and why it failed — don't repeat those approaches.
 
 ## Adversarial rounds (from kaizen #1016)
