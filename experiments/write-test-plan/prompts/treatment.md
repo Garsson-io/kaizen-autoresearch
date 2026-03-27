@@ -16,11 +16,6 @@ Key questions per behavior:
 - Does correctness depend on what a real LLM produces? → Agentic.
 - Does it require multiple real agentic steps in sequence? → Workflow.
 
-Before choosing a level, ask: "What is the seam — the boundary where this
-behavior could fail?" Seams include: function boundary (Unit), module wiring
-(Integration), process/network boundary (System), AI model judgment (Agentic),
-multi-step AI pipeline (Workflow). The seam determines the minimum level.
-
 After deciding each level, self-check (plan_consistent): does your
 test_description actually require that level, or would it pass at a lower one?
 
