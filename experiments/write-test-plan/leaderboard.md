@@ -28,6 +28,16 @@ Core corpus: EC-04, EC-07, EC-09, EC-10 (covers all 5 levels)
 
 ---
 
+**GT revision** (2026-03-27): Corrected 5 behaviors where GT was Integration but model correctly identified as Unit (EC-18 b1/b2/b3, EC-25 b4/b5). Pure algorithmic operations (trace ID grouping, timestamp sorting, p99 computation, boolean OR gate, output formatting) are Unit-testable — no module wiring needed. Scores below this line use revised GT and are not comparable to scores above.
+
+| # | Condition | Score (r1) | r2 | r3 | Δ | Commit | Change |
+|---|-----------|-----------|----|----|---|--------|--------|
+| 3 | treatment | **91.0%§** | — | — | — | — | re-scored existing run 2 outputs against revised GT, 30-task corpus |
+
+§30-task full corpus (EC-01 through EC-30), revised GT.
+
+---
+
 ## Known failure modes
 
 ### Agentic almost never predicted (primary)
