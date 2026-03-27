@@ -22,7 +22,7 @@ CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
 ROUND=1
 OUT_DIR="$SCRIPT_DIR/runs/latest"
-MAX_PARALLEL=10
+MAX_PARALLEL=5
 # Auto-detect corpus from corpus/*.md files (sorted)
 CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)
 if [[ -z "$CORPUS_CSV" ]]; then
