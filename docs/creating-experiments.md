@@ -25,6 +25,27 @@ experiments/<name>/
   runs/                   # gitignored output directory
 ```
 
+## Mining Upstream Repos for Ideas and Corpus Tasks
+
+If the experiment relates to a production skill or system, the upstream repo is a rich source of:
+
+- **Incident reports**: Real failures reveal systematic prompt weaknesses and become adversarial corpus tasks
+- **Design discussions**: Theories about what works/doesn't inform the hypothesis space
+- **Corpus design constraints**: Principles like vocabulary leak prevention, observable behavior framing
+- **Production failure patterns**: Cases where the skill produced wrong results -- these are adversarial examples reality provides for free
+
+```bash
+# Search for incidents, skill issues, and testing discussions
+gh issue list --repo <upstream-repo> --label bug --limit 20
+gh issue list --repo <upstream-repo> --label area/skills --limit 20
+gh search issues "<relevant keywords>" --repo <upstream-repo>
+```
+
+Convert findings into:
+- New `ideas/` files with source attribution (`*Source: repo#issue*`)
+- New adversarial corpus tasks based on real failure modes
+- Updated `program.md` failure analysis with upstream evidence
+
 ## Step-by-Step Setup
 
 ### 1. Define Your Classification Task

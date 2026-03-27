@@ -86,3 +86,30 @@ npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt groun
 - https://github.com/Garsson-io/kaizen-autoresearch/discussions/1 — iteration log
 - https://github.com/Garsson-io/kaizen-autoresearch/issues/2 — failure analysis
 - https://github.com/Garsson-io/kaizen/issues/1016 — full round results
+
+### Mining Garsson-io/kaizen for ideas
+
+The `Garsson-io/kaizen` repo is the upstream project where these skills are used in production. Its issues, PRs, and discussions contain incident reports, failure analyses, and theories about what works and what doesn't. **Mine it for ideas when generating hypotheses or designing new corpus tasks.**
+
+Use `gh` to search:
+
+```bash
+# Incident reports — real failures that reveal prompt weaknesses
+gh issue list --repo Garsson-io/kaizen --label bug --limit 30
+
+# Skill-related issues — ideas about how skills should work
+gh issue list --repo Garsson-io/kaizen --label area/skills --limit 30
+
+# Testing-related issues — how testing should be done
+gh issue list --repo Garsson-io/kaizen --label area/testing --limit 30
+
+# Search for specific topics
+gh search issues "agentic test level" --repo Garsson-io/kaizen
+gh search issues "unit test default" --repo Garsson-io/kaizen
+```
+
+What to look for:
+- **Incident reports** (#1014, #1019): reveal systematic failure patterns (e.g., agents defaulting to unit tests, self-certifying incorrect results)
+- **Corpus design constraints** (#1020): principles for writing realistic tasks (vocabulary leak prevention, observable behavior framing)
+- **Skill architecture** (#1017): how the eval infrastructure is supposed to work
+- **Production failures**: cases where a prompt/skill produced wrong results — these are the adversarial examples reality provides for free

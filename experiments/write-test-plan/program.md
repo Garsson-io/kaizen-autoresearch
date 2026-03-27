@@ -117,6 +117,27 @@ Run adversarial rounds and update `leaderboard.md`:
 
 ---
 
+## Upstream knowledge: Garsson-io/kaizen
+
+The `Garsson-io/kaizen` repo is where these skills run in production. Its issues, PRs, and discussions contain incident reports, failure analyses, and theories that directly inform this experiment. Mine it for ideas using `gh`:
+
+```bash
+gh issue list --repo Garsson-io/kaizen --label bug --limit 20
+gh issue list --repo Garsson-io/kaizen --label area/skills --limit 20
+gh search issues "test level" --repo Garsson-io/kaizen
+```
+
+Key upstream issues already mined:
+- **#1016**: Original experiment design, round results, failure mode analysis
+- **#1020**: Corpus design constraints — vocabulary leak prevention, observable behavior framing
+- **#1014**: Incident — agent correctly identified seam but defaulted to unit-only test plan
+- **#1019**: Incident — agent self-certified PASS despite stored FAIL findings
+- **#1017**: Skill eval infrastructure vision — how this experiment fits the bigger picture
+
+When stuck or generating new ideas, search for new incidents and discussions upstream. Production failures are the best source of adversarial corpus tasks and prompt improvement hypotheses.
+
+---
+
 ## Current failure analysis
 
 **Primary failure**: Agentic behaviors score ~5% sufficiency in EC-04.
