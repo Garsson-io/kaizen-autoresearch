@@ -1,10 +1,10 @@
 ---
 name: post-run-report
-description: Post an autoresearch run report (iterations, treatments, learnings) to the GitHub discussion and link from leaderboard.md
+description: Post an autoresearch run report (iterations, treatments, learnings) to the experiment's GitHub discussion and link from leaderboard.md
 argument-hint: "[experiment name, e.g. write-test-plan]"
 ---
 
-Post a structured run report to the experiment's GitHub discussion. Gathers all data from git history — no manual input needed.
+Post a structured run report to the experiment's GitHub discussion. Each experiment has ONE discussion; each batch of runs is ONE comment. Gathers all data from git history.
 
 ## Steps
 
@@ -16,15 +16,30 @@ Set:
 - `EXPERIMENT_DIR=experiments/<name>`
 - `TREATMENT_FILE=$EXPERIMENT_DIR/prompts/treatment.md`
 
-### 2. Gather iteration data from git history
+### 2. Read the discussion ID from program.md
 
-Run these commands to collect all experiment commits and their diffs:
+```bash
+grep "Discussion ID" $EXPERIMENT_DIR/program.md
+```
+
+Extract the ID (e.g. `D_kwDORybT0s4AlROe`). Every experiment's program.md MUST have a line:
+```
+**Discussion ID** (for `/post-run-report`): `<node_id>`
+```
+
+If missing, create the discussion first:
+```bash
+gh api graphql -f query='mutation($repoId:ID!,$catId:ID!,$title:String!,$body:String!){createDiscussion(input:{repositoryId:$repoId,categoryId:$catId,title:$title,body:$body}){discussion{id url}}}' \
+  -f repoId="<repo_node_id>" -f catId="<category_node_id>" \
+  -f title="<experiment-name>: experiment log + iteration tracker" \
+  -f body="Tracking discussion for the <experiment-name> experiment."
+```
+Then add the ID to program.md.
+
+### 3. Gather iteration data from git history
 
 ```bash
 # All experiment commits (kept and reverted) for this treatment file
-git log --oneline --all --grep="experiment(treatment)" --reverse
-
-# For each experiment commit, get the diff (shows the actual prompt change attempted)
 git log --all --grep="experiment(treatment)" --reverse --format="%H %s" | while read hash msg; do
   echo "### $msg"
   echo '```diff'
@@ -36,89 +51,79 @@ git log --all --grep="experiment(treatment)" --reverse --format="%H %s" | while 
   else
     echo "**Status: KEPT**"
   fi
-  echo ""
 done
 ```
 
-### 3. Read current state
+### 4. Read current state
 
-- Read `$EXPERIMENT_DIR/leaderboard.md` for the iteration summary table and learnings
-- Read `$TREATMENT_FILE` for the current (best) prompt
-- Read `$EXPERIMENT_DIR/prompts/baseline.md` for comparison
-- Read any other prompts in `$EXPERIMENT_DIR/prompts/` (rejected variants)
-
-### 4. Read the autoresearch results log if it exists
-
-```bash
-cat autoresearch-results.tsv 2>/dev/null
-```
+- `$EXPERIMENT_DIR/leaderboard.md` — iteration summary and learnings
+- `$TREATMENT_FILE` — current best prompt
+- All files in `$EXPERIMENT_DIR/prompts/` — all prompt variants for comparison
+- `autoresearch-results.tsv` (if exists) — raw iteration log
 
 ### 5. Compose the discussion comment
 
-Format the comment as:
+Write the comment body to a temp file (to avoid shell escaping issues with special chars):
 
 ```markdown
-## Autoresearch Run Report — <experiment> (<date>)
+## Autoresearch Run <N> Report — <experiment> (<date>)
 
 ### Config
 - **Scope**: <treatment file path>
-- **Verify**: <verify command>
-- **Metric**: <metric description>
-- **Baseline score**: <score>
+- **Verify**: <verify command from program.md>
+- **Metric**: <metric from program.md>
+- **Baseline score**: <iter 0 score>
+- **Iterations**: <count>
+- **Keeps / Discards**: <counts>
 
 ### Iteration Summary
 
-| Iter | Score | Δ | Status | Hypothesis |
-|------|-------|---|--------|-----------|
-| ... from results log or leaderboard ... |
+| Iter | Score | Delta | Status | Hypothesis |
+|------|-------|-------|--------|-----------|
+| ... |
 
 ### Treatments Attempted
 
-For each experiment commit, show:
-- The hypothesis (from commit message)
-- The diff (what was changed)
-- The result (kept/reverted, score delta)
+For each experiment commit, use collapsible details with the diff:
 
 <details>
-<summary>Iter N: <commit message> — <status> (<score>, Δ)</summary>
+<summary>Iter N: <commit message> — <status> (<score>)</summary>
 
-```diff
-<the actual diff from git show>
-```
+(the diff from git show)
 
 </details>
 
 ### Current Best Prompt
 
-```
-<full content of treatment.md>
-```
+(full content of treatment.md in a code block)
 
 ### Learnings
 
-<bullet points of what was learned — from leaderboard.md "What we learned" section>
+(bullet points from the run)
 
 ### What to Try Next
 
-<from leaderboard.md "What to try next" section>
+(ideas for the next batch)
 ```
 
 ### 6. Post to GitHub Discussion
 
+Use jq to properly JSON-encode the body (avoids shell escaping issues with arrows, backticks, etc.):
+
 ```bash
-gh api graphql -f query='mutation($id:ID!,$body:String!){addDiscussionComment(input:{discussionId:$id,body:$body}){comment{url}}}' \
-  -f id="D_kwDORybT0s4AlROe" \
-  -f body="$COMMENT_BODY"
+jq -n --rawfile body /tmp/run-report-body.md \
+  '{query: "mutation($id:ID!,$body:String!){addDiscussionComment(input:{discussionId:$id,body:$body}){comment{url}}}", variables: {id: "<DISCUSSION_ID>", body: $body}}' \
+  | gh api graphql --input -
 ```
 
 Print the returned comment URL.
 
 ### 7. Update leaderboard.md
 
-Replace the detailed "Autoresearch run N" section in leaderboard.md with a one-line link:
+Replace any detailed run section with a one-line link to the discussion comment:
 
 ```markdown
-**[Autoresearch run 1 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-XXXXX)** — 5 iterations, 0 keeps, baseline 87.2
+**[Autoresearch run N report](<comment_url>)** — <iterations> iterations, <keeps> keeps, baseline <score>
 ```
 
-Commit and push the leaderboard change.
+Commit and push.

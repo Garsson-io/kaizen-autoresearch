@@ -121,7 +121,9 @@ The model classifies "calls external AI API" as System instead of Agentic.
 
 **What was tried**: read `experiments/write-test-plan/prompts/baseline.md`, `experiments/write-test-plan/prompts/treatment-l12.md`, and `experiments/write-test-plan/leaderboard.md` for full history. Don't repeat failed approaches.
 
-**Links**: [failure analysis](https://github.com/Garsson-io/kaizen-autoresearch/issues/2) · [leaderboard](leaderboard.md)
+**Links**: [failure analysis](https://github.com/Garsson-io/kaizen-autoresearch/issues/2) · [leaderboard](leaderboard.md) · [discussion](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1)
+
+**Discussion ID** (for `/post-run-report`): `D_kwDORybT0s4AlROe`
 
 ---
 
