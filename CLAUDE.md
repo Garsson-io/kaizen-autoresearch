@@ -66,8 +66,21 @@ npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
 ```
 Outputs a number like `66.4`. Target ≥75. Exits 1 with a clear error if the eval fails or produces no parseable score.
 
-**Config block** is at the top of `experiments/write-test-plan/program.md`.
-Run the loop with: `/autoresearch` using program.md as the goal file.
+**Config block** (top of `experiments/write-test-plan/program.md`):
+```
+Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus
+Scope: experiments/write-test-plan/prompts/treatment.md
+Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
+Metric: Weighted average score (0–100)
+Direction: higher_is_better
+Guard: npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.750 > /dev/null
+Noise: high
+Min-Delta: 1.5
+```
+
+**Run the loop**: `/autoresearch` with the config above (extracted from program.md), or pass program.md content as arguments.
+
+**Autoresearch results log**: `autoresearch-results.tsv` (gitignored, created automatically by the plugin).
 
 **What is FIXED — never edit**:
 - `corpus/` — issue bodies (EC-01 through EC-10)
@@ -89,7 +102,8 @@ Run the loop with: `/autoresearch` using program.md as the goal file.
 - Bad: rewrite whole prompt, add generic "think carefully" language
 - Keep if new score > old score; revert otherwise
 
-**Commit format**: `exp/write-test-plan: iter N — <score>% (+Δ%) — <hypothesis>`
+**Commit format** (autoresearch convention): `experiment(treatment): <one-sentence description>`
+Autoresearch uses `experiment(<scope>):` prefix. Git revert preserves failed experiments in history for learning.
 
 ---
 
@@ -163,6 +177,42 @@ const result = spawnSync("claude", [
 ```
 
 The schema is the contract. Zod validation at the boundary means the loop fails loudly instead of silently passing garbage downstream.
+
+---
+
+## Smoke tests — fast, cheap, debuggable pipeline checks
+
+Each piece of the pipeline can be tested independently without running the full eval (~90s, 10 API calls):
+
+```bash
+cd experiments/write-test-plan
+
+# 1. Verify.ts Zod schema works (instant, no API calls)
+npx tsx scripts/verify.ts --mock 0.750 | jq '.score'
+# → 75.0
+
+# 2. Verify.ts rejects garbage (instant, no API calls)
+npx tsx scripts/verify.ts --mock garbage; echo "exit: $?"
+# → "No SCORE line..." exit: 1
+
+# 3. Score one existing output (instant, no API calls — needs a prior run in runs/latest/)
+npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt ground-truth/ec-04.json
+# → prints scoring breakdown for EC-04
+
+# 4. Run a SINGLE probe (one API call, ~15s)
+./run-eval.sh --single ec-09
+# → runs only EC-09 (easiest task), prints SCORE
+
+# 5. Run full eval (10 parallel API calls, ~90s)
+./run-eval.sh
+# → prints aggregate SCORE
+
+# 6. Test the autoresearch guard command (instant)
+npx tsx scripts/verify.ts --mock 0.750 > /dev/null; echo "exit: $?"
+# → exit: 0
+```
+
+Use these from cheapest to most expensive when debugging. Step 4 (`--single ec-09`) is the sweet spot for testing prompt changes quickly before committing to a full 10-task run.
 
 ---
 

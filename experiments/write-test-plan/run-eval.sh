@@ -32,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --round)     ROUND="$2";        shift 2 ;;
     --out-dir)   OUT_DIR="$2";      shift 2 ;;
     --corpus)    CORPUS_CSV="$2";   shift 2 ;;
+    --single)    CORPUS_CSV="$2";  shift 2 ;;  # alias: run just one task for fast debug
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
