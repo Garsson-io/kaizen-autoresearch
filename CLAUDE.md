@@ -35,9 +35,17 @@ experiments/<name>/
   run-eval.sh             ← outputs "SCORE: <fraction>"
   scripts/verify.ts       ← Zod-validated score extractor (--mock for fast test)
   corpus/                 ← fixed inputs (never edit)
+    catalog.json          ← task metadata (title, domain, difficulty, adversarial technique)
   ground-truth/           ← fixed labels (never edit)
+  ideas/                  ← prompt-improvement hypotheses with frontmatter + steelman/critique
   leaderboard.md          ← score history
 ```
+
+### ideas/ folder
+
+Each experiment has an `ideas/` folder containing `.md` files — one per prompt-improvement hypothesis. Each file has YAML frontmatter (`id`, `status`, `effort`, `expected_impact`, `targets`, `confusion_pairs`, `change_type`, `risk`) and a body with **Steelman** (why it would work) and **Scathing Critique** (why it wouldn't).
+
+**Before starting an autoresearch loop, read all ideas/** to understand the hypothesis space. Pick ideas in order of high expected_impact + low effort. Update the `status` field after trying each one (`proposed` → `trying` → `kept` or `rejected`).
 
 ---
 

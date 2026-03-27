@@ -79,6 +79,18 @@ After each verify run, read `runs/latest/` output files + the scoring breakdown:
 
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
+### Read ideas/ before iterating
+
+The `ideas/` folder contains prompt-improvement hypotheses with structured frontmatter and steelman/critique analysis. **Read all ideas before choosing your next change.** Each file has:
+- `status`: proposed, trying, kept, rejected, parked
+- `effort`: low, medium, high
+- `expected_impact`: low, medium, high
+- `targets`: which failure modes it addresses
+- `confusion_pairs`: which label boundaries it targets
+- Body: **Steelman** (why it would work) + **Scathing Critique** (why it wouldn't)
+
+Pick ideas in order: high expected_impact + low effort first. Update `status` after trying.
+
 ### What makes a good edit to `prompts/treatment.md`
 - ✓ Add a concrete positive example for the level the model misses
 - ✓ Add a "NOT this" example that disambiguates two adjacent levels
