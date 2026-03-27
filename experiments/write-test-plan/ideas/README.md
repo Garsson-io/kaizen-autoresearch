@@ -39,6 +39,5 @@ related: [other-idea-id, ...]
 ## How to Use
 
 1. Read all ideas before starting an autoresearch loop
-2. Try ideas in order: high expected_impact + low effort first
-3. Update `status` after each attempt
-4. One idea per iteration (atomic)
+2. Update `status` after each attempt
+3. One idea per iteration (atomic)

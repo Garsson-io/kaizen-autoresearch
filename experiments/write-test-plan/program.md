@@ -89,7 +89,7 @@ The `ideas/` folder contains prompt-improvement hypotheses with structured front
 - `confusion_pairs`: which label boundaries it targets
 - Body: **Steelman** (why it would work) + **Scathing Critique** (why it wouldn't)
 
-Pick ideas in order: high expected_impact + low effort first. Update `status` after trying.
+Update `status` after trying each idea.
 
 ### What makes a good edit to `prompts/treatment.md`
 - ✓ Add a concrete positive example for the level the model misses
