@@ -31,7 +31,7 @@ Each experiment lives in `experiments/<name>/` and follows the same pattern.
 | baseline | 72.3% | 3-task | No guidance — surprisingly strong |
 | treatment-v0 | 66.4% | 3-task | Added level defs + key questions — WORSE (old pipeline) |
 | treatment | **81.7%** | 4-task | Fresh run after pipeline fix (score.ts dir mode + grep pattern) |
-| treatment-l12 | not yet run | — | L12 ladder → 5-step translation hypothesis |
+| treatment-l12 | 71.2% | 4-task | L12 ladder reasoning — WORSE, rejected |
 
 **Pipeline note**: score.ts directory mode only scanned `.yaml` files (now fixed to also handle `.json`). run-eval.sh grep pattern also fixed. Old 66.4% was from broken pipeline or older probe outputs.
 
@@ -70,15 +70,16 @@ Outputs a number like `66.4`. Target ≥75. Exits 1 with a clear error if the ev
 ```
 Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus
 Scope: experiments/write-test-plan/prompts/treatment.md
+Metric: Weighted average score 0–100 (higher is better)
 Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
-Metric: Weighted average score (0–100)
-Direction: higher_is_better
-Guard: npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.750 > /dev/null
-Noise: high
-Min-Delta: 1.5
 ```
 
-**Run the loop**: `/autoresearch` with the config above (extracted from program.md), or pass program.md content as arguments.
+**Run the loop**:
+```
+/autoresearch Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus Scope: experiments/write-test-plan/prompts/treatment.md Metric: Weighted average score 0-100 (higher is better) Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' Iterations: 10
+```
+
+**Noise handling**: LLM-based scoring is inherently noisy (same prompt can score 66% or 81% on different runs). Ignore improvements < 1.5%. If uncertain, re-run verify to confirm.
 
 **Autoresearch results log**: `autoresearch-results.tsv` (gitignored, created automatically by the plugin).
 
@@ -91,6 +92,11 @@ Min-Delta: 1.5
 
 **What the loop edits — ONLY this**:
 - `experiments/write-test-plan/prompts/treatment.md`
+
+**CRITICAL: treatment.md MUST keep these template variables** (run-probe.ts replaces them at runtime):
+- `{{TASK_ID}}` — replaced with e.g. "EC-04"
+- `{{ISSUE_BODY}}` — replaced with the issue markdown
+If you remove these, the eval will produce garbage. Always preserve them.
 
 ---
 

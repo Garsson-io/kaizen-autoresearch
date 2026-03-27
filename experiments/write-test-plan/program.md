@@ -2,12 +2,8 @@
 
 Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus
 Scope: experiments/write-test-plan/prompts/treatment.md
+Metric: Weighted average score 0–100 (higher is better)
 Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
-Metric: Weighted average score (0–100)
-Direction: higher_is_better
-Guard: npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.750 > /dev/null
-Noise: high
-Min-Delta: 1.5
 
 ---
 
