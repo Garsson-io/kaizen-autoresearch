@@ -74,9 +74,31 @@ echo ""
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
-echo "  Max parallel: $MAX_PARALLEL"
+TOTAL=${#CORPUS[@]}
+echo "  Running $TOTAL probes (max $MAX_PARALLEL parallel)..."
+START_TIME=$SECONDS
+
 pids=()
+pid_tasks=()
 failed=0
+completed=0
+
+# Helper: record completion of a probe
+finish_probe() {
+  local pid=$1
+  local task=$2
+  wait "$pid" 2>/dev/null
+  local exit_code=$?
+  local elapsed=$(( SECONDS - START_TIME ))
+  completed=$((completed + 1))
+  if [[ $exit_code -ne 0 ]]; then
+    failed=$((failed + 1))
+    echo "  [${completed}/${TOTAL}] ${task^^} FAILED (${elapsed}s elapsed)" >&2
+  else
+    echo "  [${completed}/${TOTAL}] ${task^^} done (${elapsed}s elapsed)"
+  fi
+}
+
 for task_lower in "${CORPUS[@]}"; do
   task_upper="${task_lower^^}"
   out_file="$OUT_DIR/out-${CONDITION}-${task_lower//-/}.json"
@@ -104,23 +126,27 @@ for task_lower in "${CORPUS[@]}"; do
     --out "$out_file" \
     "${extra_args[@]}" &
   pids+=($!)
+  pid_tasks+=("$task_lower")
 
   # Throttle: when we hit MAX_PARALLEL, wait for one to finish before launching more
   if [[ ${#pids[@]} -ge $MAX_PARALLEL ]]; then
-    wait "${pids[0]}" || failed=$((failed + 1))
+    finish_probe "${pids[0]}" "${pid_tasks[0]}"
     pids=("${pids[@]:1}")
+    pid_tasks=("${pid_tasks[@]:1}")
   fi
 done
 
 # Wait for remaining
-for pid in "${pids[@]}"; do
-  wait "$pid" || failed=$((failed + 1))
+for i in "${!pids[@]}"; do
+  finish_probe "${pids[$i]}" "${pid_tasks[$i]}"
 done
+
+TOTAL_TIME=$(( SECONDS - START_TIME ))
 if [[ $failed -gt 0 ]]; then
-  echo "ERROR: $failed probe(s) failed" >&2
+  echo "ERROR: $failed of $TOTAL probe(s) failed (${TOTAL_TIME}s)" >&2
   exit 1
 fi
-echo "  All ${#CORPUS[@]} probes done."
+echo "  All $TOTAL probes done in ${TOTAL_TIME}s."
 
 echo ""
 echo "=== Scoring ==="
