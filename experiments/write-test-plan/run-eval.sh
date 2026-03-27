@@ -9,6 +9,7 @@
 #   ./run-eval.sh --round 3                          # round 3: "fast tests" + deferral noise
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
+#   ./run-eval.sh -j 5                               # max 5 parallel probes (default: 10)
 #
 # Final line of output: "SCORE: <0.0-1.0>" (machine-readable for agents)
 
@@ -21,6 +22,7 @@ CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
 ROUND=1
 OUT_DIR="$SCRIPT_DIR/runs/latest"
+MAX_PARALLEL=10
 # Auto-detect corpus from corpus/*.md files (sorted)
 CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)
 if [[ -z "$CORPUS_CSV" ]]; then
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --out-dir)   OUT_DIR="$2";      shift 2 ;;
     --corpus)    CORPUS_CSV="$2";   shift 2 ;;
     --single)    CORPUS_CSV="$2";  shift 2 ;;  # alias: run just one task for fast debug
+    -j)          MAX_PARALLEL="$2"; shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -71,7 +74,9 @@ echo ""
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
+echo "  Max parallel: $MAX_PARALLEL"
 pids=()
+failed=0
 for task_lower in "${CORPUS[@]}"; do
   task_upper="${task_lower^^}"
   out_file="$OUT_DIR/out-${CONDITION}-${task_lower//-/}.json"
@@ -99,10 +104,15 @@ for task_lower in "${CORPUS[@]}"; do
     --out "$out_file" \
     "${extra_args[@]}" &
   pids+=($!)
+
+  # Throttle: when we hit MAX_PARALLEL, wait for one to finish before launching more
+  if [[ ${#pids[@]} -ge $MAX_PARALLEL ]]; then
+    wait "${pids[0]}" || failed=$((failed + 1))
+    pids=("${pids[@]:1}")
+  fi
 done
 
-echo "  Running ${#pids[@]} probes in parallel (pids: ${pids[*]})..."
-failed=0
+# Wait for remaining
 for pid in "${pids[@]}"; do
   wait "$pid" || failed=$((failed + 1))
 done
@@ -110,7 +120,7 @@ if [[ $failed -gt 0 ]]; then
   echo "ERROR: $failed probe(s) failed" >&2
   exit 1
 fi
-echo "  All probes done."
+echo "  All ${#CORPUS[@]} probes done."
 
 echo ""
 echo "=== Scoring ==="
