@@ -79,6 +79,15 @@ After each verify run, read `runs/latest/` output files + the scoring breakdown:
 
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
+### After a batch of runs — read the agent's justifications
+The output JSON files in `runs/latest/` have a `justification` field per behavior where the model explains its reasoning. **After each batch**, extract and classify these:
+1. Pull all justifications with predicted vs GT level and correct/under/over status
+2. Group by reasoning pattern — what excuses recur for under-predictions?
+3. Count and rank by score impact (frequency x weight)
+4. Update `justification-taxonomy.md` with findings
+
+See `experiments/write-test-plan/justification-taxonomy.md` for the current taxonomy. The patterns found there (e.g. U1 "can mock the API") should inform what the prompt needs to address.
+
 ### Read ideas/ before iterating
 
 The `ideas/` folder contains prompt-improvement hypotheses with structured frontmatter and steelman/critique analysis. **Read all ideas before choosing your next change.** Each file has:

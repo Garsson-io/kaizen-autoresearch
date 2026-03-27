@@ -80,6 +80,19 @@ npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt groun
 ./run-eval.sh
 ```
 
+### Post-run analysis — read the agent's prose reasoning
+
+After each autoresearch run, don't just look at the score. The structured outputs contain **justification** fields where the model explains WHY it chose each level. These are a goldmine:
+
+1. **Extract all justifications** with their predicted vs GT levels (correct/under/over)
+2. **Categorize the reasoning patterns** — find recurring excuses, correct reasoning, and edge cases
+3. **Taxonomize and count** — which excuse pattern causes the most score damage? Which correct reasoning pattern is most common?
+4. **Write it up** as `justification-taxonomy.md` in the experiment directory
+
+This qualitative analysis often reveals insights that the scalar metric hides. For example, in write-test-plan we discovered that the model frequently acknowledges "Agentic-level tests would be required" in parentheticals, then talks itself into a lower level — a systematic "minimize bias" that no definition tweak can fix but a framing change might.
+
+**The pattern**: score tells you WHAT is wrong, justifications tell you WHY, taxonomy tells you what to FIX.
+
 ### Observability
 
 - Each experiment's `leaderboard.md` — updated per kept commit
