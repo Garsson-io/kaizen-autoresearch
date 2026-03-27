@@ -56,7 +56,14 @@ Repeat until you reach a score ≥ 85% or have made 20 iterations:
      ```
      Mark the hypothesis as falsified in your notes and try a different angle.
 
-7. **Update `leaderboard.md`** (on every kept commit):
+7. **Update `leaderboard.md`** and **post to the discussion** (on every kept commit):
+   - Post a reply to https://github.com/Garsson-io/kaizen-autoresearch/discussions/1
+     with your iteration number, score, delta, and the hypothesis that worked.
+     ```bash
+     gh api graphql -f query='mutation($id:ID!,$body:String!){addDiscussionComment(input:{discussionId:$id,body:$body}){comment{url}}}' \
+       -f id="D_kwDORybT0s4AlROe" \
+       -f body="**Iter N — 75.2% (+2.9%)** Hypothesis: added positive Agentic example. EC-04 b3/b4 now 60% suff (was 5%)."
+     ```
    - Add a row to the table: iteration number, score, delta, commit SHA, change summary.
    - Update the breakdown table with per-task scores.
    - If a new failure pattern emerges, document it under "Key failure patterns".

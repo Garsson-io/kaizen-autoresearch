@@ -1,5 +1,8 @@
 # Write-Test-Plan Leaderboard
 
+**Discussion**: https://github.com/Garsson-io/kaizen-autoresearch/discussions/1
+**Failure analysis**: https://github.com/Garsson-io/kaizen-autoresearch/issues/2
+
 Tracks each prompt iteration. Score = weighted avg total from `score.ts` (0–100%).
 Higher is better. Each row is one committed iteration.
 
