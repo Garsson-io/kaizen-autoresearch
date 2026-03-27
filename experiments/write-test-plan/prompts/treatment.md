@@ -13,6 +13,7 @@ Level definitions — choose the level that matches the real failure boundary:
 Key questions per behavior:
 - Could a pure in-process mock miss this failure? If yes → at least Integration.
 - Does the behavior depend on OS, real network, or real subprocess? → System.
+- Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
 - Does correctness depend on what a real LLM produces? → Agentic.
 - Does it require multiple real agentic steps in sequence? → Workflow.
 
