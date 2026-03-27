@@ -127,16 +127,27 @@ The model classifies "calls external AI API" as System instead of Agentic.
 
 ## Corpus coverage
 
-Full corpus (default, 10 tasks): EC-01 through EC-10. All run in parallel (~90s).
+Full corpus is dynamically discovered from `corpus/*.md` files (currently 20 tasks, EC-01 through EC-20).
 
-| Task | Levels present | Key challenge |
-|------|---------------|---------------|
-| EC-04 | Unit, Integration, **Agentic** | AI API call classification |
-| EC-07 | Unit, Integration, System, **Agentic**, **Workflow** | Full ladder — synthesis + delivery |
-| EC-09 | Unit, Integration | Baseline — should be easy |
-| EC-10 | Integration, System, **Agentic**, **Workflow** | Code review agent — full ladder |
+**Task catalog**: `corpus/catalog.json` contains metadata for each task (title, domain, difficulty, adversarial technique, labels). This is the source of truth for corpus composition — read it instead of hardcoded tables.
 
-All 10 tasks run by default. `--single ec-09` for fast single-task debug.
+**Key subsets** (use `--corpus` flag):
+- Full corpus (default): all `corpus/*.md` files, auto-detected
+- Original core: `--corpus ec-04,ec-07,ec-09,ec-10` (4 tasks covering all 5 levels)
+- Adversarial only: `--corpus ec-11,ec-12,ec-13,ec-14,ec-15,ec-16,ec-17,ec-18,ec-19,ec-20`
+- Single task debug: `--single ec-09`
+
+**Adversarial techniques in v2 tasks** (EC-11 to EC-20):
+- `buried_signal` — LLM dependency hidden in technical phrasing
+- `misleading_surface` — looks like AI/Agentic but is actually deterministic
+- `boundary_case` — sits on the boundary between two labels
+- `multi_step_pipeline` — multiple agentic steps that could be Workflow
+- `distractor_content` — irrelevant detail hides classification signal
+- `contradiction` — behaviors that look like one level but are actually another
+
+**Adding new tasks**: Drop a new `.md` file in `corpus/` and matching `.json` in `ground-truth/`. Update `corpus/catalog.json` with metadata. The eval script auto-discovers new tasks.
+
+All tasks run in parallel. `--single ec-09` for fast single-task debug.
 
 ---
 
