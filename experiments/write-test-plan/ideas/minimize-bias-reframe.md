@@ -1,7 +1,7 @@
 ---
 id: minimize-bias-reframe
 title: Reframe "choose the LOWEST" to "choose the level that matches the failure boundary"
-status: proposed
+status: kept
 effort: low
 expected_impact: high
 targets:
