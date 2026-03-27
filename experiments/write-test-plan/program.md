@@ -41,14 +41,10 @@ This experiment has three conditions. You iterate on **treatment only**.
 | treatment | `prompts/treatment.md` ← **you edit this** | Active — iterate on this |
 | treatment-l12 | `prompts/treatment-l12.md` (fixed, never edit) | Rejected — read to avoid repeating |
 
-**All prompts live in `experiments/write-test-plan/prompts/`** — read every file there before iterating:
-- `treatment.md` — the active prompt you edit
-- `baseline.md` — fixed reference (no guidance, scores ~72%)
-- `treatment-l12.md` — rejected L12 ladder approach (scores 71%)
-Study what each does differently to understand what works and what doesn't.
-
-**Score history and per-task breakdowns**: see `experiments/write-test-plan/leaderboard.md`.
-**Past prompt versions**: `git log --follow experiments/write-test-plan/prompts/treatment.md`
+**Before iterating, read these files**:
+- `experiments/write-test-plan/prompts/` — all prompt variants (study what each does differently)
+- `experiments/write-test-plan/leaderboard.md` — score history and per-task breakdowns
+- `git log --follow experiments/write-test-plan/prompts/treatment.md` — past changes
 
 ## Adversarial rounds (from kaizen #1016)
 
