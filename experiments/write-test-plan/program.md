@@ -12,8 +12,17 @@ software behaviors by minimum test level (Unit / Integration / System /
 Agentic / Workflow).
 
 **Your objective**: maximize the score printed by `./run-eval.sh`.
-The score is a weighted average over a 4-task core corpus (0–100%). Higher is better.
+The score is a weighted average over the 10-task corpus (0–100%). Higher is better.
 This is your **val_bpb** — the only number that matters for the iteration loop.
+
+**CRITICAL — treatment.md MUST keep these template variables** (run-probe.ts replaces them):
+- `{{TASK_ID}}` — replaced with e.g. "EC-04"
+- `{{ISSUE_BODY}}` — replaced with the issue markdown
+If you remove these, the eval produces garbage.
+
+**Noise warning**: LLM-based scoring is inherently noisy (same prompt can score differently
+across runs). Ignore improvements < 1.5%. If a change shows a small delta, re-run verify
+to confirm before keeping.
 
 **Success threshold** (from kaizen #1016):
 - ≥ 75%: skill produces correct minimal plans → experiment complete
@@ -28,16 +37,13 @@ This experiment has three conditions. You iterate on **treatment only**.
 
 | Condition | Prompt | Status |
 |-----------|--------|--------|
-| baseline | `prompts/baseline.md` (fixed) | 72.3% (round 1, 3-task corpus) |
-| treatment | `prompts/treatment.md` ← **you edit this** | 66.4% (round 1, 3-task corpus) |
-| treatment-l12 | `prompts/treatment-l12.md` | not yet run |
+| baseline | `prompts/baseline.md` (fixed, never edit) | Reference — read for comparison |
+| treatment | `prompts/treatment.md` ← **you edit this** | Active — iterate on this |
+| treatment-l12 | `prompts/treatment-l12.md` (fixed, never edit) | Rejected — read to avoid repeating |
 
-Run treatment-l12 early — it's an explicit hypothesis from #1016:
-> "Compare: agent emits 5-step level directly vs agent reasons in L12 ladder, translates to 5-step"
-
-```bash
-./run-eval.sh --prompt prompts/treatment-l12.md 2>&1 | tail -20
-```
+**Score history and per-task breakdowns**: see `leaderboard.md` in this directory.
+**Past prompt versions**: `git log --follow prompts/treatment.md`
+**Read the rejected prompts** (`baseline.md`, `treatment-l12.md`) to understand what was tried and why it failed — don't repeat those approaches.
 
 ## Adversarial rounds (from kaizen #1016)
 
@@ -149,29 +155,33 @@ git push origin main
 - **Never edit `leaderboard.md` without a score change**.
 - `runs/` is gitignored. Use GitHub Releases to archive a full run if needed.
 - One hypothesis per iteration.
+- **Before each iteration, read `leaderboard.md`** — it has the full score history and per-task breakdowns. Use it alongside git log and `autoresearch-results.tsv` to avoid repeating failed approaches.
 
 ---
 
-## Starting state
+## Current failure analysis
 
-| Condition | Score (3-task corpus, round 1) | Notes |
-|-----------|-------------------------------|-------|
-| baseline | 72.3% | built-in, no guidance |
-| treatment-v0 | 66.4% | added level defs + key questions — **worse** |
-| treatment-l12 | not yet run | L12 reasoning → 5-step translation |
+**Primary failure**: Agentic behaviors score ~5% sufficiency in EC-04.
+The model classifies "calls external AI API" as System instead of Agentic.
+**Root cause**: prompt says "depends on real LLM non-determinism" but model doesn't connect
+"external AI classification API" → "LLM non-determinism."
 
-**Primary failure mode**: Agentic behaviors scored ~5% sufficiency in both conditions.
-See kaizen issue: https://github.com/Garsson-io/kaizen-autoresearch/issues/2
+**Fix candidates** (try in order of expected impact):
+1. Add concrete positive Agentic example: "classifies via AI API → Agentic because mock returns fixed label but real model varies"
+2. Explicit disambiguation: "Not every external API = Agentic; only calls where the LLM's choice itself matters"
+3. Move Agentic check before System check in key questions
 
-Start with:
-1. Run `treatment-l12` to measure the L12 hypothesis
-2. Then iterate on `treatment.md` based on what you learn
+**Secondary failure**: Workflow gap — EC-07 b4, EC-10 b5 (GT=Workflow) predicted as Agentic.
+
+**What was tried**: read `prompts/baseline.md`, `prompts/treatment-l12.md`, and `leaderboard.md` for full history. Don't repeat failed approaches.
+
+**Links**: [failure analysis](https://github.com/Garsson-io/kaizen-autoresearch/issues/2) · [leaderboard](leaderboard.md)
 
 ---
 
 ## Corpus coverage
 
-Core corpus (used by default): EC-04, EC-07, EC-09, EC-10
+Full corpus (default, 10 tasks): EC-01 through EC-10. All run in parallel (~90s).
 
 | Task | Levels present | Key challenge |
 |------|---------------|---------------|
@@ -180,7 +190,7 @@ Core corpus (used by default): EC-04, EC-07, EC-09, EC-10
 | EC-09 | Unit, Integration | Baseline — should be easy |
 | EC-10 | Integration, System, **Agentic**, **Workflow** | Code review agent — full ladder |
 
-Full corpus (EC-01 through EC-10) available for final validation. Don't overfit to core.
+All 10 tasks run by default. `--single ec-09` for fast single-task debug.
 
 ---
 

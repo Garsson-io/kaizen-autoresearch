@@ -9,258 +9,72 @@ Each experiment lives in `experiments/<name>/` and follows the same pattern.
 
 ---
 
-## Active experiment: write-test-plan
+## Before working on any experiment — READ ITS program.md
 
-**Question**: Does prompt guidance improve minimum-viable test level classification?
+**MANDATORY**: Before starting any autoresearch loop or making changes to an experiment, you MUST read that experiment's `program.md`. It contains:
+- Autoresearch config (Goal, Scope, Metric, Verify)
+- Current scores and failure analysis
+- What to try next, ranked by expected impact
+- Level definitions, scoring model, adversarial rounds
+- Constraints (what files are fixed, what template vars to preserve)
 
-**The 5-level ladder** the AI must classify into:
-- Unit — pure in-process logic, no I/O
-- Integration — real local modules/DB/filesystem
-- System — real subprocess, OS, external non-LLM API
-- **Agentic** — real LLM call, outcome depends on model non-determinism
-- **Workflow** — multiple agentic steps in sequence
+| Experiment | program.md | Treatment file |
+|-----------|------------|---------------|
+| write-test-plan | `experiments/write-test-plan/program.md` | `experiments/write-test-plan/prompts/treatment.md` |
 
-**Success threshold**: ≥75% on round 1 (neutral), ≤10% drop on adversarial rounds 2/3.
-
----
-
-## Current state (as of 2026-03-27)
-
-| Condition | Score (r1) | Corpus | Notes |
-|-----------|-----------|--------|-------|
-| baseline | 72.3% | 3-task | No guidance — surprisingly strong |
-| treatment-v0 | 66.4% | 3-task | Added level defs + key questions — WORSE (old pipeline) |
-| treatment | **81.7%** | 4-task | Fresh run after pipeline fix (score.ts dir mode + grep pattern) |
-| treatment-l12 | 71.2% | 4-task | L12 ladder reasoning — WORSE, rejected |
-
-**Pipeline note**: score.ts directory mode only scanned `.yaml` files (now fixed to also handle `.json`). run-eval.sh grep pattern also fixed. Old 66.4% was from broken pipeline or older probe outputs.
-
-**Current breakdown** (4-task):
-| Task | Total | Primary miss |
-|------|-------|-------------|
-| EC-04 | 55.9% | b3=Unit(GT=Agentic), b4=System(GT=Agentic) — Agentic still the main failure |
-| EC-07 | 88.1% | b4=Agentic(GT=Workflow) |
-| EC-09 | 97.0% | Clean (slight over-prediction only) |
-| EC-10 | 85.7% | b4=Integration(GT=Agentic) |
-
-**Primary failure**: Agentic behaviors score ~5% sufficiency in EC-04. Model calls "external AI API call" as System instead of Agentic.
-
-**Root cause**: Prompt says "depends on real LLM non-determinism" but model doesn't connect "external AI classification API" → "LLM non-determinism."
-
-**Fix candidates** (try in order):
-1. Add concrete positive Agentic example: "classifies via AI API → Agentic because mock returns fixed label but real model varies"
-2. Explicit disambiguation: "Not every external API = Agentic; only calls where the LLM's choice itself matters"
-3. Move Agentic check before System check in key questions
-
-**Secondary failure**: Workflow gap — EC-07 b5, EC-10 b5 (GT=Workflow) predicted as Agentic or lower.
+When new experiments are added, add a row here.
 
 ---
 
-## The autoresearch loop
-
-**Plugin**: `autoresearch@uditgoenka` (installed in `~/.claude/settings.json`)
-
-**Verify command**:
-```bash
-npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
-```
-Outputs a number like `66.4`. Target ≥75. Exits 1 with a clear error if the eval fails or produces no parseable score.
-
-**Config block** (top of `experiments/write-test-plan/program.md`):
-```
-Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus
-Scope: experiments/write-test-plan/prompts/treatment.md
-Metric: Weighted average score 0–100 (higher is better)
-Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
-```
-
-**Run the loop**:
-```
-/autoresearch Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus Scope: experiments/write-test-plan/prompts/treatment.md Metric: Weighted average score 0-100 (higher is better) Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' Iterations: 10
-```
-
-**Noise handling**: LLM-based scoring is inherently noisy (same prompt can score 66% or 81% on different runs). Ignore improvements < 1.5%. If uncertain, re-run verify to confirm.
-
-**Autoresearch results log**: `autoresearch-results.tsv` (gitignored, created automatically by the plugin).
-
-**What is FIXED — never edit**:
-- `corpus/` — issue bodies (EC-01 through EC-10)
-- `ground-truth/` — expert-labeled GT JSON
-- `scripts/` — run-probe.ts, score.ts
-- `src/` — Zod schemas
-- `prompts/baseline.md` — fixed reference
-
-**What the loop edits — ONLY this**:
-- `experiments/write-test-plan/prompts/treatment.md`
-
-**CRITICAL: treatment.md MUST keep these template variables** (run-probe.ts replaces them at runtime):
-- `{{TASK_ID}}` — replaced with e.g. "EC-04"
-- `{{ISSUE_BODY}}` — replaced with the issue markdown
-If you remove these, the eval will produce garbage. Always preserve them.
-
----
-
-## Iteration rules
-
-- One hypothesis per iteration — specific, falsifiable in one run
-- Smallest change that tests the hypothesis
-- Good: add concrete positive example, add NOT-this disambiguation, reorder key questions
-- Bad: rewrite whole prompt, add generic "think carefully" language
-- Keep if new score > old score; revert otherwise
-
-**Commit format** (autoresearch convention): `experiment(treatment): <one-sentence description>`
-Autoresearch uses `experiment(<scope>):` prefix. Git revert preserves failed experiments in history for learning.
-
----
-
-## Observability
-
-- `leaderboard.md` — updated on every kept commit
-- https://github.com/Garsson-io/kaizen-autoresearch/discussions/1 — iteration log
-- https://github.com/Garsson-io/kaizen-autoresearch/issues/2 — failure analysis
-- https://github.com/Garsson-io/kaizen/issues/1016 — full round results
-
----
-
-## Adversarial rounds (run all three before declaring success)
-
-```bash
-./run-eval.sh --round 1   # neutral
-./run-eval.sh --round 2   # "module already has unit tests" — anchoring pressure
-./run-eval.sh --round 3   # "team prefers fast tests / deferred" — social pressure
-```
-A robust prompt drops ≤10% from round 1 to round 3.
-
----
-
-## Scoring model
-
-| Dimension | Weight | What it measures |
-|-----------|--------|-----------------|
-| Sufficiency | 55% | Did predicted level ≥ GT minimum? |
-| Precision | 20% | Distance from minimum (penalizes over-testing too) |
-| Consistency | 15% | plan_consistent: true=1.0, false+note=0.5, false=0.0 |
-| Structure | 10% | All required fields present |
-
-Row weights: Unit=1, Integration=2, System=3, Agentic=4, Workflow=4.
-Agentic/Workflow behaviors count most — fix those first.
-
----
-
-## Structured outputs — never grep/awk for values
-
-**Rule**: Any time you'd use `grep | awk | sed` to extract a value from a command, write a TypeScript file with Zod instead.
-
-The pattern (same as `scripts/run-probe.ts`):
-1. Run the subprocess with `spawnSync` (or `execSync` for simple cases)
-2. Parse the output to extract the value
-3. Validate with a Zod schema — fail loudly with a clear error if invalid
-4. Output clean JSON (`console.log(JSON.stringify(result))`) or exit 1
-
-**Reference implementations:**
-- `scripts/verify.ts` — wraps `run-eval.sh`, outputs `{"score": 74.2}`, exits 1 on failure
-- `scripts/run-probe.ts` — pipes prompt to `claude -p --json-schema`, extracts StructuredOutput block, validates with Zod
-
-**For subagent calls inside the loop** (e.g. "what hypothesis should I test next?"), use `claude -p --json-schema` with a schema rather than free-form prose:
-
-```typescript
-const HypothesisSchema = {
-  type: "object",
-  required: ["hypothesis", "edit_description", "target_level"],
-  properties: {
-    hypothesis: { type: "string", minLength: 20 },
-    edit_description: { type: "string", minLength: 20 },
-    target_level: { type: "string", enum: ["Unit","Integration","System","Agentic","Workflow"] }
-  }
-};
-
-const result = spawnSync("claude", [
-  "-p", "--json-schema", JSON.stringify(HypothesisSchema),
-  "--output-format", "stream-json",
-  "--dangerously-skip-permissions", "--max-turns", "3",
-], { input: diagnosticsPrompt, encoding: "utf-8" });
-// extract StructuredOutput tool_use block — same as run-probe.ts
-```
-
-The schema is the contract. Zod validation at the boundary means the loop fails loudly instead of silently passing garbage downstream.
-
----
-
-## Smoke tests — fast, cheap, debuggable pipeline checks
-
-Each piece of the pipeline can be tested independently without running the full eval (~90s, 10 API calls):
-
-```bash
-cd experiments/write-test-plan
-
-# 1. Verify.ts Zod schema works (instant, no API calls)
-npx tsx scripts/verify.ts --mock 0.750 | jq '.score'
-# → 75.0
-
-# 2. Verify.ts rejects garbage (instant, no API calls)
-npx tsx scripts/verify.ts --mock garbage; echo "exit: $?"
-# → "No SCORE line..." exit: 1
-
-# 3. Score one existing output (instant, no API calls — needs a prior run in runs/latest/)
-npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt ground-truth/ec-04.json
-# → prints scoring breakdown for EC-04
-
-# 4. Run a SINGLE probe (one API call, ~15s)
-./run-eval.sh --single ec-09
-# → runs only EC-09 (easiest task), prints SCORE
-
-# 5. Run full eval (10 parallel API calls, ~90s)
-./run-eval.sh
-# → prints aggregate SCORE
-
-# 6. Test the autoresearch guard command (instant)
-npx tsx scripts/verify.ts --mock 0.750 > /dev/null; echo "exit: $?"
-# → exit: 0
-```
-
-Use these from cheapest to most expensive when debugging. Step 4 (`--single ec-09`) is the sweet spot for testing prompt changes quickly before committing to a full 10-task run.
-
----
-
-## Key commands
-
-```bash
-cd experiments/write-test-plan
-
-# Fast smoke test (no API calls — validates parsing + schema only)
-npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.664 | jq '.score'
-# → 66.4
-
-# Full verify (runs eval, takes ~2min)
-npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
-
-# Run all three adversarial rounds
-./run-eval.sh --round 1
-./run-eval.sh --round 2
-./run-eval.sh --round 3
-
-# Test the L12 hypothesis (once, don't iterate)
-./run-eval.sh --prompt prompts/treatment-l12.md
-
-# Run baseline reference
-./run-eval.sh --condition baseline
-
-# Single task debug
-npx tsx scripts/run-probe.ts --task EC-04 --condition treatment \
-  --issue-file corpus/ec-04.md --prompt-file prompts/treatment.md \
-  --out runs/debug/out.json
-```
-
----
-
-## Future experiment template
+## Experiment directory structure
 
 ```
 experiments/<name>/
-  prompts/treatment.md    ← loop edits this only
+  program.md              ← autoresearch config + ALL iteration context (READ THIS FIRST)
+  prompts/treatment.md    ← the ONLY file the loop edits
   run-eval.sh             ← outputs "SCORE: <fraction>"
-  program.md              ← autoresearch config block + rich context
-  corpus/                 ← fixed inputs
-  ground-truth/           ← fixed labels
+  scripts/verify.ts       ← Zod-validated score extractor (--mock for fast test)
+  corpus/                 ← fixed inputs (never edit)
+  ground-truth/           ← fixed labels (never edit)
   leaderboard.md          ← score history
 ```
+
+---
+
+## Repo-wide rules
+
+### Structured outputs — never grep/awk for values
+
+Any time you'd use `grep | awk | sed` to extract a value, write a TypeScript file with Zod instead.
+
+Reference implementations:
+- `scripts/verify.ts` — wraps `run-eval.sh`, outputs `{"score": 74.2}`, exits 1 on failure
+- `scripts/run-probe.ts` — pipes to `claude -p --json-schema`, extracts StructuredOutput, validates with Zod
+
+### Smoke tests — always validate cheapest-first
+
+```bash
+cd experiments/<name>
+
+# 1. Instant: verify.ts Zod schema
+npx tsx scripts/verify.ts --mock 0.750 | jq '.score'
+
+# 2. Instant: verify.ts rejects garbage
+npx tsx scripts/verify.ts --mock garbage; echo "exit: $?"
+
+# 3. Instant: score one existing output (needs prior run)
+npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt ground-truth/ec-04.json
+
+# 4. ~15s: single probe (one API call)
+./run-eval.sh --single ec-09
+
+# 5. ~90s: full eval (10 parallel API calls)
+./run-eval.sh
+```
+
+### Observability
+
+- Each experiment's `leaderboard.md` — updated per kept commit
+- https://github.com/Garsson-io/kaizen-autoresearch/discussions/1 — iteration log
+- https://github.com/Garsson-io/kaizen-autoresearch/issues/2 — failure analysis
+- https://github.com/Garsson-io/kaizen/issues/1016 — full round results
