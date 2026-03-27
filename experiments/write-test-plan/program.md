@@ -119,7 +119,7 @@ The model classifies "calls external AI API" as System instead of Agentic.
 
 **Secondary failure**: Workflow gap — EC-07 b4, EC-10 b5 (GT=Workflow) predicted as Agentic.
 
-**What was tried**: read `prompts/baseline.md`, `prompts/treatment-l12.md`, and `leaderboard.md` for full history. Don't repeat failed approaches.
+**What was tried**: read `experiments/write-test-plan/prompts/baseline.md`, `experiments/write-test-plan/prompts/treatment-l12.md`, and `experiments/write-test-plan/leaderboard.md` for full history. Don't repeat failed approaches.
 
 **Links**: [failure analysis](https://github.com/Garsson-io/kaizen-autoresearch/issues/2) · [leaderboard](leaderboard.md)
 
