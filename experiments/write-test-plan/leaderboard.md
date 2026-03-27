@@ -18,9 +18,39 @@ Core corpus: EC-04, EC-07, EC-09, EC-10 (covers all 5 levels)
 | 1 | treatment | 66.4%* | — | — | −5.9% | — | level defs + key questions (worse!) |
 | — | treatment-l12 | 71.2%† | — | — | −10.5% | — | L12 → 5-step: over-predicts System, still misses Agentic — worse |
 | 1b | treatment | **81.7%†** | — | — | — | dd30e90 | 4-task re-run after pipeline fix; EC-04 Agentic still primary miss |
+| 2 | treatment | **87.2%‡** | — | — | — | 53ca886 | 10-task baseline (first full corpus run) |
 
-*3-task corpus (EC-04, EC-07, EC-09). Will re-run on 4-task core corpus.
-†4-task core corpus (EC-04, EC-07, EC-09, EC-10). Pipeline bug fixed (score.ts dir mode, run-eval.sh grep pattern).
+*3-task corpus (EC-04, EC-07, EC-09).
+†4-task core corpus (EC-04, EC-07, EC-09, EC-10). Pipeline bug fixed.
+‡10-task full corpus (EC-01 through EC-10).
+
+## Autoresearch run 1 (5 iterations, 2026-03-27) — 0 keeps
+
+| Iter | Score | Δ | Status | Hypothesis |
+|------|-------|---|--------|-----------|
+| 0 | 87.2‡ | — | baseline | unmodified treatment.md on 10-task corpus |
+| 1 | 83.7 | −3.5 | discard | Add concrete Agentic example + reorder key questions top-down |
+| 2 | 82.5 | −4.7 | discard | Expand Agentic definition with AI API examples (minimal, one line) |
+| 3 | 88.5 | +1.3 | no-op | Confirmation run — baseline stable at ~87–88, not noise |
+| 4 | 87.1 | −0.1 | discard | Narrow System definition to exclude AI/LLM (within noise) |
+| 5 | 82.2 | −5.0 | discard | Add seam-based reasoning step before level selection |
+
+### What we learned
+
+1. **The current prompt is a local optimum for haiku.** Every change — even minimal one-line edits — degraded the score. More text = worse performance with this model.
+2. **Adding examples hurts.** Both iter 1 (verbose example) and iter 2 (one-line example) made things worse. Haiku performs better with terse definitions.
+3. **Reordering questions hurts.** Iter 1 moved Agentic/Workflow checks first — score dropped 3.5 points.
+4. **Adding reasoning scaffolding hurts.** Iter 5 (seam-based reasoning) dropped 5 points. The L12 approach (treatment-l12) also hurt. More reasoning steps = more confusion for haiku.
+5. **The Agentic gap persists.** EC-04 b3/b4 (GT=Agentic, wt=4 each) consistently predicted as Unit. This is the single biggest drag on the score.
+6. **Definition tweaks don't fix the Agentic gap.** Narrowing System (iter 4) had no effect. The model simply doesn't connect "external AI API" → "Agentic."
+
+### What to try next (structural changes)
+
+- Few-shot examples (show a complete classified behavior, not just definitions)
+- Different model (sonnet instead of haiku — may reason about Agentic better)
+- Negative examples ("this looks like System but is actually Agentic because...")
+- Separate the Agentic decision into an explicit second pass
+- Strip the prompt down further (baseline with zero guidance scores 72% — maybe less is more)
 
 ---
 
