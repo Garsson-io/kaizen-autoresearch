@@ -1,7 +1,7 @@
 ---
 id: mock-exposes-nothing
 title: Add the question "would a mock of this dependency always pass, hiding a real failure?"
-status: proposed
+status: kept
 effort: low
 expected_impact: high
 targets:
