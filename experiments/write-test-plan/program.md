@@ -65,19 +65,13 @@ Report all three scores in `leaderboard.md`.
 
 ---
 
-## The iteration loop
+## Diagnostic guidance (supplements the autoresearch loop protocol)
 
-Repeat until score ≥ 75% (round 1) AND adversarial drop ≤ 10%:
+The autoresearch loop handles measure → modify → verify → keep/revert → commit automatically.
+Use this section for **what to look at** when deciding your next change.
 
-### 1. Measure current score
-```bash
-cd experiments/write-test-plan
-./run-eval.sh 2>&1 | tee runs/current.log
-```
-Read the final `SCORE:` line. This is your baseline for this iteration.
-
-### 2. Diagnose
-Read `runs/latest/` output files + the scoring breakdown:
+### How to diagnose
+After each verify run, read `runs/latest/` output files + the scoring breakdown:
 - Which tasks score lowest?
 - Which behaviors are `direction: under`? (predicted too low)
 - Which GT levels are systematically missed? (Agentic? Workflow? System?)
@@ -85,67 +79,18 @@ Read `runs/latest/` output files + the scoring breakdown:
 
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
-### 3. Form a hypothesis
-Write a one-liner: *"The prompt fails to trigger Agentic because it doesn't distinguish
-between 'calls an external API' and 'depends on what an LLM produces'."*
-
-Good hypotheses are specific and falsifiable in one run.
-
-### 4. Edit `prompts/treatment.md`
-Make the **smallest** change that tests your hypothesis:
+### What makes a good edit to `prompts/treatment.md`
 - ✓ Add a concrete positive example for the level the model misses
 - ✓ Add a "NOT this" example that disambiguates two adjacent levels
 - ✓ Reorder key questions to promote Agentic/Workflow checks
 - ✗ Rewrite the whole prompt — too many variables, can't diagnose
 - ✗ Add generic "think carefully" language — no signal value
 
-### 5. Measure again
+### After achieving ≥75% on round 1
+Run adversarial rounds and update `leaderboard.md`:
 ```bash
-./run-eval.sh 2>&1 | tee runs/candidate.log
-```
-
-### 6. Keep or revert
-- **New score > old score**: keep. Commit:
-  ```bash
-  git add experiments/write-test-plan/prompts/treatment.md \
-          experiments/write-test-plan/leaderboard.md
-  git commit -m "exp/write-test-plan: iter N — <score>% (+Δ%) — <hypothesis>"
-  ```
-- **New score ≤ old score**: revert:
-  ```bash
-  git checkout experiments/write-test-plan/prompts/treatment.md
-  ```
-
-### 7. Update `leaderboard.md` + post to Discussion
-On every kept commit, add a row and post to the tracking discussion:
-```bash
-gh api graphql -f query='mutation($id:ID!,$body:String!){addDiscussionComment(input:{discussionId:$id,body:$body}){comment{url}}}' \
-  -f id="D_kwDORybT0s4AlROe" \
-  -f body="**Iter N — 75.2% (+2.9%)** Hypothesis: added positive Agentic example. EC-04 b3/b4 now 60% suff (was 5%)."
-```
-
-### 8. Post run results to kaizen #1016
-After completing a full round (all 3 adversarial rounds), post to kaizen:
-```bash
-gh issue comment 1016 --repo Garsson-io/kaizen \
-  --body "$(cat <<'COMMENT'
-## Run results — iter N
-
-| task | suff | prec | cons | total |
-|------|------|------|------|-------|
-| EC-04 | 72% | 68% | 80% | 73% |
-...
-
-Round 1 (neutral): **75.2%**
-Round 2 (anchoring): **72.1%** (−3.1%)
-Round 3 (pressure): **70.8%** (−4.4%)
-COMMENT
-)"
-```
-
-### 9. Push
-```bash
-git push origin main
+./run-eval.sh --round 2  # anchoring noise
+./run-eval.sh --round 3  # pressure noise
 ```
 
 ---
@@ -198,7 +143,7 @@ All 10 tasks run by default. `--single ec-09` for fast single-task debug.
 ## Useful commands
 
 ```bash
-# Run full eval (4 tasks, treatment prompt)
+# Run full eval (10 tasks in parallel, treatment prompt)
 ./run-eval.sh
 
 # Run a specific condition
@@ -208,9 +153,6 @@ All 10 tasks run by default. `--single ec-09` for fast single-task debug.
 # Adversarial rounds
 ./run-eval.sh --round 2
 ./run-eval.sh --round 3
-
-# Expand to full corpus
-./run-eval.sh --corpus ec-01,ec-02,ec-03,ec-04,ec-05,ec-06,ec-07,ec-08,ec-09,ec-10
 
 # Score existing outputs
 npx tsx scripts/score.ts --output-dir runs/latest/ --gt-dir ground-truth/
