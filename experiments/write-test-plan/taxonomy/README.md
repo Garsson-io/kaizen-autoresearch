@@ -31,8 +31,17 @@ EC-04 b3: "quoted justification text from the model"
 
 ## Updating after a run
 
-After each autoresearch run, re-extract justifications from `runs/latest/` and update:
-- Add new lines for new occurrences
-- Remove lines for fixed occurrences
-- Create new files for newly discovered patterns
-- Update frontmatter counts if needed
+Taxonomy is **append-only**. Each line is one occurrence from one run. Never delete old lines.
+
+After each run:
+1. Extract justifications from `runs/latest/`
+2. **Append** new lines for new occurrences, prefixed with `[runN]`
+3. Create new files for newly discovered patterns
+4. Update frontmatter description if the pattern's character changed
+
+The line count across runs shows how persistent a pattern is:
+- Same task+behavior appears in multiple runs → the pattern is stable, prompt didn't fix it
+- A task+behavior stops appearing → the prompt change worked for that case
+- Compare `[run1]` vs `[run2]` lines for the same behavior to see how the excuse evolved
+
+**Never remove lines.** The history of excuses IS the data.

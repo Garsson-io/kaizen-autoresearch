@@ -79,13 +79,22 @@ Also compute:
 - Under vs over ratio (>1 = minimize bias, <1 = maximize bias)
 - Per-level accuracy (which GT levels are most/least accurately predicted?)
 
-### 6. Update justification-taxonomy.md
+### 6. Update taxonomy/ folder (APPEND-ONLY)
 
-Write or update `$EXPERIMENT_DIR/justification-taxonomy.md` with:
-- Summary counts (correct/under/over, per-level accuracy)
-- Each pattern with name, description, frequency, impact, example quotes
-- Key insights (what does the data tell us about the prompt's weaknesses?)
-- Comparison with previous taxonomy if one existed (what changed? new patterns? resolved patterns?)
+The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. Each line in the body is one occurrence from one run. **NEVER delete old lines — only append new ones.**
+
+For each pattern file:
+1. Determine the current run number (count previous `[runN]` prefixes, increment)
+2. **Append** new lines for occurrences in this run, prefixed with `[runN]`
+3. Update frontmatter `description` and `note` if the pattern's character changed
+4. Create new `.md` files for newly discovered patterns
+
+The line count across runs shows persistence:
+- Same task+behavior in `[run1]` and `[run2]` → pattern is stable, prompt didn't fix it
+- A task+behavior stops appearing → the prompt change worked for that case
+- Compare excuses across runs for the same behavior to see how reasoning evolved
+
+Also update `$EXPERIMENT_DIR/justification-taxonomy.md` with summary counts and key insights.
 
 ### 7. Generate ideas
 

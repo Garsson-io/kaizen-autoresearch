@@ -6,11 +6,21 @@ predicted: Unit or Integration
 ground_truth: Agentic
 weight: 4
 confusion_pair: Integration-Agentic
-description: Model treats AI/LLM API calls as mockable services. Improved from 10→4 after mock-exposes-nothing question, but still the highest-weight under-prediction.
+description: Model treats AI/LLM API calls as mockable services, missing that the mock hides non-deterministic model output.
 self_aware: true
+self_aware_note: Model often acknowledges the need for real AI in hedges then picks lower.
 ---
-EC-04 b3 (Unit→Agentic): "We can mock the external API to return different values on successive calls, then verify the module still returns the same result. A mock is sufficient because the failure is in the module's logic, not the API's behavior."
-EC-10 b4 (Integration→Agentic): "A pure in-process mock of GitHub could hide failures if you don't validate what actually gets posted."
-EC-19 b3 (Integration→Agentic): "This can be caught at Integration level by mocking both LLM calls and intercepting/verifying the arguments to the second call."
-EC-30 b3 (Integration→Agentic): "Algorithm logic could be correct in isolation, but real failure is whether browsing history is actually loaded, aggregated correctly, and integrated into the ranking formula."
-EC-30 b5 (Integration→Agentic): "Diversity algorithm logic could exist but not be invoked. Need to verify diversity logic is wired into the main recommendation flow."
+[run1] EC-04 b3 (Integration→Agentic): "Testing this invariant requires verifying module behavior across multiple invocations... We need to mock the API, make multiple calls, and verify both result consistency and API call frequency."
+[run1] EC-04 b4 (Integration→Agentic): "We need to mock the API, track the request payload, and verify token consumption stays within the budget limit."
+[run1] EC-10 b4 (Integration→Agentic): "You need to mock GitHub API, introduce failures in comment posting, and verify the summary doesn't include orphaned findings."
+[run1] EC-17 b2 (Integration→Agentic): "Mocking the KB with predetermined results would only test the comparison logic in isolation."
+[run1] EC-19 b3 (Integration→Agentic): "mocking the LLM to return code that will fail the tests... The test infrastructure and prompt construction are internal details we can verify without needing the real LLM."
+[run1] EC-30 b3 (Integration→Agentic): "The algorithm's ranking logic must be tested against real browsing data and a real catalog."
+[run1] EC-30 b5 (Integration→Agentic): "This is a behavioral requirement of the algorithm itself. Unit tests of the algorithm's pure logic could pass."
+[run1] EC-07 b3 (Unit→Agentic): "If the generator is deterministic (rule-based or template-driven), a unit test can verify the logic."
+[run1] EC-13 b1 (System→Agentic): "we need the real vision model... The end-to-end pipeline must be tested to ensure safety."
+[run2] EC-04 b3 (Unit→Agentic): "We can mock the external API to return different values on successive calls. A mock is sufficient because the failure is in the module's logic, not the API's behavior."
+[run2] EC-10 b4 (Integration→Agentic): "A pure in-process mock of GitHub could hide failures if you don't validate what actually gets posted."
+[run2] EC-19 b3 (Integration→Agentic): "This can be caught at Integration level by mocking both LLM calls and intercepting/verifying the arguments to the second call."
+[run2] EC-30 b3 (Integration→Agentic): "Algorithm logic could be correct in isolation, but real failure is whether browsing history is actually loaded."
+[run2] EC-30 b5 (Integration→Agentic): "Diversity algorithm logic could exist but not be invoked. Need to verify diversity logic is wired into the main recommendation flow."

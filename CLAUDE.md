@@ -93,7 +93,7 @@ After every autoresearch batch (bounded run or manual stop):
 
 Each experiment has a `taxonomy/` folder — one `.md` file per reasoning pattern. Front matter describes the category (id, direction, predicted, ground_truth, weight, confusion_pair). Each line in the body is one occurrence with task ID and quoted justification. Count occurrences = count lines.
 
-Update after every run: add new lines, remove fixed ones, create files for new patterns.
+**Append-only**: after every run, append new `[runN]` lines. Never remove old lines — the history of excuses IS the data. Persistence across runs shows which patterns the prompt hasn't fixed.
 
 ### Observability
 
