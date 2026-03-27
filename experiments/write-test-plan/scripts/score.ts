@@ -113,7 +113,8 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
     const w = ROW_WEIGHT[gtLevel];
     const s = sufficiency(b.minimum_level, gtLevel);
     const p = precision(b.minimum_level, gtLevel);
-    const c = b.plan_consistent ? 1.0 : 0.0;
+    // plan_consistent: true=1.0, false with note=0.5 (partial), false without note=0.0
+    const c = b.plan_consistent ? 1.0 : (b.plan_consistent_note ? 0.5 : 0.0);
     const diff = LEVEL_INDEX[b.minimum_level] - LEVEL_INDEX[gtLevel];
     const dir = diff === 0 ? "exact" : diff > 0 ? "over" : "under";
 
