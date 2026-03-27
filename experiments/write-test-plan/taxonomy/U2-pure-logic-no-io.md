@@ -6,13 +6,14 @@ predicted: Unit
 ground_truth: Integration
 weight: 2
 confusion_pair: Unit-Integration
-description: Model classifies multi-module wiring as pure function logic testable with mocks, missing that real module interaction is the failure boundary. Reduced from 12→8 after minimize-bias-reframe.
+description: Model classifies multi-module wiring as pure function logic testable with mocks. Slightly increased from 8→9 after mock-exposes-nothing.
 ---
-EC-01 b3: "Testing config merge logic: given a config value from file and an env var, verify env var wins. This is pure in-process logic with no I/O."
-EC-02 b5: "The behavior is a straightforward conditional: IF queue is at capacity THEN return 503 with Retry-After ELSE enqueue."
-EC-08 b2: "Rate-limit detection and auto-replay is library logic. Mock the API to return a single 429 response, then success on the next attempt."
-EC-08 b3: "Quota exhaustion detection and error handling are error-path logic. Mock the API to signal exhaustion."
-EC-18 b1: "The core failure here is grouping logic on trace ID fields. A pure in-process test with a list of log objects can verify this works correctly."
-EC-18 b2: "The failure is in the ordering/sorting logic when timestamps from different sources differ by up to 500ms. This is a pure algorithmic problem."
-EC-18 b3: "The failure is in the statistical analysis: incorrectly computing p99. This is pure math on a set of latency values."
-EC-25 b4: "This is pure decision logic that combines two boolean signals. Both model outputs can be mocked without loss of coverage."
+EC-03 b3: "This is error handling for a specific git state error. A mock of git returning 'fatal:...' is sufficient."
+EC-08 b2: "This tests the retry mechanism. A mocked API that returns 429 once then success is sufficient."
+EC-08 b3: "Quota exhaustion is detected by the API response. Mocking captures the response recognition and error return logic."
+EC-17 b4: "This is pure business logic: verify that send_email() is blocked when approval_given=false."
+EC-18 b1: "The failure mode is algorithmic: incorrect grouping logic. A pure in-process test with mock log entries can reliably catch these."
+EC-18 b2: "The core failure mode is in the ordering algorithm. A Unit test with mock entries at various timestamps catches these."
+EC-18 b3: "The failure mode is in the detection logic: p99 calculation incorrect. A Unit test with mock latency data can verify."
+EC-25 b4: "The flagging decision is pure in-process logic: (scoring_flagged OR risk_flagged) → held_for_review."
+EC-25 b5: "Output structure and field assembly is pure in-process logic with no I/O."
