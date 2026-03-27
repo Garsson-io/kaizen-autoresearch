@@ -106,7 +106,7 @@ npx tsx "$SCRIPT_DIR/scripts/score.ts" \
 AVG_LINE=$(npx tsx "$SCRIPT_DIR/scripts/score.ts" \
   --output-dir "$OUT_DIR" \
   --gt-dir "$GT_DIR" 2>/dev/null \
-  | grep "Avg total" | head -1)
+  | grep "TOTAL" | tail -1)
 
 AVG=$(echo "$AVG_LINE" | grep -oP '[0-9]+\.[0-9]+' | head -1)
 if [[ -n "$AVG" ]]; then

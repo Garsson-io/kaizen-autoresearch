@@ -18,7 +18,7 @@
  * Row weights by GT level: Unit=1, Integration=2, System=3, Agentic=4, Workflow=4
  */
 
-import { readFileSync, readdirSync } from "node:fs";  // readFileSync used by parseFile
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ProbeOutput, GroundTruth } from "../src/schema.js";
@@ -186,10 +186,11 @@ function main() {
     const gt = loadAndValidate(gtFile, GroundTruth);
     results.push(scoreOutput(output, gt));
   } else if (outputDir && gtDir) {
-    const files = readdirSync(outputDir).filter(f => f.endsWith(".yaml") || f.endsWith(".yml")).sort();
+    const files = readdirSync(outputDir).filter(f => f.endsWith(".yaml") || f.endsWith(".yml") || f.endsWith(".json")).sort();
     for (const file of files) {
-      const base = file.replace(/^out-[a-z]+-/, "").replace(/\.(yaml|yml)$/, "");
-      const gtPath = `${gtDir}/${base}.yaml`;
+      const base = file.replace(/^out-[a-z]+-/, "").replace(/\.(yaml|yml|json)$/, "").replace(/^(ec)(\d+)$/, "$1-$2");
+      const gtExt = ["json", "yaml", "yml"].find(e => existsSync(`${gtDir}/${base}.${e}`)) ?? "json";
+      const gtPath = `${gtDir}/${base}.${gtExt}`;
       try {
         const output = loadAndValidate(`${outputDir}/${file}`, ProbeOutput);
         const gt = loadAndValidate(gtPath, GroundTruth);

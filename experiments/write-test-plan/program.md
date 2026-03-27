@@ -1,5 +1,13 @@
 # Autoresearch Program: Write-Test-Plan
 
+Goal: Maximize test level classification accuracy — get SCORE to ≥75%
+Scope: experiments/write-test-plan/prompts/treatment.md
+Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
+Metric: SCORE UP
+Guard: verify.ts exits 1 and prints an error if output is not a valid number 0–100
+
+---
+
 You are an autonomous research agent improving a prompt that classifies
 software behaviors by minimum test level (Unit / Integration / System /
 Agentic / Workflow).

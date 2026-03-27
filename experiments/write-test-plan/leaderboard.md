@@ -17,8 +17,10 @@ Core corpus: EC-04, EC-07, EC-09, EC-10 (covers all 5 levels)
 | 0 | baseline | 72.3%* | — | — | — | — | built-in, no guidance |
 | 1 | treatment | 66.4%* | — | — | −5.9% | — | level defs + key questions (worse!) |
 | — | treatment-l12 | not run | — | — | — | — | L12 → 5-step hypothesis |
+| 1b | treatment | **81.7%†** | — | — | — | dd30e90 | 4-task re-run after pipeline fix; EC-04 Agentic still primary miss |
 
 *3-task corpus (EC-04, EC-07, EC-09). Will re-run on 4-task core corpus.
+†4-task core corpus (EC-04, EC-07, EC-09, EC-10). Pipeline bug fixed (score.ts dir mode, run-eval.sh grep pattern).
 
 ---
 
@@ -60,3 +62,13 @@ EC-07 b5 and EC-10 b5 (GT=Workflow) likely scored as Agentic or lower.
 | EC-07 | 68.5% | 64.0% | 72.0% | 67.4% |
 | EC-09 | 72.0% | 69.0% | 76.0% | 71.7% |
 | **avg** | **67.2%** | **63.5%** | **71.6%** | **66.4%** |
+
+## Score breakdown — treatment (iter 1b, 4-task corpus, pipeline-fixed re-run)
+
+| Task | Sufficiency | Precision | Consistency | Total | Notes |
+|------|-------------|-----------|-------------|-------|-------|
+| EC-04 | 38.3% | 49.2% | 100.0% | 55.9% | b3=Unit(GT=Agentic), b4=System(GT=Agentic) |
+| EC-07 | 82.9% | 87.5% | 100.0% | 88.1% | b4=Agentic(GT=Workflow) |
+| EC-09 | 100.0% | 85.0% | 100.0% | 97.0% | All correct, slight over-prediction |
+| EC-10 | 80.0% | 83.5% | 100.0% | 85.7% | b4=Integration(GT=Agentic) |
+| **avg** | **75.3%** | **76.3%** | **100.0%** | **81.7%** | |
