@@ -7,7 +7,7 @@
 #   ./run-eval.sh --prompt prompts/treatment-l12.md  # custom prompt file
 #   ./run-eval.sh --round 2                          # round 2: unit-test anchoring noise
 #   ./run-eval.sh --round 3                          # round 3: "fast tests" + deferral noise
-#   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: core set)
+#   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: all 10)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
 #
 # Final line of output: "SCORE: <0.0-1.0>" (machine-readable for agents)
@@ -21,8 +21,8 @@ CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
 ROUND=1
 OUT_DIR="$SCRIPT_DIR/runs/latest"
-# Core corpus: covers all 5 levels (Unit, Integration, System, Agentic, Workflow)
-CORPUS_CSV="ec-04,ec-07,ec-09,ec-10"
+# Full corpus: all 10 tasks
+CORPUS_CSV="ec-01,ec-02,ec-03,ec-04,ec-05,ec-06,ec-07,ec-08,ec-09,ec-10"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,6 +66,7 @@ echo ""
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
+pids=()
 for task_lower in "${CORPUS[@]}"; do
   task_upper="${task_lower^^}"
   out_file="$OUT_DIR/out-${CONDITION}-${task_lower//-/}.json"
@@ -80,8 +81,6 @@ for task_lower in "${CORPUS[@]}"; do
     printf '%s' "$ROUND3_NOISE" >> "$augmented"
   fi
 
-  echo -n "  $task_upper/$CONDITION r$ROUND ... "
-
   extra_args=()
   if [[ "$CONDITION" == "treatment" ]]; then
     extra_args+=(--prompt-file "$PROMPT_FILE")
@@ -93,8 +92,20 @@ for task_lower in "${CORPUS[@]}"; do
     --issue-file "$augmented" \
     --model "$MODEL" \
     --out "$out_file" \
-    "${extra_args[@]}"
+    "${extra_args[@]}" &
+  pids+=($!)
 done
+
+echo "  Running ${#pids[@]} probes in parallel (pids: ${pids[*]})..."
+failed=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || failed=$((failed + 1))
+done
+if [[ $failed -gt 0 ]]; then
+  echo "ERROR: $failed probe(s) failed" >&2
+  exit 1
+fi
+echo "  All probes done."
 
 echo ""
 echo "=== Scoring ==="
