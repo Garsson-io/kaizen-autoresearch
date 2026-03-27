@@ -37,6 +37,7 @@ experiments/<name>/
   corpus/                 ← fixed inputs (never edit)
     catalog.json          ← task metadata (title, domain, difficulty, adversarial technique)
   ground-truth/           ← fixed labels (never edit)
+  taxonomy/               ← one .md per reasoning pattern, lines = occurrences (updated per run)
   ideas/                  ← prompt-improvement hypotheses with frontmatter + steelman/critique
   leaderboard.md          ← score history
 ```
@@ -80,18 +81,19 @@ npx tsx scripts/score.ts --output runs/latest/out-treatment-ec04.json --gt groun
 ./run-eval.sh
 ```
 
-### Post-run analysis — read the agent's prose reasoning
+### Post-run workflow
 
-After each autoresearch run, don't just look at the score. The structured outputs contain **justification** fields where the model explains WHY it chose each level. These are a goldmine:
+After every autoresearch batch (bounded run or manual stop):
 
-1. **Extract all justifications** with their predicted vs GT levels (correct/under/over)
-2. **Categorize the reasoning patterns** — find recurring excuses, correct reasoning, and edge cases
-3. **Taxonomize and count** — which excuse pattern causes the most score damage? Which correct reasoning pattern is most common?
-4. **Write it up** as `justification-taxonomy.md` in the experiment directory
+1. **`/mine-ideas <experiment>`** — extract justifications from `runs/latest/`, classify reasoning patterns, update `taxonomy/` folder, generate new ideas in `ideas/`. This is the most important step — score tells you WHAT is wrong, justifications tell you WHY, taxonomy tells you what to FIX.
 
-This qualitative analysis often reveals insights that the scalar metric hides. For example, in write-test-plan we discovered that the model frequently acknowledges "Agentic-level tests would be required" in parentheticals, then talks itself into a lower level — a systematic "minimize bias" that no definition tweak can fix but a framing change might.
+2. **`/post-run-report <experiment>`** — post iteration summary, treatment diffs, and learnings to the experiment's GitHub discussion. Update `leaderboard.md` with a link.
 
-**The pattern**: score tells you WHAT is wrong, justifications tell you WHY, taxonomy tells you what to FIX.
+### taxonomy/ folder
+
+Each experiment has a `taxonomy/` folder — one `.md` file per reasoning pattern. Front matter describes the category (id, direction, predicted, ground_truth, weight, confusion_pair). Each line in the body is one occurrence with task ID and quoted justification. Count occurrences = count lines.
+
+Update after every run: add new lines, remove fixed ones, create files for new patterns.
 
 ### Observability
 

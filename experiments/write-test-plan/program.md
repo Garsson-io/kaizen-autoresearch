@@ -79,14 +79,15 @@ After each verify run, read `runs/latest/` output files + the scoring breakdown:
 
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
-### After a batch of runs — read the agent's justifications
-The output JSON files in `runs/latest/` have a `justification` field per behavior where the model explains its reasoning. **After each batch**, extract and classify these:
-1. Pull all justifications with predicted vs GT level and correct/under/over status
-2. Group by reasoning pattern — what excuses recur for under-predictions?
-3. Count and rank by score impact (frequency x weight)
-4. Update `justification-taxonomy.md` with findings
+### After every batch — mine the prose reasoning
+After each bounded run or manual stop, run **`/mine-ideas write-test-plan`** (or do it manually):
+1. Extract all justifications from `runs/latest/` with predicted vs GT level and correct/under/over status
+2. Update `experiments/write-test-plan/taxonomy/` — one `.md` file per reasoning pattern, one line per occurrence
+3. Count and rank patterns by score impact (frequency x weight)
+4. Generate new ideas in `ideas/` grounded in the data
+5. Post results via **`/post-run-report write-test-plan`**
 
-See `experiments/write-test-plan/justification-taxonomy.md` for the current taxonomy. The patterns found there (e.g. U1 "can mock the API") should inform what the prompt needs to address.
+The `taxonomy/` folder is the source of truth for failure patterns. Read it before choosing your next change.
 
 ### Read ideas/ before iterating
 
