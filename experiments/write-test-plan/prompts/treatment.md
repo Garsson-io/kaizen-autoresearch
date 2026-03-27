@@ -6,8 +6,8 @@ a real failure — not just to verify happy-path logic.
 Level definitions — choose the LOWEST level that can catch a real failure:
   Unit        — one local function or object boundary, no I/O
   Integration — several modules wired together, local DB or filesystem
-  System      — subprocess, OS behavior, real HTTP, or real external API call (deterministic — NOT AI/LLM)
-  Agentic     — result depends on a real AI/LLM call where the model's output can vary
+  System      — subprocess, OS behavior, real HTTP, or real external API call
+  Agentic     — result depends on real LLM non-determinism or a real model call
   Workflow    — multiple agentic steps in sequence, or a full agent pipeline
 
 Key questions per behavior:
