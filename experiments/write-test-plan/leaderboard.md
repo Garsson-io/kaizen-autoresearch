@@ -16,7 +16,7 @@ Core corpus: EC-04, EC-07, EC-09, EC-10 (covers all 5 levels)
 |---|-----------|-----------|----|----|---|--------|--------|
 | 0 | baseline | 72.3%* | — | — | — | — | built-in, no guidance |
 | 1 | treatment | 66.4%* | — | — | −5.9% | — | level defs + key questions (worse!) |
-| — | treatment-l12 | not run | — | — | — | — | L12 → 5-step hypothesis |
+| — | treatment-l12 | 71.2%† | — | — | −10.5% | — | L12 → 5-step: over-predicts System, still misses Agentic — worse |
 | 1b | treatment | **81.7%†** | — | — | — | dd30e90 | 4-task re-run after pipeline fix; EC-04 Agentic still primary miss |
 
 *3-task corpus (EC-04, EC-07, EC-09). Will re-run on 4-task core corpus.
@@ -62,6 +62,18 @@ EC-07 b5 and EC-10 b5 (GT=Workflow) likely scored as Agentic or lower.
 | EC-07 | 68.5% | 64.0% | 72.0% | 67.4% |
 | EC-09 | 72.0% | 69.0% | 76.0% | 71.7% |
 | **avg** | **67.2%** | **63.5%** | **71.6%** | **66.4%** |
+
+## Score breakdown — treatment-l12 (one-shot, 4-task corpus)
+
+| Task | Sufficiency | Precision | Consistency | Total | Notes |
+|------|-------------|-----------|-------------|-------|-------|
+| EC-04 | 60.0% | 59.2% | 100.0% | 69.8% | b3,b4=System(GT=Agentic) — L12 promotes System not Agentic |
+| EC-07 | 70.0% | 80.0% | 100.0% | 79.5% | b4=Agentic(GT=Workflow), b5=Integration(GT=System) |
+| EC-09 | 65.7% | 80.0% | 100.0% | 77.1% | b4,b5=Unit(GT=Integration) |
+| EC-10 | 41.5% | 51.8% | 100.0% | 58.2% | b1,b2,b4=Unit(GT=Intg/Sys/Agentic) — badly under |
+| **avg** | **59.3%** | **67.7%** | **100.0%** | **71.2%** | |
+
+**Conclusion**: L12 hypothesis rejected. L12 ladder reasoning pushes toward System but doesn't help Agentic, and hurts EC-10 badly.
 
 ## Score breakdown — treatment (iter 1b, 4-task corpus, pipeline-fixed re-run)
 
