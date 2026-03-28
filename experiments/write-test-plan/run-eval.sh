@@ -21,7 +21,8 @@ PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
 ROUND=1
-OUT_DIR="$SCRIPT_DIR/runs/latest"
+RUN_TS=$(date +%Y%m%d-%H%M%S)
+OUT_DIR="$SCRIPT_DIR/runs/$RUN_TS"
 MAX_PARALLEL=5
 # Auto-detect corpus from corpus/*.md files (sorted)
 CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)
@@ -147,6 +148,10 @@ if [[ $failed -gt 0 ]]; then
   exit 1
 fi
 echo "  All $TOTAL probes done in ${TOTAL_TIME}s."
+
+# Update latest symlink
+ln -sfn "$RUN_TS" "$SCRIPT_DIR/runs/latest"
+echo "  Run saved: runs/$RUN_TS (symlinked as runs/latest)"
 
 echo ""
 echo "=== Scoring ==="
