@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithmic logic — a key generation function that maps query parameters to a hash. No I/O, no external state, no system dependencies. A mock could never hide a failure here because the failure is in the algorithm itself: if identical params produce different keys (collision detection fails) or different params produce the same key (actual collision), that's a pure logic bug. Testing the function with various inputs (identical params, different params, edge cases like empty params, special characters, parameter order sensitivity) is sufficient.",
+      "test_description": "Call the key generation function with: (1) identical param sets multiple times → verify same key returned each time; (2) different param sets (varying one param at a time) → verify different keys; (3) edge cases (empty params, special chars, very long values, unicode) → verify no collisions; (4) param ordering (if applicable) → verify deterministic key regardless of order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test directly exercises the core function in isolation. No mocking needed because the failure is in the function itself."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "The core behavior is TTL calculation logic: given a freshness rule (or data category that maps to a rule), compute the TTL value. This is pure computation, no I/O required. A mock would not hide the real failure: the calculation itself being wrong (e.g., 5 minutes → 300 seconds instead of 299, or 1 hour × 2 = 7200s). The freshness rules can be injected as test inputs (or loaded from a test config fixture). Config loading is a separate concern; this behavior is about the calculation given a rule.",
+      "test_description": "Call the TTL computation function with: (1) known rules and categories (user profile → 5 min rule, product catalog → 1 hour rule) → verify correct TTL values (300s, 3600s); (2) multiple categories → verify each computes correctly; (3) edge cases (0-second TTL, very large TTLs, time units) → verify conversions and boundary values are correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Core behavior is computation. Config/rules are injected as inputs. No system state or I/O needed."
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "System",
+      "justification": "This behavior depends on real OS-level memory measurement. A Unit test with mocked memory usage would not catch the real failure: the system reporting it has high memory when it actually does not, or vice versa. The failure boundary crosses into the OS: the eviction strategy switch only matters if the memory threshold is actually exceeded. Testing requires either (a) real memory pressure (System), (b) a reliable way to simulate OS memory metrics (still System, because memory APIs are OS-level). An in-process mock of memory usage would hide failures in the memory measurement integration itself.",
+      "test_description": "In a test environment: (1) monitor cache memory usage as entries are added; (2) fill cache until actual memory usage exceeds the configured threshold (or use OS-level memory mocking/system calls); (3) verify the eviction strategy changes from LRU to LFU; (4) verify subsequent evictions use LFU logic; (5) optionally: clear memory back below threshold and verify strategy reverts to LRU (if designed that way).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must measure real memory (or simulate via system-level mechanisms) to catch failures in threshold detection and strategy switching. A pure in-memory mock would pass even if the real memory measurement is broken."
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "This behavior crosses two system boundaries: (1) writes to the real PostgreSQL database, (2) invalidation of cache entries. A Unit test with mocked database writes would hide failures where: the write hook/trigger isn't registered, the row-to-key mapping is wrong, or the invalidation logic isn't wired to the write event. The failure is in the integration: detecting a real database write and reacting to it. A test database (local PostgreSQL instance or embedded) is sufficient (Integration level), not necessarily a full external system (System level), because the behavior is about correct invalidation logic given a write, not about network resilience.",
+      "test_description": "Using a test PostgreSQL instance: (1) populate cache with entries for rows in a test table; (2) perform a write (INSERT/UPDATE/DELETE) on that table; (3) verify all cache entries corresponding to the affected rows are invalidated; (4) verify entries for non-affected rows remain in cache; (5) test multiple writes with different row sets; (6) edge case: write that affects no rows → verify no cache invalidation occurs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires real database writes (not mocked) and real cache invalidation wired together. A test DB is sufficient; external network/prod DB is not required."
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "The core behavior is the eviction algorithm: given a set of cached items with known access patterns (timestamps for LRU, access counts for LFU), which items should be evicted? This is pure logic that can be tested with injected access data. A Unit test can verify: fill cache, access items in known patterns, trigger eviction, verify correct items removed. Access timestamps and counts can be mocked or controlled in-process. The algorithm failure (e.g., evicting most-recently-used instead of least-recently-used) is a logic bug that any test level would catch; Unit is sufficient because the failure is in the ordering/selection logic, not in system behavior.",
+      "test_description": "For LRU eviction: (1) add N items to cache, access subset of them in known temporal order, fill cache to trigger eviction → verify least-recently-accessed items are removed; (2) for LFU: add N items, access subset with known frequencies, trigger eviction → verify least-frequently-accessed items are removed; (3) edge cases: items with equal recency/frequency → verify tie-breaking is consistent; (4) mixed workload: alternate LRU/LFU switches → verify correct policy is applied at each stage.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Core behavior is the eviction selection logic. Access patterns can be injected or controlled via test helper (e.g., incrementing a timestamp, incrementing access count). No real I/O or concurrency needed for the core algorithm."
+    }
+  ]
+}

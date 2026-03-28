@@ -1,0 +1,46 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds the configured amount threshold for its merchant category",
+      "minimum_level": "Unit",
+      "justification": "This is pure rule application with no I/O. The scoring model reads a configured threshold and applies a comparison operator. The failure modes (wrong operator, hardcoded threshold, wrong category lookup) all occur within a single function boundary. A mock cannot hide the logic error — passing in a config and transaction will directly reveal if the rule is applied correctly. No database, external service, or model dependency is needed.",
+      "test_description": "Create a transaction with amount exceeding the configured threshold for its merchant category, call the scoring model with the config, and verify the returned risk score matches expected value. Test boundary cases (amount == threshold, amount just over threshold).",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies fraudulent transaction pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded",
+      "minimum_level": "Integration",
+      "justification": "Testing pattern detection requires the real risk model — mocking it to always return 'fraud=true' would pass even if the model is broken or only evaluates single transactions. We need multiple real (or realistic) transaction records with specific temporal/geographic properties to verify the model's analytical capability. This requires a data store (local DB or in-memory). If the risk model is LLM-based with non-deterministic reasoning, this would escalate to Agentic, but the minimum to catch deterministic pattern-detection failures is Integration.",
+      "test_description": "Create a transaction sequence: 4 small purchases within 24 hours from different geographic locations (simulating distant merchants), with no single purchase exceeding amount thresholds. Store these in a transaction repository, call the real risk model with this history, and verify it flags the sequence as fraud. Confirm that removal of the geographic variance or temporal clustering causes it to not flag.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in the scoring model correctly counts the number of transactions within the configured time window per user",
+      "minimum_level": "Integration",
+      "justification": "Real velocity checks query a transaction store and are sensitive to boundary conditions (inclusive vs exclusive time bounds), off-by-one errors in counting, and cross-user contamination. A pure unit test with a mocked transaction list might pass even if the database query is malformed or the time calculation is wrong. We need to test against real (or in-memory) stored transactions with actual timestamps near the window boundary to catch real failures like 'transactions from 24h ago are included when they should not be' or 'different users' transactions are mixed together'.",
+      "test_description": "Store 10 transactions for user_id 'A' with timestamps: 5 within the last 24 hours, 5 older. Store 3 transactions for user_id 'B' within the same time period. Call the velocity check for user_id 'A' with a 24-hour window. Verify it returns exactly 5, not 8 (excluding other users) and not 4 or 6 (boundary errors). Test boundary transaction at exactly 24 hours ago.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 4,
+      "description": "Transaction flagged by risk model but not by scoring model is still held for review (OR gate, not AND)",
+      "minimum_level": "Integration",
+      "justification": "This tests the integration of two separate models. A unit test of just the decision logic (e.g., 'if risk_result.fraud OR scoring_result.risky') would pass even if the actual risk model is never called or its output is ignored in the real system. Mocking both model results masks failures like 'risk model was replaced with a stub' or 'risk model output field is misspelled and never read'. We must wire both the real scoring and risk models together and verify that a transaction passing one model but failing the other triggers a hold decision.",
+      "test_description": "Create a transaction that: (1) does not exceed any scoring thresholds (scoring model returns safe), but (2) contains fraud indicators that the real risk model flags (risk model returns fraud probability > threshold). Run both models on this transaction and verify the final decision is 'hold for review'. Confirm that either model alone flagging is sufficient.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why",
+      "minimum_level": "Integration",
+      "justification": "Testing that both scores are preserved end-to-end requires running a transaction through both models and verifying the combined output structure. A unit test of output formatting could pass while the actual risk score or fraud probability is lost or discarded somewhere in the pipeline (e.g., serialization, API response, database write). We need to verify the data survives the full transaction processing path and both pieces of information are included and correctly labeled in the final output.",
+      "test_description": "Run a transaction through the full fraud detection service. Verify the output JSON/response contains: (1) a numeric risk_score field from the scoring model, (2) a fraud_probability field from the risk model, (3) a clear explanation of which model(s) flagged it (e.g., 'flagged_by: [\"risk_model\", \"scoring_model\"]'), and (4) human-readable reasoning from each model. Confirm both scores are present and distinct, not conflated or missing.",
+      "plan_consistent": true
+    }
+  ]
+}

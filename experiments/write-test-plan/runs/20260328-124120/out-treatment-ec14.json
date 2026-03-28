@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is the actual STT API's output format. Different STT APIs (Google, AWS, Deepgram, etc.) return speaker labels in different formats (JSON fields, prefix markers, separate metadata, etc.). A mock STT that returns labels in our expected format would pass all tests, but the real API might use an entirely different format. We cannot catch format-mismatch failures without hitting the real API with real audio.",
+      "test_description": "Upload a 5-minute real meeting recording with 3+ distinct speakers to the transcription service. Invoke the actual speech-to-text API (real service credentials, not mocked). Verify that the returned transcript contains speaker identifiers/labels for every spoken segment. Parse the raw STT output and confirm that speaker labels are present and correctly mapped. Run the full pipeline and assert that the final summary correctly attributes at least 2 statements to different speakers by name.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real STT API call to catch format mismatches that mocks would hide. Mocks cannot test what real APIs actually return."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real LLM produces. A mock LLM can be configured to always extract all task assignments correctly. A real LLM might miss assignments due to attention failures, ambiguous phrasing (e.g., 'can someone handle X?' vs explicit 'Alice, you handle X'), context window limits, or misinterpretation of indirect assignments. Only a real LLM call will expose these reasoning failures.",
+      "test_description": "Use a meeting recording (real or high-fidelity synthetic) where exactly 5 named attendees are each assigned 1+ distinct tasks using varied phrasings: explicit ('Alice, you'll send the report'), implicit ('Bob should handle the follow-up'), delegated ('Carol, please sync with the team'), and indirect ('Who's taking the budget? David.'). Run the full pipeline with the real LLM. Parse the 'action_items' field in the structured output. Verify that all 5 attendees appear in action items, with correct task attribution. Assert that the LLM extracted every assignment, not just explicit ones.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real LLM to verify it extracts implicit/indirect assignments. Mocked LLM would always succeed even if the prompt fails to guide proper extraction."
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is LLM instruction-following: the LLM extracts the decision but embeds it in narrative text instead of populating the structured 'decisions' field. A mock LLM will always put decisions in the right place if told to. A real LLM might misparse the structured output schema, prioritize narrative over structure, or miss decisions entirely. Only a real LLM will expose these instruction-following failures.",
+      "test_description": "Use a meeting recording with 3-4 unambiguous, stated decisions: 'We've decided on Postgres,' 'Launch date is April 15,' 'Canceling the beta.' Run the full pipeline with the real LLM and the prompt that specifies the 'decisions' structured field. Parse the returned summary. Verify that all 3-4 decisions appear in the 'decisions' array (not just in narrative summary). Assert that no decision is buried in story-like text—all are extracted into structured form.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real LLM to verify it follows structured output instructions. Mocked LLM cannot fail at instruction-following."
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Agentic",
+      "justification": "The orchestration logic (split at 60 min, sequential processing) could be tested with mocked LLM. But 'coherent summary' cannot be tested with mocks. When a real LLM processes each segment separately, then receives a merge request, it might produce contradictory decisions, duplicate action items, or incoherent narratives that a mock would never expose. Only real LLM calls on each segment and the merged data will catch coherence failures.",
+      "test_description": "Create or obtain a 90-minute real meeting recording with 3 distinct topic phases: Problem discussion (0–30 min), Solution design (30–60 min), Implementation planning (60–90 min). Run the pipeline; it should auto-detect >60 min and split into 30-min segments. Call real STT and real LLM on each segment, then merge. Verify: (a) merged summary lists key decisions from all 3 phases, (b) action items assigned in phase 2 are not contradicted by phase 3, (c) attendee references are consistent (e.g., 'Alice' in phase 1 and phase 3 refer to the same person), (d) merged narrative reads as one meeting, not three disconnected summaries. Assert no duplicate decisions across segments and logical consistency between phase 2 and phase 3 conclusions.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Coherence of merged output cannot be verified by mocks—requires real LLM calls on segments and merged data to expose inconsistencies or context loss."
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline—upload audio, transcribe, summarize, deliver structured output—completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "This is end-to-end automation of multiple agentic steps in sequence: (1) audio format detection and upload, (2) real speech-to-text API call, (3) real LLM call for summarization, (4) structured output assembly and delivery. Failure modes include API timeouts, quota limits, malformed responses from upstream steps breaking downstream steps, and orchestration gaps. These only surface with real API calls and real LLM responses; mocked steps would hide integration failures.",
+      "test_description": "Select a 15–30 minute real meeting recording (e.g., from a conference, webinar, or internal recording). Submit it to the service via upload endpoint. The pipeline should execute fully without any manual intervention: (1) service auto-detects format and sends to real speech-to-text API, (2) real LLM receives transcript and generates structured summary, (3) structured output is written to result endpoint or file. Verify: (a) entire pipeline completes in <5 min (no timeout failures), (b) output file/endpoint contains valid JSON matching the schema, (c) summary includes all required sections (decisions, action_items, attendees), (d) no error logs contain 'MANUAL_INTERVENTION_REQUIRED' or API failure messages, (e) timestamp records show continuous processing flow with no stuck steps. Assert that a completely naïve user could upload audio and receive structured output without manual debugging or re-running any step.",
+      "plan_consistent": true,
+      "plan_consistent_note": "End-to-end workflow test requires real STT and LLM calls in sequence. Mocks would always succeed, hiding real timeout, quota, or integration failures that occur in production."
+    }
+  ]
+}

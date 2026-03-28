@@ -1,0 +1,60 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "Real failures include: (a) the vision model doesn't classify explicit content correctly, or (b) we misinterpret/ignore its response. A mock that always returns 'explicit' would catch (b) but hide (a). Production failure occurs when the real model encounters actual explicit images and fails to classify them. Only a real model call reveals actual classification accuracy.",
+      "test_description": "Submit a genuinely explicit test image through the real vision model, verify the model returns a classification indicating explicit content, and confirm the post is placed in the review queue and not published.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires Agentic level because it calls the real vision model to verify actual classification behavior, not just our code's handling of a mocked response."
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "Real failure: the text model doesn't handle obfuscated variants robustly, OR we don't pass variants to the model. A mock returning 'flagged' for exact strings would miss the core issue—whether the real model can detect obfuscated hate speech. Production failure occurs when variants slip through because the real model wasn't trained to handle them, not because of our code logic.",
+      "test_description": "Submit text posts with multiple obfuscation variants (l33t speak, unicode homoglyphs, mixed case, lookalike characters) through the real text model; verify the model flags all variants and they are placed in the review queue.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires Agentic level because it depends on the real model's robustness to obfuscation, which only a real model call can verify."
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "Real failures: (a) orchestration bug—we don't call both checks, (b) logic bug—we don't publish when both pass, (c) silent failure—publish fails and we don't error. An Integration test wiring the image check, text check, and publish decision together would catch all three. The models' accuracy isn't the concern here; the concern is our pipeline orchestration when both models agree the content is clean.",
+      "test_description": "Create a test post with clean text and image; call the moderation pipeline with mocked models returning 'approved' for both checks; verify the post transitions to published state and is not held in the review queue or dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is sufficient because we're testing orchestration of local components (both checks, publish decision), not model accuracy or external service behavior."
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "Real failure: the real API calls (vision model, text model, publish) exceed latency budget. An Integration test with instant mocks (or even artificial delays like 'mock sleeps 1 second') wouldn't reveal real-world latency. Production fails when actual API latencies (network, queueing, compute) exceed 5s. Must test against real or rate-limited endpoints to catch real timeout failures.",
+      "test_description": "Execute the full moderation pipeline with real API calls (or realistically throttled endpoints) against a test image and text post; measure total elapsed time from submission to publish decision; verify it does not exceed 5 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is required because realistic latency only appears in real or rate-limited API calls; mocked APIs hide the real failure."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "System",
+      "justification": "Real failures: (a) auto-approve when model throws exception, (b) auto-approve when model times out, (c) auto-approve when model returns 5xx error. A mock can simulate exception throwing, but production exposes diverse failure modes (network timeouts, partial responses, rate limiting, connection resets) that a in-process mock might not cover. System test against real or fidelity-matched error conditions ensures we handle the full spectrum of service unavailability.",
+      "test_description": "Simulate the vision model API becoming unavailable (connection timeout, 5xx error, or request timeout); submit an image post; verify the post is placed in a retry queue and is not auto-approved or discarded.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is justified because production failures depend on realistic network/service error modes, not just mocked exceptions."
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "Real failure: the real vision model is non-deterministic (due to sampling/temperature > 0) and returns different classifications for the same image, revealing inconsistency if we don't cache. A mock returning a fixed label would never expose non-determinism. Production failure occurs when a user sees their borderline image flagged once and approved the next time, eroding trust. Only a real model call reveals actual non-determinism; a cache test must work against real model variance.",
+      "test_description": "Submit a borderline image (one that could plausibly be classified either way) through the real vision model; record the decision; submit the same image again within the cache window (e.g., 5 minutes); verify the second submission returns the cached decision from the first, not a new classification from the model.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic level required because the test must verify caching behavior against real model non-determinism; mocked deterministic responses hide the whole reason caching is necessary."
+    }
+  ]
+}

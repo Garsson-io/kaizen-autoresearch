@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent translation preserving meaning (not word-for-word substitution)",
+      "minimum_level": "Agentic",
+      "justification": "A mocked translation API would always return perfect output, hiding real failures where the model produces garbled, meaningless, or off-topic translations. The entire point of this behavior is to verify the neural machine translation model actually works. Only calling the real API reveals if the model is broken, poorly fine-tuned, or if an update degraded quality.",
+      "test_description": "Call the real translation API with a corpus of test phrases in different languages. Assess coherence by either: (1) manual review of outputs, (2) a second evaluator model that grades grammatical correctness and semantic preservation, or (3) automated checks for nonsensical character sequences or token repetition. Verify the service returns the primary translation (not fallback) and that outputs are semantically equivalent to the source, not just a word-for-word gloss.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test absolutely requires real model inference because mocking would defeat the purpose of validating the model's coherence guarantee."
+    },
+    {
+      "behavior_id": 2,
+      "description": "When translation API returns 503, service falls back transparently without returning error to caller",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked API (returning 503) and mocked database would only verify exception-handling logic flow. Real failures lurk in the fallback chain: (1) database connection might fail, (2) fallback query might timeout, (3) async fallback task might crash silently. Only Integration level—with real SQLite and real async execution—catches failures where the exception is caught but the fallback infrastructure itself fails, causing an unhandled exception or delay.",
+      "test_description": "Mock the translation API to return a 503 error. Inject a real SQLite test database pre-populated with fallback phrases. Call the service with a phrase that exists in the fallback DB. Assert: (1) the call returns successfully (no exception), (2) the returned translation matches the fallback DB value, (3) no error is propagated to the caller. Verify using real async execution to catch timing issues where the fallback task completes after the response is sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real database I/O to catch failures in the fallback infrastructure. A unit test with mocked DB would miss connection issues, query failures, or async race conditions."
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary-based fallback returns correct pre-stored translation for phrases in SQLite",
+      "minimum_level": "Integration",
+      "justification": "A unit test with a mocked database would trivially pass. Real failures occur at the database boundary: (1) the stored phrase doesn't match the query (encoding, whitespace, case sensitivity), (2) the wrong row is returned (duplicates, partial matches), (3) data corruption or schema mismatch. Testing this requires real SQLite with test data that matches production schema and realistic edge cases.",
+      "test_description": "Load a real SQLite test database with known phrase pairs (e.g., 'Hello world' → 'Hola mundo', 'How are you?' → '¿Cómo estás?'). For each test phrase, call the service with the dictionary fallback (or trigger it via mocked API error). Assert the returned translation exactly matches the pre-stored value. Include edge cases: phrases with punctuation, special characters, multiple spaces, and Unicode. Verify query precision (no partial matches, correct case sensitivity).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test must use a real SQLite database to catch query/schema issues that mocks would hide."
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes character-level edit distance between primary and fallback outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "The edit distance computation itself is pure logic (could be unit tested), but the behavior includes 'stores the metric'—which requires real I/O. A unit test with mocked storage would pass even if the store is never called or stores the wrong value. Real failures: (1) metric not written to backend, (2) wrong primary/fallback outputs compared, (3) comparison only computed when primary succeeded, not when both are available. Testing storage requires Integration level.",
+      "test_description": "Mock both the primary and fallback translators to return known, deterministic outputs (e.g., primary='Hello world', fallback='Hello Earth'). Call the service. Assert: (1) edit distance is computed correctly (Levenshtein distance = 5 in this example), (2) the metric is persisted to the real backend (database or metrics store), (3) the stored metric associates the comparison with the source phrase and timestamp. Verify the metric is retrievable and parseable.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The 'stores the metric' part requires real I/O. A unit test could verify the distance algorithm in isolation, but the full behavior (compute AND store) needs Integration."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators available, service returns primary translation and logs quality comparison in the background",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked APIs and mocked logger might verify 'returns primary translation' but would miss failures in real logging: (1) the background task crashes silently (real async error handling), (2) the log write fails (disk full, permission denied), (3) the comparison is never computed when both are available (async race condition). Testing requires Integration level to verify real logging backend and real async task execution.",
+      "test_description": "Mock both primary and fallback translators with different but valid outputs. Call the service. Assert: (1) the response contains the primary translation (not fallback), (2) the service completes without blocking the caller, (3) within a reasonable timeout, the quality comparison appears in the real logging/metrics backend (verify by querying storage or reading log file). Verify the logged comparison includes the edit distance, timestamp, and source phrase. Test that the background task doesn't block if logging fails.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The 'logs... in the background' part requires real async execution and real logging I/O. Mocked logger would hide failures where the logging infrastructure itself fails or the async task never runs."
+    }
+  ]
+}

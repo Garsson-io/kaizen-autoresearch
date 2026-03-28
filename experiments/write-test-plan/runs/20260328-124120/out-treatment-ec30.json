@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Products marked as out-of-stock are excluded from the recommendation results regardless of their relevance score.",
+      "minimum_level": "Integration",
+      "justification": "While filtering logic could be unit-tested in isolation, the real failure emerges when the filter interacts with the product database schema and catalog state. A pure mock could incorrectly pass if the stock status field is inverted, applied to the wrong field, or skipped entirely. Integration testing with real product data ensures out-of-stock products are truly filtered from results.",
+      "test_description": "Insert products with both in-stock and out-of-stock status into a test database, call the recommendation endpoint with a user and catalog state that would surface the out-of-stock products as highly relevant, and verify zero out-of-stock products appear in the results.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 2,
+      "description": "The user preference filter correctly excludes product categories the user has explicitly blocked in their settings.",
+      "minimum_level": "Integration",
+      "justification": "Filtering depends on user preference data from persistent storage and correct correlation with product categories. A unit test with mocked preferences could miss failures like category ID type mismatches, inheritance issues (blocking parent category should cascade to children), or preference staleness. Integration testing verifies the filter uses current user settings to exclude the correct categories.",
+      "test_description": "Create a test user with specific product categories blocked in their preferences, insert products across multiple categories into the database, call the recommendation endpoint, and verify blocked categories produce zero results while unblocked categories populate recommendations.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 3,
+      "description": "The recommendation algorithm ranks products that match the user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Integration",
+      "justification": "The ranking algorithm must correctly retrieve browsing history, filter by recency, weight by relevance, and sort results. A unit test of the weighting formula alone could pass while the real system fails if browsing data retrieval is broken, recency filtering is incorrect, or history is aggregated across the wrong time window. Integration testing with real browsing events in the database ensures the algorithm produces correct ranking.",
+      "test_description": "Insert a user's browsing events for specific products within the recent time window, insert other products with no browsing history, call the recommendation endpoint, and verify browsed products appear earlier in the ranked list than unbrowsed products with otherwise similar relevance.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns the correct page of results, with stable ordering — requesting page 2 twice returns identical results if the underlying data hasn't changed.",
+      "minimum_level": "Integration",
+      "justification": "Non-deterministic ordering in pagination typically emerges from the database layer: unordered queries, hash-based ordering without explicit sort, or race conditions that cause row order to vary between identical requests. A unit test on an in-memory sorted list would not expose this. Integration testing with the actual database backend verifies that pagination queries return consistent ordering across multiple identical calls.",
+      "test_description": "Call the recommendation endpoint twice requesting page 2 with identical user state and catalog snapshot (no intervening mutations), and verify both responses contain identical product IDs in identical order with no position variation.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 5,
+      "description": "The recommendation algorithm surfaces at least one product from a category the user hasn't browsed before (serendipity requirement), avoiding a filter bubble.",
+      "minimum_level": "Integration",
+      "justification": "Serendipity logic must be correctly integrated into the ranking algorithm. The failure mode is the algorithm defaulting to all categories from browsing history or lacking the diversity mechanism entirely. A unit test might verify the logic is present but pass while the real system returns only familiar categories. Integration testing with a user having narrow browsing history verifies the algorithm breaks out of filter bubbles.",
+      "test_description": "Create a user with browsing history limited to a single product category, call the recommendation endpoint, and verify the results include at least one product from a category the user has never browsed.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 6,
+      "description": "A new user with no purchase or browsing history receives recommendations based on overall popularity rather than an empty result set.",
+      "minimum_level": "Integration",
+      "justification": "The fallback behavior depends on the algorithm correctly detecting zero history, querying popularity rankings, and returning non-empty results. A unit test with mocked popularity data could verify the branch is reachable, but would miss failures where popularity metrics are stale, missing for some products, or the query returns no results. Integration testing ensures new users receive populated recommendations.",
+      "test_description": "Create a new user with zero purchase and browsing history in the database, call the recommendation endpoint, and verify the response contains non-empty results populated with the most popular products (highest overall purchase or view counts).",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records the correct product ID, position in the list, and timestamp for each recommendation the user interacts with.",
+      "minimum_level": "Integration",
+      "justification": "Click tracking spans two systems: the recommendation response (which determines position) and the tracking database (which persists the event). A unit test mocking the tracking call could verify the call is made, but would miss failures in timestamp recording (clock drift, formatting), position calculation (off-by-one errors), or database persistence (write failures, schema mismatches). Integration testing verifies clicks are actually recorded with correct attributes.",
+      "test_description": "Call the recommendation endpoint, simulate a user click on a product in a specific position (e.g., 5th item) in the returned list, verify the click event is written to the tracking database with correct product ID, position index, and timestamp within 1 second of the click.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 8,
+      "description": "The response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "System",
+      "justification": "Performance bottlenecks emerge at real scale and are invisible in unit/integration tests with small datasets. The failure requires testing with actual large-scale data (100k products) in a realistic environment that includes database I/O, index usage, and resource contention. Mocked or small-scale data would not expose slow queries, missing indexes, or O(n) algorithms that fail at scale.",
+      "test_description": "Load a test database with 100,000 products and realistic metadata (categories, ratings, prices, availability), call the recommendation endpoint repeatedly with different users, measure response times, and verify all requests complete within 200ms.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased by the user, the recommendation algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Integration",
+      "justification": "Deprioritization requires the algorithm to retrieve purchase history, apply a ranking penalty, and correctly reorder results. A unit test could verify the penalty is applied to a product in isolation, but would miss failures where purchase data is stale, the deprioritization applies to the wrong set of products, or rank changes don't persist across calls. Integration testing verifies the product's actual rank decreases after purchase.",
+      "test_description": "Get recommendations for a user, record a product's position, mark it as purchased in the database, call the recommendation endpoint again, and verify the product is either absent from results or appears at a lower position than before.",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 10,
+      "description": "The recommendation results are deterministic for the same user state — requesting recommendations twice with no intervening user activity returns the same ranked list.",
+      "minimum_level": "Integration",
+      "justification": "Determinism failures are subtle and emerge from the system layer: hash randomization in collections, async operation ordering, timing-dependent behavior, or incorrect randomization seeding. A unit test of a single function might appear deterministic while the integrated system isn't. Integration testing with real state verifies that multiple identical requests produce identical results.",
+      "test_description": "Call the recommendation endpoint twice for the same user without intervening activity or mutations, and verify both responses contain identical product IDs in identical order with no variation.",
+      "plan_consistent": true
+    }
+  ]
+}

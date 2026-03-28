@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked CSV reader and schema validator could pass even if the CSV line counter has off-by-one bugs or the validator doesn't actually check required fields. Real failures—like miscounting rows with different line-ending conventions (CRLF vs LF) or a validation schema that doesn't enforce required fields—are invisible to mocks. Testing requires a real CSV file and real schema validation to catch these.",
+      "test_description": "Load a CSV file containing rows where specific columns required by the schema are missing. Run the pipeline end-to-end. Verify that each invalid row appears in the dead-letter queue with the exact original CSV line number from the source file. Test at least one row at the beginning, middle, and end of the file to catch off-by-one bugs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real CSV parsing + real validation = Integration level. The test must use actual CSV parsing and schema validation (not mocks) to catch real failures."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure function—input string → output string—with no I/O, external dependencies, or mocks required. All date-format edge cases (leap years, boundary dates, invalid inputs) can be tested deterministically in-process. A mock would not add value.",
+      "test_description": "Call the date-transformation function directly with representative inputs from each format: '2024-01-15' (ISO 8601), '01/15/2024' (US MM/DD/YYYY), and '15/01/2024' (European DD/MM/YYYY). Verify all produce the canonical output format (e.g., '2024-01-15'). Include edge cases: leap-year dates (e.g., 2024-02-29), year boundaries (e.g., 1999-12-31), and invalid dates to verify correct rejection.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure function with no dependencies. Unit-level testing is sufficient and appropriate."
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked file I/O could not reveal real memory-usage patterns or actual processing time. Only by reading and processing a real 500K-row CSV file can you catch failures like: code not streaming/buffering properly (allocating entire file into memory), missing pagination, or unbounded intermediate data structures. You need real file I/O and in-process memory measurement to detect these failures.",
+      "test_description": "Create a real CSV file with 500,000 rows of valid data. Run the pipeline against it, measuring peak memory usage and wall-clock elapsed time. Verify (1) processing completes before the configured timeout (e.g., 60 seconds) and (2) peak memory consumption stays below the configured limit (e.g., 2 GB). Optionally: use system monitoring (psutil or /proc) to track memory per-process-state (CSV read, validation, transform, write) to identify memory spikes.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real CSV file + real memory tracking = Integration level. Mocked I/O would hide streaming bugs and memory-allocation patterns."
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The retry logic sits inside the full pipeline, wired between the S3 client, batch processor, and error handler. A unit test of the retry function alone (with mocked S3 and mocked batch processor) could pass but miss real failures: the S3 client might raise a different exception type in production, the pipeline might not be idempotent on retry, or the batch processor might not be resumable. Testing requires multiple modules (S3 client, retry logic, batch processor) wired together with a controlled mock S3 that simulates transient failure.",
+      "test_description": "Mock the S3 client to raise a 503 error on the first read attempt, then return valid data on the second attempt. Run the pipeline against this mocked S3 client with a sample batch. Verify the pipeline does not fail immediately. Inspect retry timing to confirm exponential backoff (e.g., 1s delay, then 2s, then 4s, etc.). Verify the batch processes successfully after the retry and the final output is correct (not partial or corrupted).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Multiple modules (S3, retry handler, batch processor) + mocked S3 = Integration level. The test validates the pipeline's end-to-end resilience."
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked database could not reveal real idempotency failures: missing unique constraints, incorrect UPSERT logic, race conditions in duplicate detection, or checkpoint logic that doesn't actually prevent re-processing. Only a real test PostgreSQL database can catch these. You must test the entire write-and-recovery path with actual constraint enforcement and transaction semantics.",
+      "test_description": "Start the pipeline with a batch of 100+ rows. After the first N rows are written to a test PostgreSQL database (where N < batch size), simulate a crash or forced restart (clear in-memory state, restart the pipeline with the same CSV input). Verify that the final database contains exactly one copy of each row (no duplicates) and the row count matches the input exactly. Test restart at three points: early (first 10 rows written), mid-batch (50% written), and late (90% written) to catch race conditions in checkpoint logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real PostgreSQL database + real write/restart semantics = Integration level. Mocked DB would hide constraint and idempotency bugs."
+    }
+  ]
+}

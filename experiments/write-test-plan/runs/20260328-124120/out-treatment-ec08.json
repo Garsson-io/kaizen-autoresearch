@@ -1,0 +1,69 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to maximum",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is pure calculation logic independent of I/O. A fake clock (Jest fake timers) and mocked HTTP client suffice to verify the progression (100ms → 200ms → 400ms → capped).",
+      "test_description": "Use Jest fake timers and mock the HTTP client to always return 429. Trigger 5 consecutive request attempts. Verify wait durations between retries are: 100ms, 200ms, 400ms, 800ms, capped at configured max (e.g., 1000ms). Assert no spurious retries occur.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test exercises backoff logic in isolation using mocks; no real I/O or concurrency required."
+    },
+    {
+      "behavior_id": 2,
+      "description": "Client correctly identifies rate-limit response and computes wait time from headers",
+      "minimum_level": "Integration",
+      "justification": "Must parse real API response headers (Retry-After in multiple formats: seconds, HTTP-date, ISO-8601). A plain mock response object might miss edge cases in header parsing. Mock HTTP server (nock) ensures response structure matches reality.",
+      "test_description": "Use nock to mock HTTP 429 responses with Retry-After headers in three formats: (1) seconds ('60'), (2) HTTP-date ('Wed, 21 Oct 2026 07:28:00 GMT'), (3) ISO-8601 duration ('PT60S'). Verify client correctly computes wait time for each format with ±5% tolerance.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mock HTTP server is necessary to simulate realistic response structures; a hand-crafted object might diverge from the actual API behavior."
+    },
+    {
+      "behavior_id": 3,
+      "description": "After wait, client resends original request and returns successful result transparently",
+      "minimum_level": "Integration",
+      "justification": "Tests the full retry cycle (rate-limit response → wait → resend → success). The coordination between timing logic and HTTP retries is complex enough that mocking each part in isolation (Unit) risks missing integration bugs.",
+      "test_description": "Use nock + Jest fake timers. Mock first HTTP call to return 429 with 'Retry-After: 100ms', second call to return 200 with original response. Advance fake time by 100ms. Verify client resends request and returns the 200 response (body and status intact) without throwing.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Both mock HTTP and fake timers are required to simulate the realistic flow; either missing would not adequately test the integration boundary."
+    },
+    {
+      "behavior_id": 4,
+      "description": "After max retries, client returns typed QuotaExhaustedError instead of generic error",
+      "minimum_level": "Unit",
+      "justification": "Pure error-handling logic: count failures and throw the correct error type. Mocked HTTP client (always returning 429) is sufficient to exhaust the retry limit and trigger the error.",
+      "test_description": "Mock the HTTP client to always return 429. Set maxRetries to 2. Attempt a request. Verify the promise rejects with an instance of QuotaExhaustedError (not generic Error), and error message includes attempt count and API details.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Error type verification is a pure logic check; no I/O or concurrency involved."
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain terminates correctly and does not loop indefinitely",
+      "minimum_level": "Integration",
+      "justification": "Testing termination requires simulating multiple retry cycles to detect infinite loops or hangs. Both fake timers (to advance through wait periods) and mock HTTP (to control responses) are needed to exercise the full path.",
+      "test_description": "Use nock + fake timers. Mock HTTP to return 429 (Retry-After: 100ms) for 5 consecutive calls. Set maxRetries to 4. Advance fake time through all retry windows. Verify promise rejects after exactly 4 retries (5 total calls) within 400–500ms, with no hangs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing for hangs and infinite loops requires simulating the complete retry sequence; a Unit test of the backoff logic alone would not catch control-flow bugs."
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Concurrent access to shared quota state is prone to race conditions and synchronization bugs that pure in-process mocks often miss. Real async/await is required to expose ordering and atomicity violations.",
+      "test_description": "Create two concurrent async requests (A, B) from the same client. Mock A to receive 429 (Retry-After: 100ms), then 200 on retry. Mock B to succeed immediately. Verify both eventually succeed and the quota bucket prevented simultaneous rate-limited calls (A and B did not both hit 429).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real async/await with shared state is essential; a Unit test with fake concurrency might miss synchronization bugs that only surface under genuine concurrent scheduling."
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to retry, they are dispatched in the order they were originally submitted (FIFO)",
+      "minimum_level": "Integration",
+      "justification": "FIFO ordering under async concurrency is subtle and easily broken by queue implementation bugs (e.g., using a Set instead of an array). Real async/await with fake timers is needed to verify the queue order under realistic scheduling.",
+      "test_description": "Create three concurrent async requests (A, B, C) from the same client. Mock A and B to return 429 (Retry-After: 100ms), C to return 200 immediately. Advance fake time to trigger A and B retries. Assert nock call order shows C first, then A, then B, confirming FIFO dispatch of retry queue.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing queue order under concurrency requires real async/await; pure Unit mocks might not expose ordering bugs that depend on JavaScript event loop scheduling."
+    }
+  ]
+}

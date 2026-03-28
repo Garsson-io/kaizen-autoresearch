@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cron parser rejects invalid expressions (month 13, day 32, malformed syntax) with descriptive error messages",
+      "minimum_level": "Unit",
+      "justification": "Parsing is deterministic local logic with no I/O. All inputs (cron string) are controlled, and validation rules are fixed. Mocking cannot hide parsing bugs because the logic is pure computation within one function boundary.",
+      "test_description": "Call parser with invalid cron expressions (month: 13, day: 32, invalid day-of-week, missing fields, extra fields). Verify each returns a specific error message that names the invalid field and explains why it failed (e.g., 'month out of range [0-11]' or 'expected 5 fields, got 3').",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit level is correct. This is pure parsing validation with no external dependencies or I/O."
+    },
+    {
+      "behavior_id": 2,
+      "description": "Next-run-time calculator returns correct timestamps for standard cron expressions, including edge cases like 'last day of month' and 'nearest weekday'",
+      "minimum_level": "Unit",
+      "justification": "Time computation is deterministic given fixed inputs (cron expression + start time). No OS, network, or LLM dependency. We control all inputs and can verify against known-correct timestamps for each edge case (e.g., Feb 28→29, month-end boundaries, weekend-to-weekday adjustments).",
+      "test_description": "Parametrized unit tests covering: (1) standard monthly/weekly expressions with various start dates, (2) last day of month (28, 30, 31) with leap year, (3) nearest weekday when 15th falls on Sat/Sun, (4) DST date transitions (test that schedule is computed before DST-handling). Each test compares computed run times against known-correct values for 5–10 future runs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit is correct. Even edge cases like 'last day of month' are deterministic given controlled inputs. We don't need real system time or calendar library behavior beyond what we can control in tests."
+    },
+    {
+      "behavior_id": 3,
+      "description": "Overlap detector identifies when two schedules would fire within the configured minimum gap (e.g., 5 minutes) and reports conflicting time windows",
+      "minimum_level": "Unit",
+      "justification": "The detector receives pre-computed schedules (lists of timestamps) as input. Overlap detection is pure comparison logic: iterate both schedules, find pairs where fire times are within the gap window. No I/O, no external dependency, no non-determinism. Mocking the calculator is not needed; we create test Schedule objects directly.",
+      "test_description": "Unit tests with real Schedule objects (not mocked). Test cases: (1) two non-overlapping schedules (gap > minimum), (2) two overlapping schedules (multiple overlaps detected), (3) edge case: exactly at gap boundary (5:00 and 5:05, gap=5m), (4) edge case: same schedule twice (complete overlap), (5) one schedule much sparser than other. Verify detector returns correct set of overlapping time windows and their durations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit is correct for the detector logic itself. The detector takes Schedule objects as input and outputs an overlap report. The logic is pure comparison. Integration tests would be valuable to verify detector + calculator together, but Unit tests are sufficient to catch real detector bugs."
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across DST transitions—a job scheduled for 2:30 AM handles spring-forward gap and fall-back ambiguity correctly",
+      "minimum_level": "System",
+      "justification": "Correctness depends on real timezone database (pytz, zoneinfo, tzdata package). Mocking the timezone library would hide real DST bugs—e.g., a test with mocked pytz could pass but fail in production with real DST rules. The OS timezone data is the source of truth for when DST transitions occur, and we cannot predict behavior without it.",
+      "test_description": "System tests that compute run times for jobs scheduled at 2:30 AM in a timezone with confirmed DST transitions (e.g., US/Eastern: spring-forward March 2026, fall-back Nov 2026). Start time just before transition, compute next 5 run times. Verify: (1) no run at 2:30 AM on spring-forward date (gap is skipped or time is normalized), (2) two 2:30 AM runs on fall-back date if policy allows, or correct disambiguation based on policy, (3) run times before/after transition are in correct UTC offset.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System is correct and necessary. Unit or Integration tests with mocked timezones would pass even if DST handling is broken. Real timezone data from the OS is required to catch DST bugs."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a scheduled job's computed next run time has already passed (system was down), the engine determines whether to skip or backfill based on the job's configured missed-run policy",
+      "minimum_level": "Unit",
+      "justification": "The decision logic is deterministic: given (next_run_time, current_time, policy) the engine applies a fixed rule. No I/O, no external dependency, no non-determinism. We control all three inputs and can verify the correct action (skip/backfill) is taken for each policy type.",
+      "test_description": "Parametrized unit tests: (1) missed_count = 0 (next_run not passed), verify no backfill, (2) missed_count > 0 with policy=SKIP, verify no backfill, (3) missed_count > 0 with policy=BACKFILL, verify missed runs are queued, (4) policy=BACKFILL with max_backfill_count=3, verify only 3 oldest missed runs are queued. Inputs: scheduler config (policy + max_backfill), next_run_time (controlled, e.g., 1 day ago), current_time (controlled, e.g., now). Verify correct action taken without mocking current-time logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit is correct. The policy logic is a pure decision rule applied to controlled inputs. No system time, no I/O, no external call needed. Test data can be created using model classes with fixed timestamps."
+    }
+  ]
+}
