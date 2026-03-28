@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The conversation history passed to the LLM is trimmed to the most recent 10 messages when the full history exceeds the context window.",
+      "minimum_level": "Unit",
+      "justification": "The trimming logic is pure computation with no I/O. A unit test using a mocked LLM client can directly verify that the LLM was called with exactly the trimmed history by inspecting call arguments. A mock cannot hide this failure because the assertion is on what arguments were passed to the mock.",
+      "test_description": "Mock the LLM client. Create a conversation with 15 messages. Call generate_response(). Assert that the mocked LLM was called with exactly 10 most recent messages (not all 15). Verify via mock.assert_called_with(messages=expected_10_trimmed) or equivalent.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Challenged: Could HTTP serialization errors sneak past a mock? Yes, but that's outside the scope of this unit. The behavior is about what history is 'passed to the LLM', which a call-args assertion verifies directly. Serialization bugs are caught by integration tests of the full HTTP flow."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests semantic correctness of LLM output—whether the model's response is actually relevant to the question. A mocked LLM always passes: you can mock it to return any garbage string and your test will pass. To catch the real failure (LLM returns off-topic or generic text), you need the actual model to generate a response and evaluate it for relevance.",
+      "test_description": "Call generate_response() with a real LLM using diverse test questions (e.g., 'What is my account balance?' for a finance chatbot, 'How do I reset my password?' for support). Evaluate responses using semantic similarity scoring, LLM-as-judge evaluation, or comparison to gold-standard answers. Assert relevance score > threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocking the LLM hides the failure. Agentic level is non-negotiable here."
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "This tests the tone classifier's accuracy. Assuming the tone check is LLM-based (common in modern systems), a mocked classifier always succeeds—you can return any label. To catch the real failure (classifier mislabels a response's tone), you need the real tone-checking model. The regeneration trigger logic itself is simple, but it can't be tested in isolation without verifying the tone check works correctly.",
+      "test_description": "Test the tone checker with real LLM-generated responses spanning formal and casual styles. Use responses labeled with gold-standard tones. Call the tone checker and verify it correctly identifies formal vs. casual. Then test: given a too-formal response for a casual customer, verify regeneration is triggered and a casual-toned response is generated.",
+      "plan_consistent": false,
+      "plan_consistent_note": "Assumes tone check is LLM-based. If it's rule-based (regex, keyword matching), Unit testing is sufficient. However, LLM-based tone checking is the more common/robust pattern, so Agentic is the safer assumption for 'minimum level.'"
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires a real (or test) database. Mocking the DB hides persistence failures: missing fields, wrong schema, data corruption, or null timestamps. An integration test with a real test database can verify that the actual data structure is correct, all fields are populated, and timestamps are valid.",
+      "test_description": "Integration test: call generate_response() with a test LLM. Query the test database directly. Verify: (1) user message is stored, (2) generated response is stored, (3) if regeneration occurred, both responses are logged with regeneration metadata, (4) all timestamps are present, in correct order, and match the actual generation times.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Challenged: Could concurrency bugs or DB replication failures be missed? Yes, but those are system-level concerns outside the scope of this chatbot code. Timestamp timezone issues would be caught by this integration test using real clock values."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Integration",
+      "justification": "Tested in isolation, this is replacement/replacement logic: IF tone check flags a response, THEN the second generated response is shown (not the first), and the draft is not in the DB or customer-facing response. This can be tested by mocking the tone checker and LLM, then verifying the replacement logic works. However, the real failure (customer sees a rejected draft because tone check never triggers) requires Agentic testing of the full pipeline.",
+      "test_description": "Mock the LLM to return response1, then response2 on regeneration. Mock the tone check to flag response1 as 'too formal'. Verify: (1) only response2 is returned to customer (not response1), (2) response1 is not in the response body or marked as final in the database, (3) response2 has correct metadata linking it to the original response1.",
+      "plan_consistent": false,
+      "plan_consistent_note": "This Integration test verifies the replacement logic works, but misses the real failure: tone check never triggers, so customer still sees the bad response. Full end-to-end testing (Agentic) with a real tone check is needed to verify the complete behavior. Behavior 5 tests the 'then' part; behavior 3 tests the 'when' part."
+    }
+  ]
+}

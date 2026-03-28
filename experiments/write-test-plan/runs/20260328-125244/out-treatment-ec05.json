@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by filename prefix",
+      "minimum_level": "Integration",
+      "justification": "The ordering logic itself could be unit-tested by mocking `execute()` calls and verifying call order. However, the real failure is in the integration: lexicographic vs. numeric sort (01, 02, 10 could become 01, 10, 02), file system enumeration order, or the filename parser missing edge cases. Testing against a real test database verifies the full chain from file discovery → parse → sort → execute, catching bugs that a mock-only test would hide.",
+      "test_description": "Create migration files 01_initial.sql, 02_tables.sql, 10_indexes.sql, 20_final.sql. Execute runner against test PostgreSQL. Verify database state reflects execution in correct order: initial step created first, then tables, then indexes, then final. Use schema snapshots or metadata checks to prove order.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration already applied is not re-executed on subsequent run",
+      "minimum_level": "Integration",
+      "justification": "Unit mocking of the idempotency-check query could verify function calls, but misses real failures: Does the `_migrations` table actually persist state between runs? Is the SELECT query correct? Is there a race condition where two reads of the table happen before either write? Integration with a real test database catches bugs in state persistence and the check-before-execute pattern.",
+      "test_description": "Run migration suite (3 migrations) against test PostgreSQL. Verify _migrations table has 3 entries. Run runner again. Verify _migrations still has exactly 3 entries (no duplicates). Verify test data from first migration was not duplicated (e.g., table row counts stable). Check runner logs show 'skipping' messages for already-applied migrations.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration fails, its changes roll back and no further migrations in the run execute",
+      "minimum_level": "Integration",
+      "justification": "Pure mocking of transaction.rollback() cannot verify that actual database changes are undone. Real failures: error handler doesn't trigger rollback; runner catches error but continues to next migration; partial commit; constraint violation prevents rollback. Test must use real PostgreSQL test instance to verify ACID semantics and transaction boundaries.",
+      "test_description": "Create 3 migrations: valid, invalid SQL syntax, and another valid. Execute against test PostgreSQL. Verify: (1) first migration's effects persist (table created), (2) second migration created no table (rolled back), (3) third migration never executed, (4) _migrations table only records first migration. Check test database state confirms rollback via schema inspection.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two runner instances start simultaneously, each migration is applied exactly once across both processes",
+      "minimum_level": "System",
+      "justification": "In-process threads or promises cannot reproduce real concurrency failures: database lock contention, lock timeouts, file system race conditions on migration file discovery, or process crash during critical section. Real failures occur at OS/database boundary: two processes both read 'migration not in _migrations' simultaneously, both execute same migration, or deadlock on lock acquisition. Requires spawning actual separate processes against shared PostgreSQL.",
+      "test_description": "Write Node.js script that spawns two independent processes, each running the migration runner against same test PostgreSQL with 5 migrations. Add artificial 100-200ms delays in the runner's check-before-execute path to increase race window. Verify after both processes exit: _migrations has exactly 5 entries, no duplicates. Query table row counts to confirm no migration was applied twice. Run test 10+ times; concurrency bugs often appear intermittently.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 5,
+      "description": "On first run against fresh database, _migrations table is created before any migration file is applied",
+      "minimum_level": "Integration",
+      "justification": "The core behavior—table-before-migrations ordering—can be verified with a single-process test and real database. A unit mock could verify function call order, but misses: Does _migrations actually get created first, before schema migrations? Can first migration queries execute if table doesn't exist? Does table creation fail silently? Integration test against fresh test database confirms initialization sequence. (Concurrent initialization race conditions are covered separately in behavior 4's System test.)",
+      "test_description": "Start with empty PostgreSQL test database. Run migration suite for the first time. Verify: (1) _migrations table exists after runner completes, (2) _migrations contains entries for all migrations, (3) no errors during migration execution, (4) test data from migrations is present. Repeat with database.reset() to test cold-start scenario multiple times.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    }
+  ]
+}

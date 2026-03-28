@@ -1,0 +1,49 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide",
+      "minimum_level": "Unit",
+      "justification": "The key generation function is pure — deterministic hashing with no I/O, external state, or side effects. A mock won't hide the failure; the failure IS in the function itself. Unit test with parameterized identical/different parameter sets directly tests the hashing correctness.",
+      "test_description": "Parameterized unit test: call key generation with identical parameter sets (verify same output), different parameter sets (verify different outputs), and edge cases (parameter ordering, special characters, URL encoding edge cases)",
+      "plan_consistent": true
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour)",
+      "minimum_level": "Integration",
+      "justification": "The behavior includes loading and parsing the freshness configuration, then applying the rule. A unit test with mocked config could use an incorrect mock that masks real parsing failures (malformed config, wrong schema, schema migration issues). Integration test loads real config file, verifies it parses, then tests TTL computation end-to-end.",
+      "test_description": "Load actual freshness configuration file from disk, iterate over each data category, call TTL computation for a sample query, verify returned TTL matches the configured rule for that category",
+      "plan_consistent": false,
+      "plan_consistent_note": "If freshness rules are fetched from a database at query time (not pre-loaded), this becomes System-level: must test against real database, handle network latency, and test concurrent rule updates. Assuming static/infrequently-reloaded configuration for this test level."
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration",
+      "minimum_level": "System",
+      "justification": "Memory measurement is inherently OS-dependent (JVM heap size, process RSS, or container memory limits). A mocked memory measurement could pass while real memory-pressure detection fails on the target platform. System test must actually allocate memory and verify the real OS memory usage triggers the strategy switch.",
+      "test_description": "Start application with constrained memory limit (e.g., -Xmx via JVM options), populate cache with entries until actual memory usage exceeds configured threshold, monitor system memory metrics (JVM heap, RSS), verify eviction strategy switches to LFU when threshold is crossed",
+      "plan_consistent": false,
+      "plan_consistent_note": "If threshold is based on logical cache size (entry count, total bytes stored) rather than physical OS memory, this downgrade to Integration is justified. Assuming threshold monitors real OS memory (most realistic for production caching layers). Concurrency testing under load would require additional System-level threading tests."
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows",
+      "minimum_level": "Integration",
+      "justification": "Tests the integration between application cache and database. Real database writes must trigger real cache invalidation. Mocked database could hide failures in the write-detection/notification mechanism (listener not fired, key matching is wrong, cache clear failed). Integration test writes to actual PostgreSQL, verifies cache entries are invalidated.",
+      "test_description": "Populate cache with entries for specific database rows, perform INSERT/UPDATE/DELETE on those rows in real PostgreSQL, verify corresponding cache entries are invalidated (removed or marked stale) while unrelated cache entries remain",
+      "plan_consistent": false,
+      "plan_consistent_note": "If invalidation uses PostgreSQL triggers or the LISTEN/NOTIFY mechanism (real database notifications), this becomes System-level: actual trigger firing and network-based notifications must work. If invalidation is asynchronous, concurrency testing (race between cache read and invalidation) requires additional System-level testing."
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full",
+      "minimum_level": "Integration",
+      "justification": "Tests the full eviction lifecycle: populate cache, perform operations to establish access patterns, trigger eviction when full, verify correct entries are removed. Unit test with constructed cache state could miss failures in how access frequency/recency is tracked during real operation sequences. Integration test exercises realistic access patterns and verifies tracking accuracy.",
+      "test_description": "Populate cache to capacity with entries, perform a sequence of get/put operations with different access patterns (some frequently accessed, some not), trigger eviction, verify LRU/LFU policy removes least-accessed entries according to actual recorded access history",
+      "plan_consistent": true
+    }
+  ]
+}

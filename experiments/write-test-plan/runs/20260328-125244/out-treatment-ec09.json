@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "The failure is not just that validation happens, but that the plugin's entry module is never imported and executed. A unit test spying on require() only verifies the call wasn't made; it doesn't prove module code never runs. Real failure: the module could execute side effects (modify globals, write files) before rejection. To catch this, the test must verify that a real plugin file with observable side effects (e.g., writes a flag file on load) never executes those side effects despite invalid manifest.",
+      "test_description": "Create a real plugin directory with an invalid manifest (missing 'name' field) and an entry module that writes to a temp file on require. Attempt to load the plugin and verify: (1) loader rejects the manifest, (2) the temp file was never created. This proves module code never ran.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test with mocks would pass if it only checks that require() wasn't called, but could miss if module is require'd for other reasons or if there's delayed side effect execution. Integration test catches the actual failure: code execution."
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Unit",
+      "justification": "The failure is in the order of onLoad invocations, which is determined by the loader's dependency resolution algorithm (topological sort). A unit test can mock plugin manifests and spy on onLoad hook calls to verify ordering. The failure is algorithmic—if B is called after A, a mock test catching call order detects it. There's no sequencing/timing issue here since the loader is synchronous.",
+      "test_description": "Mock two plugins: A declares dependency on B. Spy on their onLoad hooks using a call tracker or test doubles. Call the loader. Assert that B.onLoad was called before A.onLoad by inspecting call order in the spy.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Could Integration testing catch other failures (e.g., B not being available/initialized when A's onLoad runs)? Yes. But the stated behavior is only about call order, which is algorithmic and testable at unit level. A mock won't miss the specific failure: wrong order."
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Unit",
+      "justification": "Cycle detection is a pure graph algorithm. It takes manifests (which can be mocked) and returns a decision: cycle detected / not detected. There's no I/O side effect, no module loading sequencing, no async behavior. A unit test can mock manifests with mutual dependencies and verify the loader rejects both and reports the cycle.",
+      "test_description": "Mock two plugins: A depends on B, B depends on A. Call the loader's cycle detection logic. Assert: (1) neither plugin's onLoad is invoked, (2) loader returns a cycle-detected error with both plugin names.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Hard to challenge—it's a pure algorithm. A mock test is sufficient and won't miss the failure."
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "The failure is about the sequencing of import-then-execute-then-onLoad. To verify the module is actually executed (not just require'd), the test must check for side effects—code that runs during module load. A unit test spying on require() only shows the call happened; it doesn't prove the module code ran. Real failure: the loader might call onLoad before the module's initialization code completes. To catch this, create a real plugin whose module sets a flag or writes to a file during load, then verify that flag/file exists before onLoad runs.",
+      "test_description": "Create a real plugin module that sets a process.env variable or writes to a file when required. Create a mock onLoad hook that checks this flag/file exists. Load the plugin. Assert: (1) the flag/file is set, (2) onLoad was called after the flag was set. (Alternatively, use a second mock that fails if called before flag is set.)",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test with spy on require() would pass even if real module code never executes. Integration test catches the real failure: module initialization happens before onLoad."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the loader's error handling and dependency-aware recovery. While you could mock plugins and one mock throws, you need to verify real error propagation behavior. Real failures: (1) loader stops on first error instead of continuing, (2) loader doesn't check dependencies after error (loads plugins that depend on the failed one), (3) async error handling (promises) breaks the control flow. A unit test with mock plugins might not trigger the real error handling paths (try/catch, promise rejection handling, cleanup). Integration testing with real plugins ensures error behavior is realistic.",
+      "test_description": "Create three real plugins: A, B (depends on A), C (no dependencies). Create A's onLoad to throw an error. Create spy/test doubles for B's and C's onLoad hooks. Load the plugins. Assert: (1) loader catches A's error and logs/reports it, (2) B's onLoad is never called (depends on failed plugin), (3) C's onLoad is called (independent).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test with mock throwing could pass if the mock doesn't trigger real error handling. For example, if the loader uses `await plugin.onLoad()` and error handling relies on promise rejection, a synchronous mock might not trigger the same code path. Integration test ensures error handling is tested realistically."
+    }
+  ]
+}

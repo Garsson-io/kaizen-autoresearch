@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the service code's ability to extract and validate signatures from generated code. This requires wiring together: (1) code parsing/AST analysis, (2) signature extraction, (3) type checking against the interface spec. Mock the LLM to return various code snippets (including edge cases like missing args, wrong types, unparseable syntax) and verify the extraction and validation logic handles them correctly.",
+      "test_description": "Parameterized test: mock LLM returns functions with correct signature, missing parameters, wrong types, incorrect return type, non-Python syntax. Verify extraction logic correctly identifies valid/invalid signatures and comparison against spec works for all cases.",
+      "plan_consistent": false,
+      "plan_consistent_note": "Integration test mocking the LLM might pass even if real LLM generates code that breaks the parser (e.g., syntax variations, type hints the parser doesn't expect). To truly catch parser failures with real LLM diversity, needs Agentic level with actual model calls."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is code execution: does the generated code actually work when run? This requires subprocess execution with a real Python runtime, real test discovery and execution (pytest, unittest, etc.), and real I/O if tests exercise it. Cannot mock the code executor and test runner—doing so hides failures where code is syntactically valid but fails at runtime.",
+      "test_description": "End-to-end test: call service with a function specification, capture generated code, execute it in a subprocess against the provided test suite, parse test results. For first-attempt success, verify all tests pass. For retry scenarios, generate code that fails first attempt (by design or by real execution), verify tests fail, then verify retries eventually pass.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level with real subprocess execution and test framework catches genuine execution failures. Mocking would miss: imports missing in generated code, runtime type errors, missing dependencies, and test discovery issues."
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the service's message-passing logic: test failure output must be captured and included in the next LLM prompt. This is in-process, deterministic logic. Mock the test runner to return failures (with realistic error messages), mock the LLM API call, and verify the second prompt includes the failure text. Check that the failure context is not lost, truncated, or malformed.",
+      "test_description": "Test with mocked test execution that fails, then verify the prompt passed to the second LLM call (captured via mock assertion) includes the exact failure message. Test edge cases: very long error messages, multiline output, special characters, multiple failures from multiple tests.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration with mocked test runner and LLM call captures the real failure: message-passing code is broken. The one thing it might miss—real LLM API timeout or network failure preventing the second call—is a System concern (real HTTP), not part of this behavior's logic."
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the retry counter and error response serialization. Mock the LLM to always return failing code, mock the test runner to always return failures, run the service, and verify: (1) exactly 3 LLM calls are made, (2) exactly 3 test runs occur, (3) the error response includes all 3 code attempts, (4) each attempt's test results are present and accurate.",
+      "test_description": "Mock LLM and test runner to always fail. Run service. Assert mock LLM called exactly 3 times. Assert mock test runner called exactly 3 times. Assert response status code indicates failure. Assert response contains array of 3 attempts, each with (attempt_number, generated_code, test_results). Verify no 4th attempt occurs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration catches the real failure: retry loop logic or error response structure is broken. Would miss: rate limiting or timeout on the 3rd real API call, but that's System level (real network). The loop and response logic are in-process and testable at Integration."
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "This requires multiple agentic steps in sequence: (1) LLM generates code, (2) test execution occurs, (3) failure messages feed back to LLM, (4) LLM refines, (5) test execution again. The behavior explicitly depends on 'a function that a single LLM call typically gets wrong'—meaning the function is inherently hard and requires the refinement loop to succeed. This is not testable with a mock LLM that always generates correct code; real LLM calls are needed to validate that refinement actually improves a failing solution.",
+      "test_description": "End-to-end test with real LLM calls and real code execution. Select a function specification where baseline single-call LLM attempts tend to fail (e.g., a known-hard problem type or empirically difficult function). Run service with 1-3 iteration budget. Verify: (1) first attempt fails tests, (2) subsequent attempts improve, (3) final attempt passes all tests. Repeat with multiple LLM seeds to account for non-determinism.",
+      "plan_consistent": false,
+      "plan_consistent_note": "A Workflow test with mocked LLM calls could pass even if real LLM refinement fails, because a mock can be designed to always refine perfectly. The real failure—'real LLM refinement doesn't actually improve code'—requires actual model calls with real non-determinism. With mocks, you might test the loop orchestration is correct but miss that the refinement strategy doesn't work against real models."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 ---
 id: challenge-your-choice
 title: Replace self-check with adversarial challenge — "argue why your choice is WRONG"
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:

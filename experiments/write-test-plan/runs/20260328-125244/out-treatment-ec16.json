@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the filtering logic: we analyze files we shouldn't. This requires testing the boundary between the GitHub API (which returns changed files) and the analyzer (which processes them). A pure Unit test of filtering logic could pass while masking failures in how we fetch the changed file list. Integration testing with a mocked GitHub API and real filesystem reveals bugs in diff parsing, file selection, and API integration.",
+      "test_description": "Mock GitHub API to return a specific set of changed files (e.g., [a.py, b.py]). Set up a test filesystem with more files (a.py, b.py, c.py, d.py). Run the analysis and verify that only a.py and b.py are passed to the linter, and c.py/d.py are never analyzed.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Integration",
+      "justification": "The real failure spans two concerns: (1) grouping logic (purely in-process) and (2) posting to GitHub (requires API integration). A Unit test would verify grouping but miss failures in the GitHub API call (wrong parameters, malformed payload, missing auth). Integration testing with a mocked GitHub API endpoint verifies that the comment is formatted correctly AND the API is called with the right parameters. Environment-specific auth failures would only appear in System testing, but the core behavior is testable at Integration.",
+      "test_description": "Run the linter to generate findings with mixed severity levels (e.g., 3 errors, 2 warnings, 1 info). Mock the GitHub API's 'create comment' endpoint. Verify that (1) findings are grouped correctly, (2) the mock POST was called once with a comment containing grouped findings in the correct format, and (3) the PR ID is correct in the request.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "Performance is inherently environment-dependent. The failure occurs when the action runs in GitHub Actions and times out. Local Integration testing (running analysis on 200 files locally in 2 minutes) does not guarantee the 10-minute claim in CI—GitHub Actions runners may be slower, network calls add latency, and disk I/O differs. The 10-minute timeout is a CI-specific constraint tied to the Actions runtime, not just algorithmic correctness. Only running in actual GitHub Actions measures the real failure boundary.",
+      "test_description": "Set up a real or simulated PR with 200 changed files. Run the CI action. Measure wall-clock time from start to completion. Verify that total time (fetch changes + run linter + group findings + post comment) is under 10 minutes. Document baseline timing and regression thresholds so that future code changes can be checked against this performance contract.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "Integration",
+      "justification": "The core failure mode is: 'linter crashes on file A, analysis stops, results are not posted.' This is primarily an error-handling and control-flow issue, not a subprocess-level signal handling issue. Integration testing with a controlled failure (mocked subprocess error or a real test linter that crashes on a known malformed file) reveals whether error handling and continuation logic work. Mocking the linter's exit code or exception covers the essential logic; real subprocess signal handling edge cases are diminishing returns. Integration avoids the cost of building subprocess crash scenarios while catching the main risks.",
+      "test_description": "Create a file set [A, B, C, D] where file A is malformed and will cause the linter to crash (use a real linter with actual bad syntax, or mock it to raise an exception). Run analysis. Verify that files B, C, D were analyzed, results for them are in the output, and results are posted to GitHub. Assert that the error from file A is logged but does not block the pipeline.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Integration",
+      "justification": "While the deduplication algorithm itself could be tested in isolation (Unit), the phrase 'from overlapping rules' signals that the real failure occurs when multiple rules generate findings on the same line. A Unit test with hand-crafted mocked findings might pass even though real rule output has an unexpected format (e.g., different key names, additional fields) that breaks deduplication. Integration testing runs real linter rules and verifies that their findings (in the actual format they produce) are correctly deduplicated. This catches format mismatches and edge cases that mocks would hide.",
+      "test_description": "Set up test code that triggers multiple overlapping linting rules on the same line (e.g., both a style rule and a complexity rule flag the same function). Run the full analysis pipeline. Collect all findings. Verify that (1) duplicate findings on the same line are removed (only one copy remains), (2) unique findings on the same line are preserved (both rule violations appear if they are distinct), and (3) the final output to GitHub contains no redundant entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    }
+  ]
+}
