@@ -1,9 +1,10 @@
 # Autoresearch Program: Write-Test-Plan
 
-Goal: Maximize test level classification accuracy — get weighted avg score to ≥75 on 10-task corpus
+Goal: Minimize weighted cross-entropy loss on 30-task classification corpus
 Scope: experiments/write-test-plan/prompts/treatment.md
-Metric: Weighted average score 0–100 (higher is better)
-Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score'
+Metric: Weighted cross-entropy loss (lower is better) — see discussion #3
+Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.loss'
+Legacy metric: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' (0–100, higher is better)
 
 ---
 
