@@ -15,6 +15,7 @@ a real failure — not just to verify happy-path logic.
   - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
+    Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your

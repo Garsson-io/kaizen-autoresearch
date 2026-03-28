@@ -95,3 +95,17 @@ Read this before iterating. These are the ways the process itself broke, not the
 **Counter-hypothesis** (from user): the prompt is small enough that a few lines don't matter. Being too conservative means never making the structural changes that could produce breakthroughs. The right approach may be to make larger changes, let the prompt grow, THEN experiment with pruning once it's working well.
 
 **Evidence needed**: try a medium-effort idea (e.g. few-shot-worked-examples) and see if the size penalty is real or just noise from bad ideas.
+
+---
+
+### Noise floor is ~3% on score, loss baseline not yet established
+
+**Status**: confirmed (1 data point, needs replication)
+
+**What happened**: Run 20260328-142302 used the exact same treatment.md as baseline (no uncommitted changes) and scored 86.4% (loss 454.16) vs baseline 89.5%. Delta of -3.1% from pure LLM noise.
+
+**Implication**: The two "kept" changes (minimize-bias-reframe +2.7%, mock-exposes-nothing +2.0%) are within the noise floor. They may not have been real improvements. Score-based keep/discard decisions with delta < 3% are unreliable.
+
+**New metric**: Loss (cross-entropy) from calibrated level_probabilities is now available. Old runs had degenerate probabilities ({level: 1.0, others: 0.0}) making their loss values meaningless. Run 20260328-142302 (loss 454.16) is the first usable loss baseline.
+
+**Lesson**: Use loss as primary metric going forward. Establish loss noise floor by running the same prompt twice.
