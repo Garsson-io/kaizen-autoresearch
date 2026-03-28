@@ -6,7 +6,7 @@ a real failure — not just to verify happy-path logic.
 - **LEVEL-DEFS** — choose the level that matches the real failure boundary:
   - **Unit** — one local function or object boundary, no I/O
   - **Integration** — several modules wired together, local DB or filesystem
-  - **System** — subprocess, OS behavior, real HTTP, or real external API call
+  - **System** — subprocess, OS behavior, real HTTP, or real external API call (e.g., a mock returning 503 tests your retry logic, but only real calls expose timeouts, TLS errors, and response formats that mocks don't reproduce)
   - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs)
   - **Workflow** — multiple agentic steps in sequence, or a full agent pipeline
 
