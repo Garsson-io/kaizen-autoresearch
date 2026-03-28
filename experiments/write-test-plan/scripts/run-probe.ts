@@ -133,13 +133,13 @@ function runProbe(opts: {
   prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
 
   // Run claude -p with stdin piped from prompt string
+  // --max-turns 1: probe needs exactly one response (structured output), no tool use
   const result = spawnSync("claude", [
     "-p",
     "--json-schema", PROBE_SCHEMA,
     "--output-format", "stream-json",
     "--verbose",
-    "--dangerously-skip-permissions",
-    "--max-turns", "3",
+    "--max-turns", "1",
     "--model", opts.model,
   ], {
     input: prompt,
@@ -153,6 +153,10 @@ function runProbe(opts: {
   if (!stdout && result.status !== 0) {
     throw new Error(`claude -p exited ${result.status}: ${result.stderr?.slice(0, 500)}`);
   }
+
+  // Save raw stream-json log next to the output file for debugging
+  const logFile = opts.outFile.replace(/\.json$/, ".log");
+  writeFileSync(logFile, stdout, "utf-8");
 
   // Extract StructuredOutput tool_use input from stream-json
   let structuredInput: unknown = null;
