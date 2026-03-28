@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is a local cryptographic operation (HMAC-SHA256 comparison). The failure — invalid signature passing through or being accepted — can be caught by testing the validation logic in isolation with test vectors (correct signature, wrong signature, malformed header). No I/O, concurrency, or external services are required. A Unit test with real crypto (not mocked) verifies the algorithm is correct and the comparison is timing-safe.",
+      "test_description": "Create a webhook request with a known body. Compute the correct HMAC-SHA256 signature using the configured secret. Send the request with an incorrect signature (e.g., wrong digest, missing header). Verify the handler returns 401 and does not enqueue the event. Also test edge cases: empty body, null header, algorithm mismatch.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is timing/ordering: the response must not be sent until the queue write completes. A Unit test with a synchronous mock queue would pass even if the handler code doesn't actually await the queue operation — in production, the async queue would mean the response goes out before the write finishes. The handler must be tested with a realistic (async) queue to catch the bug where `await` is missing or the response is sent too early. Integration testing with real queue I/O ensures the handler actually waits.",
+      "test_description": "Use the actual persistent queue (or a queue stub that realistically delays writes via promises). Call the handler with a valid event. Instrument the handler and queue to record the exact order of operations: queue.write() call, queue.write() completion, res.status(200) call, and response transmission. Verify the response does not transmit until after the queue write completes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Unit",
+      "justification": "The failure is a code-level error: the handler awaits downstream processing when it shouldn't. This can be caught by mocking both the queue and the downstream handler, then verifying the handler returns (sends 200) immediately after enqueuing, not after downstream completes. The bug is in the handler's control flow, not in interactions with real infrastructure.",
+      "test_description": "Mock the queue to resolve immediately (synchronously is fine here since we're testing handler logic, not queue behavior). Mock the downstream handler to simulate a slow operation (e.g., sleep 5 seconds). Call the handler and record the timestamp of the 200 response. Verify the response arrives before downstream processing starts or completes. If the handler incorrectly awaits downstream, the test will timeout or the response will be delayed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.13,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is real concurrency and timing. A Unit test cannot detect if the handler serializes requests or has contention on shared resources (locks, thread pool exhaustion) under concurrent load. Real wall-clock timing and multiple simultaneous requests are required to expose handlers that block on earlier events or have insufficient concurrency. The queue must be real (or realistic) to measure actual latency under load.",
+      "test_description": "Launch multiple concurrent HTTP requests to the handler. Configure earlier requests to trigger slow downstream processing (mocked to take 2+ seconds). Launch later requests immediately after. Measure wall-clock response time for each. Verify all responses (including later ones) arrive within 3 seconds. Repeat the test multiple times to account for variance in timing. If the handler serializes, later requests will timeout.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "The failure is a concurrency bug: deduplication logic is likely distributed (backed by Redis, database, or a persistent store) and must handle concurrent requests. A Unit test with an in-memory mock would miss the race condition where two concurrent requests both check for the ID, both see it missing, and both enqueue. The real deduplication store must be involved to expose the race.",
+      "test_description": "Send two identical events (same ID) concurrently to the handler. Use the actual persistent deduplication store (Redis, database, or in-process distributed lock). Verify that exactly one event is written to the queue, not two. Repeat with higher concurrency (10+ concurrent identical requests) to stress-test for atomicity violations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "The failure is a missing error handler or incorrect response code/headers when the queue is at capacity. This must be tested against the real queue (or a queue with genuine capacity limits) to trigger the 'full' condition. A mock that always succeeds cannot expose missing error handling, and a mock that returns a generic error might miss the specific 503 + Retry-After requirement.",
+      "test_description": "Fill the persistent queue up to its configured capacity limit using real or integration-test writes. Send a new webhook request. Verify the handler catches the queue-full error, returns HTTP 503, includes a Retry-After header (with a reasonable value, e.g., 60 seconds), and does not enqueue the event.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.86,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "System",
+      "justification": "This test is not of the handler, but of the queue infrastructure itself. The queue is a separate subsystem (likely an external service like RabbitMQ, Redis, or a managed queue). To verify it enforces capacity, the test must interact with the real queue via its real API and attempt to exceed its limit. If the queue is a local in-process data structure, this could be Integration; if it's a subprocess or external service, it is System.",
+      "test_description": "Configure the queue with a known capacity limit (e.g., max 100 messages). Using the queue's real API (not through the handler), enqueue messages until capacity is reached. Attempt to enqueue one more message. Verify the queue rejects the message with an appropriate error (e.g., QUEUE_FULL). Confirm the rejection is consistent on retry. If capacity is soft (e.g., based on memory), confirm the queue actually enforces it under load.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.38,
+        "System": 0.58,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

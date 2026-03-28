@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields (name, DOB, insurance ID) are validated before downstream processing; missing fields produce error listing all missing items",
+      "minimum_level": "Unit",
+      "justification": "Pure local validation function that rejects incomplete data. No I/O, no external dependency, no mock ambiguity. A simple function call with incomplete input dict directly verifies the error response.",
+      "test_description": "Parametrized test submitting patient data with various missing field combinations: (a) missing only name, (b) missing only DOB, (c) missing all three required fields. Verify error message lists exactly the missing fields and is human-readable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date of birth validation rejects future dates, dates more than 150 years ago, and non-date strings",
+      "minimum_level": "Unit",
+      "justification": "Single validation function with deterministic boundary-condition logic. No external dependencies, no I/O, no non-determinism. Boundary-value test cases can directly exercise the validation.",
+      "test_description": "Parametrized test covering: (1) future date (tomorrow) → rejected; (2) far past date (151 years ago) → rejected; (3) non-date strings ('abc', '13-32-2000') → rejected; (4) boundary valid (exactly 150 years ago) → accepted; (5) recent valid date → accepted.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.98,
+        "Integration": 0.01,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility check sends correct patient ID and plan code to payer API and correctly interprets 'eligible' vs 'not eligible' vs 'pending' response",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is: does the code send the right data shape and parse the real API response correctly? A mock at the Unit level might verify call args, but would miss issues with actual API response format, status codes, or parsing edge cases. Integration-level mock (mock HTTP layer with realistic response fixtures) catches both the send and parse sides.",
+      "test_description": "Mock HTTP POST to payer endpoint. Verify request body includes patient_id and plan_code in correct JSON structure. Provide three response fixtures: {eligible: true}, {eligible: false}, {eligible: null}. Verify code correctly parses each, extracts status, and does not crash on edge cases (e.g., missing optional fields).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When payer API is unreachable, system marks eligibility as 'pending' and continues intake rather than blocking",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires testing both: (1) eligibility check returns 'pending' on API error, AND (2) downstream steps (triage, scheduling) are invoked despite the error. Testing only the eligibility function in Unit would miss whether the orchestration continues. Integration test with mocked API error + mocked downstream modules verifies the full flow.",
+      "test_description": "Mock payer HTTP to raise TimeoutError. Mock downstream triage, scheduling, confirmation steps to track if they're called. Verify eligibility returns status 'pending'. Verify triage() and schedule() are invoked despite API error. Confirm intake completes without throwing exception and does not block on failure.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "AI symptom triage correctly assigns high urgency to symptom combinations that indicate emergency conditions (e.g., chest pain + shortness of breath)",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is: the real AI/ML medical reasoning model does not classify chest_pain+SOB as high urgency. A mock will always pass, hiding the actual classification failure. Correctness depends on what the real model produces, not on code logic. Must call the real model to verify it produces the right urgency level.",
+      "test_description": "Call real medical reasoning engine with symptoms {chest_pain: true, shortness_of_breath: true}. Verify returned urgency_level is 'high' or numeric equivalent ≥ threshold. Test additional emergency combinations (severe_anaphylaxis, stroke_symptoms, severe_trauma). Verify all return high urgency. Run multiple times if model is non-deterministic to build confidence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Symptom triage produces natural language explanation of urgency assessment that clinician can review, not just numeric score",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is: the real AI model returns only a numeric score with no explanation text. A mock returning fake explanation text will hide this. Correctness depends on whether the real model produces explanation; must call real model to verify both urgency AND explanation fields are present and coherent.",
+      "test_description": "Submit symptoms to real AI triage engine. Verify response includes both urgency_level field AND explanation_text field (non-empty). Verify explanation contains medical reasoning (e.g., references to symptoms, risk factors, clinical context), not just generic text. Assert response structure includes explanation and is not {urgency: 'high'} alone.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0.9,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Appointment scheduled in first available slot matching assigned urgency level (high urgency = same-day, medium = within 48 hours)",
+      "minimum_level": "Integration",
+      "justification": "The code must filter available slots by urgency constraints and pick the first match. While the filtering logic could be unit-tested with mocked slot data, the real failure boundary involves reading from the shared calendar database and verifying correct SQL/queries are used. Integration test with actual test database catches issues with the read operation and slot-matching logic.",
+      "test_description": "Set up test database with available slots: [1_day_out, 2_days_out, 5_days_out]. Submit high-urgency patient (same-day required), verify scheduled to 1_day_out. Submit medium-urgency patient (within 48hr), verify scheduled to 2_days_out. Submit low-urgency patient, verify scheduled to 5_days_out. Test that urgency filter is enforced (e.g., high-urgency patient not assigned a 5-day slot).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Scheduling step does not double-book a time slot even when two patients are processed concurrently",
+      "minimum_level": "Integration",
+      "justification": "Race condition (two concurrent reads of the same slot, both see it available, both schedule it). A mock cannot simulate concurrent writes or database lock behavior. Real test database with actual concurrency semantics required to catch the failure. Must spin up real database transactions with concurrent threads.",
+      "test_description": "Set up test database with single available slot at 2pm on target date. Spawn two concurrent threads, each submitting a full patient intake. Both attempt to schedule at same urgency level (targeting the same slot). Verify exactly one patient successfully scheduled to the 2pm slot, the other receives 'no slots available' error. Assert no data corruption or double-booking in database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Confirmation message includes patient name, appointment time, provider name, and preparation instructions appropriate to visit type",
+      "minimum_level": "Integration",
+      "justification": "Message assembly requires multiple data lookups (patient, appointment, provider, visit type → instructions). The real failure is a missing or wrong field in the generated message. Integration test with test database ensures all lookups work and fields are correctly inserted. If instructions are AI-generated, Agentic level may be needed for appropriateness; if rule-based, Integration suffices.",
+      "test_description": "Build confirmation for patient 'Alice Smith', appointment 2026-03-30 14:00, provider 'Dr. Jane', visit_type 'cardiology'. Verify confirmation text includes: patient name 'Alice Smith', appointment time '14:00', provider 'Dr. Jane', preparation instructions. If instructions are rule-based, verify correct lookup (cardiology → fasting instructions). If AI-generated, verify instructions reference visit type and patient context.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.15,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Full intake pipeline (validate, check insurance, triage, schedule, confirm) completes for real patient submission without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "End-to-end test of entire pipeline with multiple agentic steps (insurance check via real payer API mock + AI triage with real model), plus Integration steps (database scheduling). Real failure: pipeline breaks at any step, or requires manual intervention. Workflow level captures the full orchestration and multiple agentic dependencies.",
+      "test_description": "Submit complete patient intake: {name: 'Bob Smith', dob: '1980-01-15', insurance_id: 'INS-12345', symptoms: ['chest pain', 'shortness of breath']}. Mock payer API to return eligible status. Call real AI triage. Use test database for scheduling. Capture generated confirmation. Verify all steps complete: (1) validation passes, (2) insurance marked eligible, (3) urgency marked high, (4) appointment scheduled same-day, (5) confirmation includes all required fields, (6) no exceptions or manual intervention required.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

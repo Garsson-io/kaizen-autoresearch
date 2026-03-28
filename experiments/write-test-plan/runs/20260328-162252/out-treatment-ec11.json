@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The conversation history passed to the LLM is trimmed to the most recent 10 messages when the full history exceeds the context window.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure algorithmic behavior—take the last N messages from a list—with no I/O or external dependencies. The failure is 'we pass the wrong messages to the LLM' (e.g., oldest instead of newest, or 11 instead of 10). A Unit test passing a list of 20 messages and verifying the result contains exactly the last 10 in order catches this. No mock LLM, DB, or subprocess needed.",
+      "test_description": "Unit test that passes a list of 25 mock conversation messages (exceeding context window) to the history-trimming function. Verify that exactly 10 messages are returned, that they are the most recent messages chronologically, and that older messages are excluded. Test boundary cases: exactly 10 messages (return all), fewer than 10 (return all), 0 messages (return empty).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends on what a real LLM produces. The real failure is 'the LLM generated an off-topic or generic response and the system didn't catch it.' A Unit test mocking the LLM to return canned generic text can verify that a relevance classifier works, but it won't catch the case where a real LLM generates something that looks plausible but doesn't actually answer the question. Running this test 100 times with a real LLM would yield different results due to LLM non-determinism. You need a real LLM call or a real ML classifier for relevance evaluation.",
+      "test_description": "Agentic test that calls a real LLM to generate a response to a specific customer question (e.g., 'How do I reset my password?'). Use a real relevance evaluator (semantic similarity, embedding-based matching, or LLM-as-judge) to verify the response addresses the question. Test multiple question-answer pairs and tone/tier variations to ensure the system doesn't produce off-topic content.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "The tone-checking depends on a real classifier (LLM or ML model) that evaluates response formality. The real failure is 'the tone classifier didn't flag a formal response, so regeneration never triggered.' A Unit test mocking the tone classifier to return 'flagged=true' and verifying regeneration is triggered tests only the control flow, not the actual tone detection. A real tone classifier may categorize responses differently on different runs or across similar inputs. You need the real tone-checking model to verify this behavior.",
+      "test_description": "Agentic test using a real tone classifier or LLM to evaluate a formal response (e.g., 'Pursuant to the aforementioned account policy...') against a casual-tier customer's expected tone. Verify that the tone flag is raised and regeneration is requested. Test multiple formality levels and customer tiers to ensure the classifier correctly identifies tone mismatches. Verify that appropriate-tone responses do not trigger regeneration.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "A mock database can verify 'we called insert() with the right data', but a real failure is 'timestamps are incorrect in the actual database' or 'data didn't persist due to connection/schema issues.' A real database (local or in-process, like SQLite or in-memory MongoDB) is needed to verify that persistence actually succeeded, timestamps are sequential and correct, and all parts of the exchange (initial message, responses, regeneration attempts) are logged. You don't need the real LLM generating responses—mocking the LLM is fine.",
+      "test_description": "Integration test using a real, local database (SQLite, PostgreSQL with test fixtures, or in-memory MongoDB). Mock the LLM to return a controlled response, optionally mock the tone checker. Trigger the full flow (user message → LLM call → tone check → possible regeneration). Query the database and verify: (a) all exchanges are persisted, (b) timestamps are present and in correct order, (c) if tone-triggered regeneration, both exchanges are logged, (d) user message, both LLM responses (if regenerated), and timestamps are all correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Unit",
+      "justification": "The core behavior is a response-selection logic: 'if tone is flagged, use the regenerated response, not the original.' This can be tested at Unit level by mocking the LLM responses and tone flag, then verifying that the function returns the correct (regenerated) response. The failure is 'we returned the draft response instead of the regenerated one', which is caught by a Unit test that traces the response returned from the decision logic. The behavior of 'customer never sees' is verifiable by checking what the function returns; you don't need to test the HTTP layer or database persistence (those are covered by behavior 4).",
+      "test_description": "Unit test mocking the LLM to return two responses (initial_response, regenerated_response) and the tone classifier to flag the initial response as unsuitable. Call the response-selection function (or the main chatbot flow with mocked dependencies). Verify that the returned response to the caller is the regenerated_response, not the initial_response. Test variations: tone not flagged (return initial), tone flagged (return regenerated). Include a test verifying that if persistence is logged, the customer-facing response field contains only the final response.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    }
+  ]
+}

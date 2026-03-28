@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests pure rule logic: given a transaction amount, a merchant category, and a configured threshold, does the function correctly apply the rule and produce the right score? This is deterministic computation with no I/O, no database queries, and no ML inference. A Unit test providing the transaction and config as inputs and verifying the output is sufficient to catch real failures (off-by-one in comparison, wrong operator like > vs >=, incorrect score calculation, rule never applied). The failure boundary is entirely local to the scoring function.",
+      "test_description": "Create a mock transaction object with amount=$250 and merchant_category='electronics'. Create a config specifying a $200 threshold for electronics. Call scoring_model.apply_threshold_rule(transaction, config) and verify the returned risk score matches the expected value (e.g., score=75 for exceedance). Test boundary cases: amount exactly equals threshold, and amount just below threshold, verifying correct behavior in each case.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "The risk model must demonstrate genuine pattern recognition capability that goes beyond single-rule thresholds. The failure to catch here is that the model doesn't actually recognize the pattern (false negatives, or the pattern wasn't in the training data). A Unit test with a mocked risk model output cannot catch this—it only verifies the mock output is passed through. To catch a real failure, the test must run the actual trained model (or a representative test model) on realistic transaction data exhibiting the fraud pattern. Integration-level testing with multiple historical transactions and time/geography variations ensures the model's learned patterns are truly exercised.",
+      "test_description": "Set up a realistic test scenario with 4+ transactions from the same user within a 15-minute window: three $50 transactions from geographically distant locations (NYC, LA, Miami) and a fourth new transaction from another location. Call risk_model.predict_fraud(user_transactions, new_transaction) and verify it returns a fraud flag (or fraud_probability > threshold) even though no single transaction exceeds a static amount threshold. This validates the model actually detects the geographic velocity pattern, not just that the prediction mechanism works.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0.2,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The velocity check aggregates transaction history based on time windows, which requires database queries to fetch the correct subset of transactions per user and time range. A Unit test with mocked transaction lists cannot catch real failures in the database query logic itself: wrong time comparison operator (>, <, >=, <=), incorrect user filtering, timezone handling bugs, off-by-one in window boundary logic. These are common production failures. Integration testing with a real test database, actual transaction records with timestamps, and time-based filtering ensures both the query logic and counting logic work correctly.",
+      "test_description": "Set up a test database with 5 transactions from the same user: 3 transactions within the past 10 minutes, 2 transactions from 25 minutes ago (outside a 15-minute window). Call velocity_check.count_in_window(user_id, window_minutes=15) and verify the returned count is exactly 3, not 5. Test boundary cases: a transaction at exactly the window boundary (15 minutes ago) should be included or excluded consistently per rule specification. Verify the count is correct with multiple users' data in the same table to catch user-filtering bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "The OR gate logic is deterministic and combinatorial: given two boolean inputs (scoring_flag, risk_flag), output the correct action. This is pure function logic with no I/O or external dependencies. A Unit test with mocked model outputs can fully exercise all four input combinations and verify the logic is OR (not AND, not some other operator). Mocking cannot hide a failure here because the test directly verifies the output decision for each combination. Real failures (wrong boolean operator, missing one of the flags, incorrect decision mapping) are caught by verifying all four cases.",
+      "test_description": "Test four cases with mocked models: (1) scoring_flag=true, risk_flag=true → expect HOLD, (2) scoring_flag=true, risk_flag=false → expect HOLD, (3) scoring_flag=false, risk_flag=true → expect HOLD, (4) scoring_flag=false, risk_flag=false → expect RELEASE. Mock the scoring model and risk model using patch.object, set their return values, call the decision function, and verify the output action matches the OR semantics. Confirm that case (3) specifically holds the transaction even though only the risk model flagged it.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "The combined output is a data composition function: it must collect results from two models and combine them into a single response structure. This can be tested at Unit level by providing mocked model outputs and verifying the response includes both fields with correct values. Mocking cannot hide a failure here because the test directly inspects the output JSON/object for the presence and correctness of both fields. Real failures (missing risk_score field, missing fraud_probability field, null values, field name typos causing serialization issues) are caught by asserting on the exact output structure and content.",
+      "test_description": "Mock the scoring model to return a risk_score=0.75 and the risk model to return fraud_probability=0.60. Call combine_outputs(scoring_result, risk_result) and verify the returned data structure contains both fields with exact values: {'risk_score': 0.75, 'fraud_probability': 0.60}. Verify field names match the reviewer schema exactly (to catch JSON serialization bugs). Test that both fields are present even when only one model flags the transaction (e.g., risk_score=0.2, fraud_probability=0.95 when scoring doesn't flag but risk does).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

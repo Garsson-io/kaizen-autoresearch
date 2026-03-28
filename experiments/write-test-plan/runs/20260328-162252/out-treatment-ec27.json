@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The traveling-salesman heuristic produces a route that is no more than 1.5x the length of the optimal route for inputs up to 20 stops.",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithm performance testing on deterministic inputs. For N≤20, we can compute optimal route via brute force and verify the heuristic approximation ratio. No I/O, no external dependencies, no randomness. Synthetic coordinates are sufficient to verify the algorithmic guarantee—the quality bound doesn't depend on whether coordinates are real or generated. Mocking or integrating with the geocoding API would add unnecessary complexity without catching additional failure modes.",
+      "test_description": "Generate 12+ random coordinate sets (spanning 3–20 points each, including edge cases: collinear stops, stops on a circle, clustered points). For each set, compute the heuristic route length. For N≤20, compute the optimal route via brute force (permutation-based for N<12, branch-and-bound for larger N). Assert heuristic_length ≤ 1.5 × optimal_length for every test case. Include boundary tests: single stop (route length = 0), two stops (optimal ≈ straight line), and high-density clusters (measures tie-breaking).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test directly invokes the TSP algorithm with synthetic inputs and validates output quality. No mocking of the algorithm itself, no integration layers—this is pure computation.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The delivery time window estimates are computed correctly from the distance between consecutive stops and the configured average speed for the road type.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic arithmetic: time = distance / speed. Given distances and road-type speed configurations, the output is always the same. No I/O, no external dependencies, no randomness. We can verify the formula is applied correctly and unit conversions are accurate without calling any geocoding or route APIs. Mocking the distance input is sufficient to isolate the time-calculation logic.",
+      "test_description": "Create parametrized test cases with known (distance, road_type, expected_time) triples (e.g., 10 km at 50 km/h = 12 min; 15 km at 60 km/h = 15 min). Test each road type's configured speed. Verify time_estimate = distance / speed with correct unit conversion (hours → minutes, etc.). Include edge cases: zero distance (time = 0), speed at configured min/max bounds, very large distances. Verify that speed configuration changes correctly affect output.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test passes in distance and speed, invokes the calculation, and asserts the result. No need to integrate with geocoding or route optimization.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount.",
+      "minimum_level": "Unit",
+      "justification": "This is pure comparison and arithmetic logic: does total_time exceed shift_hours? If yes, compute excess = total_time − shift_hours. No I/O, no external dependencies. The validator takes scalar inputs (floats/times) and returns a boolean + excess value. This can be fully tested in isolation with mocked or synthetic time values.",
+      "test_description": "Parametrized test cases covering: total_time < shift_hours (expect accept), total_time = shift_hours (test per spec—accept or reject), total_time > shift_hours (expect reject, verify excess = total_time − shift_hours). Include edge cases: shift_hours = 0 (should reject unless total_time also 0), very large times, floating-point precision boundaries. For each rejection, assert the returned excess value is exactly correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test directly invokes the validator function with scalar inputs; no infrastructure needed beyond the function itself.",
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address in the list fails geocoding (API returns no results), the service skips that stop and optimizes the remaining addresses, reporting which addresses were skipped.",
+      "minimum_level": "Integration",
+      "justification": "This behavior hinges on the service correctly calling the geocoding API and handling a failure response. A Unit test that mocks geocoding at the function level may catch the skip-logic bug but will miss integration failures: e.g., service calls the API with wrong parameters, doesn't trap API errors, or calls the wrong endpoint. Real failures live in the service–API boundary. Integration level—service wired to a mocked HTTP layer or stubbed geocoding service—captures the flow: service invokes geocoding, receives 'no results', handles gracefully, skips address, reports it.",
+      "test_description": "Set up a list of 5–6 addresses. Mock the geocoding service (or HTTP layer) to return coordinates for 4–5 addresses and 'no results' (empty list, null, or API error code) for 1 address. Invoke service.optimize(address_list). Assert: (1) optimized route includes only the 4–5 successful addresses, (2) the failed address is excluded from the route, (3) the service returns a 'skipped_addresses' report naming the failed address. Repeat with the failed address at different positions (first, middle, last) to catch off-by-one errors. Edge case: all addresses fail geocoding (service should report all as skipped, return empty/error route).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test wires the service to a mocked geocoding layer, triggering the full error-handling flow. A Unit test of skip logic alone would not exercise the service–API boundary and would miss integration bugs.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses in the input list are consolidated into a single stop with combined delivery items, not visited twice.",
+      "minimum_level": "Unit",
+      "justification": "This is data transformation: given a list with duplicate address entries, the service merges them into one with combined delivery items. Assuming duplicate detection is string-based (exact match on address field), this is pure logic with no I/O. We supply a list with known duplicates and verify the deduplication and merge logic. No geocoding, no external APIs needed.",
+      "test_description": "Test cases: (1) list with no duplicates (output unchanged), (2) list with one pair of duplicates (consolidate to 1, combine their delivery items), (3) list with 3–5 instances of the same address (merge all into 1, sum delivery item counts). For each case, verify: output list has correct size, deduplicated address appears once, combined delivery items count equals sum of originals. Edge cases: empty list (no-op), all identical addresses (output is single consolidated entry), addresses with different cases/whitespace (depends on comparison logic—test per spec).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test passes a list to the deduplication logic and asserts the output structure. No integration with geocoding or optimization needed.",
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

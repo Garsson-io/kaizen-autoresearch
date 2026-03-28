@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'I missed nested dependencies that exist in the actual manifest'. Unit testing with mock dictionaries misses format-specific issues (missing lock files, nested dependency graphs in package-lock.json or poetry.lock). Integration testing with real manifest files (package.json + package-lock.json, requirements.txt + constraints.txt, pyproject.toml + poetry.lock) is the minimum to verify the extraction algorithm handles transitive deps correctly across different manifest formats.",
+      "test_description": "Create test directories with realistic manifest files (e.g., package.json with lock file containing 2-3 levels of nested deps, Python requirements with transitive markers). Verify that extract_dependencies() returns the complete closure, not just top-level entries. Test with manifests that have circular dependencies, yanked versions, and platform-specific deps.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name",
+      "minimum_level": "System",
+      "justification": "The real failure is 'my query to the CVE API was incomplete or used the wrong format, and I got back CVEs for versions I don't use'. A mock that always returns version-matched results hides the failure that the real API might return results outside the requested range, or that our query syntax is wrong. System-level testing (real HTTP calls to the vulnerability database, or a replicated test instance with real data) catches malformed queries and unexpected response formats. Integration mocking without real API behavior verification is insufficient.",
+      "test_description": "Query the real vulnerability database (or a realistic test instance) with actual manifest version ranges: e.g., 'lodash >=1.0.0 <2.0.0', 'numpy ==1.19.*', 'Django >=3.0'. Verify that returned CVEs fall within the queried range. Test edge cases: pre-release versions, exact pins, wildcards, version constraints with operators (>=, <=, !=). If the API returns results outside the range, fail the test.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.25,
+        "System": 0.62,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score",
+      "minimum_level": "Unit",
+      "justification": "This is pure sorting logic with no I/O or external dependencies. The real failure is 'my comparator is inverted' or 'I didn't sort by CVSS as a tiebreaker'. This can be caught entirely with test data—construct a list of CVE objects with mixed severities and CVSS scores, verify sort order. No need for real files, APIs, or processes.",
+      "test_description": "Create test data with CVE objects: [Critical/CVSS 9.8, High/CVSS 7.5, Critical/CVSS 9.1, Medium/CVSS 5.0, High/CVSS 6.0]. Sort using the scanner's comparator. Verify: Critical entries come first, ordered by CVSS descending; then High, then Medium, then Low. Include ties: two High/CVSS 7.5 should maintain insertion order or be stable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'I corrupted the manifest file format' or 'I modified the wrong entry' or 'I lost comments and formatting'. Unit testing with plain dict operations misses serialization bugs (JSON syntax error, YAML indentation, missing newlines). Integration testing with real manifest files—parse, modify, serialize—catches format preservation and ensures only the target dependency changes. Real file I/O proves the roundtrip works.",
+      "test_description": "Create a test manifest file (package.json, requirements.txt, or pyproject.toml) with at least 5 dependencies, comments, and exact formatting. Call modify_dependency(file_path, 'lodash', '2.0.0'). Parse the output and verify: (1) lodash version is now 2.0.0, (2) all other entries unchanged, (3) file parses without syntax error, (4) optional comments/formatting preserved where format allows.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff",
+      "minimum_level": "System",
+      "justification": "The real failure is 'my PR had the wrong diff' or 'I committed multiple files instead of one' or 'I created a branch with the wrong name'. A mocked GitHub API call does not verify that the actual repository received the correct commit with the correct diff. System-level testing (real git operations and real or test-stubbed GitHub repository) is the minimum to catch branch creation, commit format, and diff accuracy.",
+      "test_description": "Create a test repository (real git repo or GitHub test environment). Call create_pr(repo, 'lodash', '1.0.0', '2.0.0'). Verify: (1) a new branch was created, (2) exactly one commit was made, (3) the diff shows only the lodash version change, (4) the PR title and description are correct, (5) no other files were modified. Inspect the actual PR object from GitHub to confirm diff content.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison",
+      "minimum_level": "Unit",
+      "justification": "This is pure semantic versioning logic: compare two version strings, determine if the major version changed. No I/O, no external dependencies. The real failure is 'my version comparison is wrong'—e.g., comparing '1.5.0' to '2.0.0' and incorrectly reporting no major change. Test data alone catches this.",
+      "test_description": "Create test cases for is_breaking_change(old_version, new_version): (1) '1.5.0' → '2.0.0' (yes), (2) '1.5.0' → '1.6.0' (no), (3) '2.3.4' → '3.0.0' (yes), (4) '0.1.0' → '0.2.0' (yes, major is 0 so minor bump is breaking), (5) 'v1.0.0' → 'v2.0.0' with 'v' prefix (yes). Verify each returns the expected boolean.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'I created a PR when is_breaking_change returned true' or 'I didn't set the review flag in output'. Unit testing the semver logic alone (behavior 6) doesn't verify the control flow: detect breaking change → skip PR creation → set output flag. Integration testing wires together breaking-change detection, mocks the PR creation function to verify it's NOT called, and verifies the output structure contains the flag. This catches the case where the flag logic is wrong or PR creation check is missing.",
+      "test_description": "Call the scanner with a manifest bump from 1.5.0 to 2.0.0. Mock the create_pr() function and verify it is never called. Parse the scanner output and verify: (1) a 'review_required' or 'breaking_change' flag is present and true, (2) the output explains why the change is breaking, (3) no PR data in output. Also test non-breaking case (1.5.0 → 1.6.0) to ensure create_pr() IS called and flag is not set.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

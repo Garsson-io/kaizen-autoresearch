@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "To verify that a translation is grammatically coherent and preserves meaning requires evaluating semantic properties of the neural model's output. A mock that returns any fixed string would always pass, hiding real failures where the API degrades or the service mishandles the response. Semantic correctness depends on the real neural model's non-deterministic behavior.",
+      "test_description": "Call the service with diverse source texts covering different linguistic structures. Retrieve translations via the real neural translation API. Verify coherence using automated semantic similarity scoring (e.g., embedding distance to gold references, or zero-shot evaluation) and spot-check for grammar errors. This catches API degradation, model drift, or failures in the pipeline that produce grammatically broken output.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires calling real translation API to verify output quality, not just service plumbing. Semantic evaluation is core to the behavior.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The fallback mechanism bridges two systems: the primary API (mockable) and the SQLite database (requires real I/O). Mocking both would hide real failures in database query logic, connection pooling, or the actual fallback invocation. Testing requires a real or in-memory SQLite database with known test data to verify the fallback chain works end-to-end.",
+      "test_description": "Inject a mock translation API that raises HTTP 503. Load a test SQLite database with known phrase-translation pairs. Call the service with a phrase that exists in the database. Assert that the service returns the database translation without raising an error to the caller. Verify the fallback was invoked by checking logs or metrics.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Could appear testable at Unit with full mocking, but mocking the database would miss real retrieval bugs and connection failures. Integration level needed to exercise actual fallback path.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "The behavior explicitly requires correctness against pre-stored data. A mock database would always return what the mock was programmed to return, hiding real failures: wrong table/column names, SQL injection vulnerabilities, character encoding issues, or stale/corrupted database records. Real database I/O is required.",
+      "test_description": "Populate a test SQLite database with a known set of phrases and their translations (e.g., {\"hello world\": \"hola mundo\"}). Call the fallback translator with each phrase. Assert that the returned translation exactly matches the stored value. Test edge cases: empty phrase, special characters, case sensitivity.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must use real test database to catch SQL errors, encoding mismatches, and data corruption. Mocking the database layer would not catch these real failures.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "The behavior has two parts: computation (testable at Unit with mocks) and storage. \"Stores the metric\" implies persistence (database, log file, or metrics backend). Mocking the storage layer would hide real failures: write failures, schema mismatches, or data corruption. At minimum, a real or test storage backend is needed.",
+      "test_description": "Mock the primary translator to return \"hello world\" and the fallback to return \"hola mundo\". Trigger quality tracking. Verify the computed edit distance is correct (character-level Levenshtein distance = 18). Query or observe the actual storage backend (database, log file, or metrics API) to confirm the metric was persisted with the correct value and timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Edit distance computation itself is Unit-level, but verifying storage requires Integration-level access to the actual persistence mechanism. A mock storage layer would pass even if real storage fails.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires verifying both that the correct translator is chosen (Unit-testable with mocks) and that logging actually occurs (I/O). \"Logs... in the background\" suggests asynchronous writes to a log system. Mocking the logger would only verify the service calls log(); it would not verify the log is actually written, which requires Integration-level access to the logging backend.",
+      "test_description": "Set up both translators (mocked) such that primary returns \"hello world\" and fallback returns \"hola mundo\". Call the service. Assert the response contains the primary translation (\"hello world\"). Wait briefly for background logging to complete. Verify the quality comparison (edit distance metric) appears in the actual log output (log file, logger backend, or metrics store) with both translations and computed distance.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Could appear Unit-testable if mocking the logger, but that only verifies log() was called, not that logging actually succeeded. Integration needed to catch asynchronous write failures or log buffering issues.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

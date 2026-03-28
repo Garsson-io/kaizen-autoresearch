@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is: an LLM generates code with a signature that doesn't match the expected interface (e.g., extra parameters, wrong types, missing return annotation), and the system doesn't detect it. To catch this, we must test with real LLM output, because the LLM might generate unexpected signature patterns (type hints as 'Any', extra *args/**kwargs, different parameter names) that a mock wouldn't produce. An Integration-level test with a mocked LLM would pass but miss real LLM signature failures. We need to call the real LLM (or use real recorded outputs that show signature mismatches) to have confidence the validation logic works against actual LLM behavior.",
+      "test_description": "Call the real LLM with a natural language description of a function interface (e.g., 'function that takes two integers and returns a boolean'). Parse the generated code, extract its signature (parameter names, types, return type), and verify it matches the specified interface. Repeat with several function descriptions. If parsing fails or signature mismatch isn't detected, the test fails.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.78,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is: the LLM generates code that fails tests, refinement is attempted, but the final code still doesn't pass (either because refinement doesn't improve it, or the LLM can't produce correct code even after seeing failures). This depends entirely on whether the real LLM can generate a correct implementation, possibly over multiple attempts. Mocking the LLM to always improve on the second try would hide the real failure where the LLM gets stuck or produces subtly incorrect code. Only a real LLM test (or realistic LLM simulation) can verify that the system actually produces working code — the outcome depends on real LLM capability and non-determinism.",
+      "test_description": "Call the real LLM to generate code for a moderately complex function (one that typically requires iteration to get right). Run the code against the provided test suite. If tests fail, trigger the refinement loop with failure messages. Continue until tests pass or max attempts is reached. Verify that the final code (at any attempt ≤ 3) successfully passes all test cases. Document which attempt succeeded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is: when tests fail, the system either (a) doesn't capture the failure messages, (b) captures them but doesn't include them in the next prompt, or (c) includes them in the wrong format. None of these depends on what the LLM itself does — only on our code's ability to extract failures and construct the refinement prompt correctly. We can test this at Integration level by mocking the LLM and verifying that when we call it the second time (after failure), the prompt argument contains the failure messages. A mock will never hide this failure — if the prompt-building logic is broken, the mock will receive the wrong arguments. This is a data-flow test, not an LLM-capability test.",
+      "test_description": "Mock the LLM to return code that will fail the test suite on first attempt. Mock the test runner to report specific failure messages (e.g., 'AssertionError: expected output X, got Y'). Trigger code generation and watch it attempt refinement. Capture the second LLM call's prompt argument. Verify that the second prompt includes the captured failure messages in a clear format (e.g., 'Test failures: ...'). Assert that removing failure messages from the prompt-building logic causes this test to fail.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is: the iteration limit is broken (stops at 2, or doesn't stop at 3, or loops infinitely). This depends only on the loop counter logic and error-response structure, neither of which depends on LLM output quality. We can mock the LLM to always return code that fails tests, then verify the system makes exactly 3 calls and stops. The error response structure can be validated against the mock results. An Integration test with a failing mock fully covers this — no real LLM non-determinism affects the stopping logic.",
+      "test_description": "Mock the LLM to always return code that fails the test suite (deterministically). Trigger code generation and refinement. Verify that the LLM is called exactly 3 times, no more. Verify that after the 3rd failed attempt, the service returns a structured error response that includes: (a) all 3 generated code attempts, (b) test results for each attempt, (c) an error message indicating max attempts reached. Verify that a 4th LLM call is never made.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Agentic",
+      "justification": "This is an end-to-end behavior that depends entirely on real LLM output and real LLM improvement over iterations. The real failure is: the system can't produce working code even when the LLM is given failure messages, because iteration doesn't actually help the real LLM improve (or the loop is broken). An Integration-level test with a mock LLM returning 'fail-then-pass' patterns would pass but miss the real failure where the real LLM either doesn't improve with feedback or generates code that's consistently incorrect. The behavior explicitly tests iterative improvement, which is inherently about real LLM non-determinism and learning. Outcomes vary across runs (different LLM calls produce different code), and only real LLM execution reveals whether the loop actually helps.",
+      "test_description": "Select a function specification that is known to be difficult (e.g., a complex algorithm or edge-case-heavy logic that single-shot generation typically fails on). Call the real LLM to generate an initial implementation. Run the code against the test suite. If it fails, extract the failure messages and request refinement. Repeat until tests pass or max attempts reached. Verify that the final code passes all tests. Document the attempt count. Repeat this test 5+ times to account for LLM non-determinism. Ensure that at least 80% of runs succeed (code passes tests at attempt ≤ 3).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

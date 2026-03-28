@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed inside subdirectories of the watched root are processed, not only root-level files",
+      "minimum_level": "Integration",
+      "justification": "A real failure occurs when the watcher is initialized without recursive:true (or equivalent), causing the OS to silently ignore subdirectory events. A Unit test that mocks fs.watch can verify that recursive:true is passed as an argument, but only Integration testing with a real filesystem directory structure and actual file writes catches the subtle failure: does the watcher *actually* observe subdirectories when properly configured? This requires watching real subdirectories and verifying events propagate through the full pipeline.",
+      "test_description": "Create a temporary directory structure with subdirectories. Enable the file watcher on the root. Write a test file to a subdirectory (not root). Verify the file is detected by the watcher, processed through the transformation pipeline, and output written to the output directory.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards duplicate processing requests for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is pure business logic with no I/O dependencies. The deduplication map and time window are testable through direct function calls with mocked time (Date.now or equivalent). A real failure—e.g., the deduplication key is incorrect, or the time check uses < instead of <=—is caught by Unit tests that verify logic in isolation. No filesystem, subprocess, or external system behavior is involved.",
+      "test_description": "Mock the system clock. Call the deduplication check twice with the same file path within the time window; verify the second call is blocked. Advance the clock past the time window and verify the same path is no longer blocked. Test boundary conditions (exactly at window edge, immediately before/after).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Daemon processes a file exactly once even when the operating system emits multiple filesystem events for a single file write",
+      "minimum_level": "Integration",
+      "justification": "The failure occurs at the integration boundary between the filesystem event handler and the deduplication logic. Unit tests of deduplication logic alone (behavior 2) verify that identical paths are deduplicated, but they don't verify that the event handler correctly passes file paths to deduplication, or that multiple rapid filesystem events trigger the deduplication correctly. A real failure (file processed twice) requires wiring these modules together. Integration testing with mocked filesystem events firing in rapid succession for the same file path, or real filesystem writes that trigger multiple OS events, catches the actual failure.",
+      "test_description": "Mock fs.watch to emit multiple 'change' events in rapid succession (e.g., within 10ms) for the same file path. Verify the file handler's processing pipeline is invoked exactly once, not multiple times. Verify that queued transformations and output writes happen only once.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without restart",
+      "minimum_level": "Integration",
+      "justification": "A real failure occurs when fs.watch()'s behavior on directory deletion/recreation is not handled. The OS emits specific events or errors when the watched directory is removed, and fs.watch's behavior varies by OS (Linux, macOS, Windows). Mocking fs.watch to return an error and then succeed is possible at Unit level, but it risks hiding real bugs: does the daemon's error handling actually re-create the watcher? Does it handle race conditions (what if the directory is deleted and recreated between error and retry)? Only Integration testing with actual filesystem operations catches these edge cases.",
+      "test_description": "Create a temporary watched directory with the daemon running. Delete the directory. Verify the daemon detects the error (either through fs.watch error callback or by attempting to list the directory). Recreate the directory with the same path. Verify the daemon resumes watching without requiring a restart. Write a file to the recreated directory and verify it is processed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive simultaneously, they are processed in the order determined by their creation timestamps",
+      "minimum_level": "Unit",
+      "justification": "This is a sorting/ordering logic problem with no I/O dependencies. A real failure—e.g., sorting by file name instead of creation timestamp, or parsing mtime incorrectly—is caught by Unit tests. You mock fs.readdirSync/fs.promises.readdir to return files in non-timestamp order and mock fs.stat to return specific timestamps. The sorting logic itself has no side effects and doesn't depend on external systems.",
+      "test_description": "Mock the filesystem read (fs.readdirSync or fs.promises.readdir) to return three filenames in arbitrary order. Mock fs.stat to return specific creation timestamps for each file. Call the file processor's ordering/sorting function and verify files are processed in increasing timestamp order, not in the order returned by readdir.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written when the arrival event fires is not picked up for processing until writing is complete",
+      "minimum_level": "System",
+      "justification": "Real failure: the daemon processes an incomplete file, causing transformation errors or data corruption. Detecting write completion depends on OS and filesystem behavior (file size stability checks, file lock status, or waiting for OS write-completion events). While a Unit test can mock fs.stat returning different sizes over time, this misses OS-level timing issues: on some filesystems, the size might not update immediately; file locks behave differently across Windows/POSIX. A real failure requires either actual file I/O with genuine write timing, or mocking the entire filesystem state machine accurately. System level (with real file writes or precise OS-level event simulation) catches the boundary condition where timing matters.",
+      "test_description": "Open a file for writing but leave it partially written. Trigger the file watcher event (via mock or by writing to the filesystem). Verify the daemon detects the file is incompletely written (e.g., by checking file size twice with a delay, checking file locks, or waiting for write-complete OS events). Complete the file write. Verify the daemon then processes the complete file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.4,
+        "System": 0.55,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

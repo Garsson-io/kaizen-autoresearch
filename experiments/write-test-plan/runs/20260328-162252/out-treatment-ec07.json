@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Data collected from all three sources (metrics endpoint, issue tracker, deployment log) is passed to the summary-generation step",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that three separate data collection modules correctly aggregate their outputs and pass them as a unified structure to the next pipeline stage. A Unit test with mocked sources could verify the data-passing logic in isolation, but a real failure would manifest in the wiring between modules: one collector is never invoked, or its data is dropped during aggregation. An Integration test with test doubles for the three sources catches this by exercising the full collection pipeline and verifying the combined output structure. The MOCK-MISS question: could a mock miss this? Yes — a Unit test that mocks individual source calls might pass even if the integration points are broken.",
+      "test_description": "Create test doubles for the three data sources that return known payloads (e.g., metrics: {deploy_count: 5}, tracker: {open_issues: 3}, logs: {latest_deploy: '2026-03-28'}). Call the data collection orchestrator, then assert that the structure passed to the summarization step contains all three data sources' outputs unchanged, with no fields missing or transformed unexpectedly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level test directly exercises the collection pipeline and wiring between modules, confirming the behavior.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is still produced with a 'data unavailable' note for that section instead of failing",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests error handling across module boundaries — when one collector fails, others must continue and the orchestrator must handle the partial failure gracefully. A Unit test could mock one source to raise an exception and verify that error handling is present, but the real failure modes vary: timeouts, malformed data, partial responses, and authentication errors may trigger different code paths. An Integration test with realistic failure scenarios (simulated timeouts, mocked partial responses) for each source in turn catches the range of real failures. The REAL-INFRA question: do we need real infrastructure? Not fully — a test mock that simulates different failure types is sufficient for integration testing, but System-level tests with real service outages would be more thorough.",
+      "test_description": "For each of the three sources, configure it to fail (mock to raise a timeout exception, return empty data, or return malformed content). Run the full collection and report generation pipeline. Verify that: (1) the report is generated successfully, (2) the 'data unavailable' note appears in the section corresponding to the failed source, and (3) data from the other two sources is collected and included normally.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level test exercises the full error-handling path across modules, confirming the behavior under realistic failure scenarios.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data",
+      "minimum_level": "Agentic",
+      "justification": "The behavior explicitly states that a 'narrative summary' is generated, implying natural-language generation—most likely via an LLM API. Narrative accuracy depends on the real LLM's behavior, which is non-deterministic: different runs with the same input can produce different phrasings, and the real failure (LLM generates a summary that contradicts or omits key input values) can only be caught by executing the real LLM. A Unit test with a mocked/canned LLM could verify that prompts are constructed correctly and outputs are parsed, but would never detect if the real LLM produces inaccurate narratives. An Agentic test with the real LLM API is the minimum level. The LLM-DEP question: does correctness depend on what a real LLM produces? Yes — running this test 100 times would reveal variance in phrasing and occasional failures to mention key metrics.",
+      "test_description": "Provide specific input data to the summarization step (e.g., metrics: {deploy_count: 5, issue_resolution_rate: 80%, uptime_percent: 99.5}, timeline: 'week of 2026-03-24'). Call the real summarization pipeline with the real LLM API. Parse the generated narrative and verify that key values are semantically present: e.g., the output contains or implies '5 deploy' (5 deployments), '80' near 'resolv' (80% resolution), and 'uptime' near '99' (uptime value). Use fuzzy matching (regex or semantic similarity) rather than exact string matching, since LLM phrasing varies.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic level is necessary because the real failure (LLM accuracy) can only be caught with the real LLM in the loop, despite non-determinism.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report from data collection through email delivery reaches the configured recipient's inbox correctly",
+      "minimum_level": "System",
+      "justification": "This behavior asserts end-to-end delivery to an inbox, which requires real email infrastructure. Real failures include: SMTP authentication failure, email format rejection by the SMTP server, missing or malformed recipient addresses, and encoding issues that break delivery. A Unit test with mocked email calls could verify that the sendmail function is invoked with correct parameters, but would never catch SMTP-level failures. An Integration test could verify that the report is formatted correctly and the send function is called, but would not catch delivery failures. A System test with a real SMTP server (or test SMTP service like Mailhog) verifies that the email is actually sendable and reachable. The REAL-INFRA question: does behavior depend on real network? Yes — the whole point is inbox delivery.",
+      "test_description": "Configure a test SMTP service (e.g., Mailhog, or a cloud email testing service). Run the complete pipeline: collect data from test doubles of the three sources, generate the summary (real LLM or deterministic mock), format the report, and send the email to a configured test recipient address. Verify that: (1) the email arrives in the test inbox, (2) the recipient address matches the configured value, (3) the subject line and body contain expected report content (summary, key metrics), and (4) headers are correct (From, Date, etc.).",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is required because real SMTP interaction and inbox delivery are the core failure boundary.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that: (1) when SMTP fails, the report is persisted to disk, and (2) on the next run, the script finds and retries delivery of the saved report. Real failures include: error handling for SMTP failures is missing, file save is not called or fails silently, backup file format is wrong, and the next run doesn't detect or clean up old files. A Unit test with mocked file operations could verify that the logic flow is correct (if SMTP fails, call save), but would not catch actual file I/O errors or state-persistence issues. An Integration test with real file I/O, two script invocations, and a mocked SMTP failure catches this: it verifies that the file is actually created, contains valid data, and is found and processed on the next run. System-level testing of real SMTP unavailability is not necessary — mocking SMTP failure at Integration level is sufficient.",
+      "test_description": "Configure SMTP to fail with a connection refused error (mocked). Run the report script, and verify that: (1) a backup report file is created in the configured directory with the expected content and naming (e.g., 'report_backup_2026-03-28.json'), (2) the script exits cleanly without raising an exception. Then restore SMTP (mocked to succeed), run the script again, and verify that: (3) the script detects the backup file, (4) the report is re-sent via email, (5) the backup file is deleted after successful delivery, (6) the email in the test inbox has the same report content as the original.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level test with real file I/O and two invocations directly exercises the persistence and retry behavior without requiring real SMTP or OS-level scheduling.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

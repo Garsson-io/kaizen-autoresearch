@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is pure, deterministic math with no shared state or concurrency. A Unit test with fake timers and mocked HTTP (always returning 429) fully verifies the doubling: 100ms → 200ms → 400ms → ... up to max. No I/O or real async behavior needed.",
+      "test_description": "Create client with max 5 retries, initial wait 100ms, max wait 2000ms. Mock HTTP to always return 429. Call client.call(). Use Jest fake timers to advance time and record wait periods. Assert waits are [100, 200, 400, 800, 1600] ms. Assert final QuotaExhaustedError is thrown.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.005,
+        "Agentic": 0.005,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "Parsing HTTP status codes (e.g., 429) and extracting Retry-After header is deterministic logic. A Unit test with a mocked HTTP response is sufficient; no real I/O or coordination needed. The library just reads the status and header, then computes a wait duration.",
+      "test_description": "Mock HTTP to return 429 status with Retry-After: 300 header. Call client.call(). Assert client extracts 300 seconds as the wait time (or capped at configured max). Verify the extracted wait time is used in the retry timer. Use fake timers to verify without actual 300s delay.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.09,
+        "System": 0.005,
+        "Agentic": 0.005,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "This verifies that the client retries the request and passes the result back without exposing the 429 to the caller. A Unit test can mock HTTP to return 429 on attempt 1, then 200 with data on attempt 2, and verify the caller gets the data. No concurrency or shared state needed.",
+      "test_description": "Mock HTTP: first call to /api/data returns {status: 429}, second call returns {status: 200, data: {result: 'ok'}}. Call client.call('/api/data'). Assert caller receives {result: 'ok'} without ever seeing the 429. Use fake timers to control the wait between attempts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.14,
+        "System": 0.005,
+        "Agentic": 0.005,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "Error type checking is straightforward: after max retries with all 429 responses, the client must throw QuotaExhaustedError, not a generic Error. A Unit test with mocked HTTP always returning 429 fully verifies this. No I/O or concurrency required.",
+      "test_description": "Mock HTTP to always return 429. Set max retries to 3. Call client.call(). Assert QuotaExhaustedError is thrown (not Error, HttpError, or NetworkError). Assert error message includes 'quota', retry count, and actionable guidance about checking account limits.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.09,
+        "System": 0.005,
+        "Agentic": 0.005,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "The core termination check is deterministic: verify the retry loop exits after max_retries+1 total calls and throws an error. A Unit test with a call counter and timeout guard will catch infinite loops (loop bug, missing counter increment, wrong exit condition). Single-caller termination doesn't require concurrency; multi-caller scenarios are tested separately (behavior 6).",
+      "test_description": "Mock HTTP to always return 429. Set max retries to 4. Call client.call() with a 5-second test timeout. Assert HTTP spy was called exactly 5 times (1 initial + 4 retries), not more. Assert QuotaExhaustedError is thrown before timeout. If the loop is infinite, the call count will exceed 5 or the timeout will fire.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.14,
+        "System": 0.005,
+        "Agentic": 0.005,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "A Unit test mocking HTTP separately for each caller would miss the shared-state bug. To verify true quota sharing, the test must run multiple concurrent async tasks in a real event loop, both hitting the same quota ceiling, and observe that they coordinate retries (not each with independent quota). This requires Integration-level concurrency and shared state validation.",
+      "test_description": "Create a client with a mock HTTP layer that globally tracks call count and enforces quota (e.g., max 5 calls per 100ms window). Start two async tasks concurrently: caller A calls client.call('/a'), caller B calls client.call('/b') almost simultaneously. Both exceed the quota window (6th and 7th calls globally). Assert both callers see rate-limit response and coordinate their backoff (e.g., both wait, then both retry when quota refreshes). Assert the shared quota prevents one caller from independently retrying.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Testing dispatch order requires multiple concurrent callers racing in a real event loop. A Unit mock of sequential calls won't expose an off-by-one queue bug (e.g., LIFO vs FIFO). The test must submit requests concurrently, trigger quota exhaustion to force queueing, and verify the dispatch (and retry) order matches submission order. This requires Integration.",
+      "test_description": "Mock HTTP with a spy that records call timestamps and enforces quota (e.g., 1 call per 50ms window). Submit 3 async requests in rapid succession: await Promise.all([client.call('/a'), client.call('/b'), client.call('/c')]) at t=0. All three hit quota and are queued. As time advances and quota refreshes, assert HTTP spy records calls in order [/a, /b, /c], not [/b, /a, /c] or any other permutation. Verify retries also respect submission order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.09,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}
