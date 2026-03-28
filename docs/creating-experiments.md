@@ -178,7 +178,23 @@ Add a row to the experiment table in the repo's `CLAUDE.md`:
 
 ### 10. Smoke Test
 
-Always validate cheapest-first before running the full loop. See CLAUDE.md "Smoke tests" section for the standard sequence.
+Always validate cheapest-first before running the full loop:
+
+```bash
+cd experiments/<name>
+
+# 1. Instant: verify.ts Zod schema
+npx tsx scripts/verify.ts --mock 0.750 | jq '.score'
+
+# 2. Instant: verify.ts rejects garbage
+npx tsx scripts/verify.ts --mock garbage; echo "exit: $?"
+
+# 3. ~15s: single probe (one API call)
+./run-eval.sh --single ec-09
+
+# 4. Full eval (all tasks in parallel)
+./run-eval.sh
+```
 
 ## Example: Creating a New Experiment
 
