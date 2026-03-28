@@ -11,10 +11,10 @@
  */
 
 import { readFileSync } from "fs";
-import { join } from "path";
-import { IterationResult } from "../src/schema";
+import { IterationResult } from "../src/schema.js";
+import { PATHS } from "./paths.js";
 
-const resultsPath = join(import.meta.dirname || __dirname, "..", "autoresearch-results.jsonl");
+const resultsPath = PATHS.results;
 
 function loadResults(): IterationResult[] {
   const content = readFileSync(resultsPath, "utf8").trim();

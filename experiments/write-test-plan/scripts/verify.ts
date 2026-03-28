@@ -15,11 +15,9 @@
 
 import { execSync } from "node:child_process";
 import { z } from "zod";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { EXP_DIR } from "./paths";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const EVAL_DIR = resolve(__dirname, "..");
+const EVAL_DIR = EXP_DIR;
 
 const VerifyResult = z.object({
   score: z.number().min(0).max(100),

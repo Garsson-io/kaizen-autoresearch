@@ -209,12 +209,8 @@ function printByTarget(ideas: IdeaFrontmatter[]) {
 }
 
 // Main
-const ideasDir = join(
-  import.meta.dirname || __dirname,
-  "..",
-  "ideas"
-);
-const ideas = loadIdeas(ideasDir);
+import { PATHS } from "./paths";
+const ideas = loadIdeas(PATHS.ideas);
 const flag = process.argv[2];
 
 switch (flag) {

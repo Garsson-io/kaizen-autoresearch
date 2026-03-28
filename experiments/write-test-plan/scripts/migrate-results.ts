@@ -248,9 +248,10 @@ const results: Result[] = [
 
 const jsonl = results.map((r) => JSON.stringify(r)).join("\n") + "\n";
 
+import { PATHS } from "./paths";
+
 if (process.argv.includes("--write")) {
-  const outPath = join(import.meta.dirname || __dirname, "..", "autoresearch-results.jsonl");
-  writeFileSync(outPath, jsonl);
+  writeFileSync(PATHS.results, jsonl);
   console.log(`Wrote ${results.length} entries to autoresearch-results.jsonl`);
 } else {
   process.stdout.write(jsonl);
