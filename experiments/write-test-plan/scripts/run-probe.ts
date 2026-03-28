@@ -133,7 +133,9 @@ function runProbe(opts: {
   prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
 
   // Run claude -p with stdin piped from prompt string
-  // --tools "": disable all tools — probe should only produce structured output, no file reads or searches
+  // --tools "": disable all built-in tools (Bash, Edit, Read, etc.)
+  // --disable-slash-commands: remove slash commands from context
+  // --strict-mcp-config: block all MCP servers (no Sentry, Linear, etc.)
   // --max-turns 1: one response only (structured output)
   const result = spawnSync("claude", [
     "-p",
@@ -141,6 +143,8 @@ function runProbe(opts: {
     "--output-format", "stream-json",
     "--verbose",
     "--tools", "",
+    "--disable-slash-commands",
+    "--strict-mcp-config",
     "--max-turns", "1",
     "--model", opts.model,
   ], {

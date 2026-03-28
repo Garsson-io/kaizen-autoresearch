@@ -20,3 +20,11 @@ program.md step 8 says "the noise floor for loss is TBD." First iteration should
 ### 6. GT reasoning field incomplete
 
 Only 5 of 30 GT files have the `reasoning` field. Low priority — optional field, doesn't affect scoring.
+
+### 8. run-stats.ts — per-run cost/time/token reporting
+
+Parse `.log` files from each run and report per-probe and aggregate stats: time, cost, input/output tokens, cache hits, tool calls. Show as a table like results.ts.
+
+### 9. Verify --strict-mcp-config works on all probes
+
+Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-task run completes without errors with the stripped flags.
