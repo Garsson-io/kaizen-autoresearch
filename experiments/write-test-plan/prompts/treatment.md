@@ -12,7 +12,6 @@ a real failure — not just to verify happy-path logic.
 
 - **KEY-QUESTIONS** per behavior:
   - **MOCK-MISS**: Could a pure in-process mock miss this failure? If yes → at least Integration.
-    Think: does the behavior test one function's internal logic, or does it test that two+ modules correctly coordinate (pass data, propagate errors, trigger side effects in order)? If the test needs modules wired together to catch the bug → Integration, not Unit.
   - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
