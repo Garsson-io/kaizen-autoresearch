@@ -123,16 +123,10 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
     const diff = LEVEL_INDEX[b.minimum_level] - LEVEL_INDEX[gtLevel];
     const dir = diff === 0 ? "exact" : diff > 0 ? "over" : "under";
 
-    // Cross-entropy loss from level_probabilities
-    let pCorrect = 0.2; // default: uniform if no probabilities provided
-    if (b.level_probabilities) {
-      const probs = b.level_probabilities as Record<string, number>;
-      const rawSum = Object.values(probs).reduce((a, v) => a + Math.max(0, v), 0);
-      if (rawSum > 0) {
-        // Normalize so they sum to 1.0
-        pCorrect = Math.max(0, probs[gtLevel] ?? 0) / rawSum;
-      }
-    }
+    // Cross-entropy loss from level_probabilities (mandatory field)
+    const probs = b.level_probabilities as Record<string, number>;
+    const rawSum = Object.values(probs).reduce((a, v) => a + Math.max(0, v), 0);
+    const pCorrect = rawSum > 0 ? Math.max(0, probs[gtLevel] ?? 0) / rawSum : 0.2;
     // Clamp to avoid -log(0) = Infinity
     const pClamped = Math.max(pCorrect, 0.001);
     const ceLoss = -Math.log(pClamped) * w;

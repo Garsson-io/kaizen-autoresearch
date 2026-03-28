@@ -9,7 +9,14 @@
       "justification": "A unit test with mocked queue and mocked HTTP request objects could verify the rejection logic in isolation, but would miss the real failure mode: the framework consuming the request stream before the handler accesses the raw body. Node.js/Express middleware can inadvertently parse or consume the body stream before the handler runs, making req.rawBody unavailable. To catch this, the signature validation must be tested with a real HTTP request going through the actual framework middleware stack, ensuring the raw body is present and correct.",
       "test_description": "Use a real HTTP test client (supertest or similar) to send POST requests with a body and X-Signature-256 header. First test: valid signature, verify 200 and event is queued. Second test: invalid signature (body changed after signing), verify 401 response and queue is never called. Third test: absent signature header, verify 401. The test should confirm that the handler rejects invalid signatures *before* attempting to queue.",
       "plan_consistent": true,
-      "plan_consistent_note": "A unit test could theoretically pass with mocked objects, but would not detect framework middleware issues (body already consumed, req.rawBody missing, stream already read). Integration test with real HTTP eliminates false passes."
+      "plan_consistent_note": "A unit test could theoretically pass with mocked objects, but would not detect framework middleware issues (body already consumed, req.rawBody missing, stream already read). Integration test with real HTTP eliminates false passes.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 1.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 2,
@@ -18,7 +25,14 @@
       "justification": "The requirement is durability: the event must be *persisted* to the queue before the response completes. A unit test with a mocked queue that tracks call order could verify the code calls queue.enqueue before res.send, but would not catch the real failure: code calls enqueue but doesn't await its completion, or enqueue succeeds in-memory but fails to persist. To verify the write actually durably persists before the response, you must test against a real persistent queue (in-memory with durability semantics, or a real message broker).",
       "test_description": "Use a real persistent queue (e.g., in-memory queue with durability checks, or a Docker Redis/RabbitMQ for integration test). Send a valid webhook request and immediately check the queue state after the HTTP 200 response is received. Verify the event is present in the queue with correct data. Optionally, instrument the queue and response to prove enqueue completion timestamp is before response send timestamp.",
       "plan_consistent": true,
-      "plan_consistent_note": "A unit test with call-order mocking would satisfy 'enqueue called before send', but does not verify persistence actually happened. Real queue ensures the full behavior is tested."
+      "plan_consistent_note": "A unit test with call-order mocking would satisfy 'enqueue called before send', but does not verify persistence actually happened. Real queue ensures the full behavior is tested.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 1.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 3,
@@ -27,7 +41,14 @@
       "justification": "The failure mode is: code accidentally awaits downstream processing before returning (e.g., await queue.processDownstream or await some.externalAPI inside the request handler). A unit test could verify code doesn't call a downstream function, but mocking a slow downstream processor with instant returns would pass even if code is structured to wait. Real async execution with actual timing is needed to detect hidden awaits or blocking operations. Integration test with a real slow downstream service (or instrumented slow processor) exposes latency.",
       "test_description": "Create a slow mock downstream processor that takes 2-5 seconds to simulate processing. Send a valid webhook request and measure response time. Verify HTTP 200 is returned in <500ms (well before downstream completes). Use a real async event loop and actual timing measurement (Date.now or process.hrtime). Optionally, start a second downstream request immediately after to confirm the first downstream processing does not block the second response.",
       "plan_consistent": true,
-      "plan_consistent_note": "A unit test with jest.useFakeTimers() could theoretically catch this, but real async execution in integration test is more robust and detects framework-level blocking (middleware, logging, etc.) that timers might hide."
+      "plan_consistent_note": "A unit test with jest.useFakeTimers() could theoretically catch this, but real async execution in integration test is more robust and detects framework-level blocking (middleware, logging, etc.) that timers might hide.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 1.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 4,
@@ -36,7 +57,14 @@
       "justification": "This is a performance and concurrency property that depends on Node.js event loop behavior under real load. The failure mode is: event loop blocking, synchronous code in async context, or inefficient promise handling when requests are concurrent. A unit or integration test on a single request would pass. A system test with multiple concurrent requests under load exposes event loop saturation, synchronous I/O, or memory/CPU pressure.",
       "test_description": "Send 5-10 concurrent HTTP requests to the webhook handler in parallel. For each request, instrument a slow downstream processor (2-3 second delay per request, could be simulated async work). Measure the response time for each request using actual wall-clock timing (not mocked timers). Verify all responses arrive within 3 seconds from the client's perspective. Log the slowest response time. The test should run in a realistic Node.js environment (not with fake timers) to catch event loop issues.",
       "plan_consistent": true,
-      "plan_consistent_note": "Integration test with a single slow request would not catch concurrency issues. System test with parallel load is necessary to expose event loop blocking or queue saturation under real async pressure."
+      "plan_consistent_note": "Integration test with a single slow request would not catch concurrency issues. System test with parallel load is necessary to expose event loop blocking or queue saturation under real async pressure.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 0.0,
+        "System": 1.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 5,
@@ -45,7 +73,14 @@
       "justification": "The failure mode is: handler code does not check if an event ID already exists in the queue before writing. A unit test with a mocked queue that pretends to prevent duplicates (by design of the mock) would pass even if the handler code has no duplicate check. The duplicate-check logic must be tested against actual queue state: two identical event IDs sent in sequence should result in exactly one entry in the persistent queue. This requires inspecting real queue state after both requests complete.",
       "test_description": "Send two identical webhook requests with the same event ID, with a small delay between them (or concurrently). After both responses are received, query the persistent queue and verify only one copy of the event is present. Alternatively, mock the queue to return an error on duplicate insert, and verify the handler retries or handles gracefully. The key is querying actual queue state, not just verifying a mocked deduplication function was called.",
       "plan_consistent": true,
-      "plan_consistent_note": "Unit test mocking queue deduplication logic would pass without testing that the handler actually performs the check. Integration test against real queue state forces the handler to implement correct deduplication."
+      "plan_consistent_note": "Unit test mocking queue deduplication logic would pass without testing that the handler actually performs the check. Integration test against real queue state forces the handler to implement correct deduplication.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 1.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 6,
@@ -54,7 +89,14 @@
       "justification": "This is a happy-path error-handling test. The queue is a dependency that can be mocked. The failure mode is: handler code does not catch queue-full errors or does not return 503 with correct header. A mocked queue that throws a 'queue full' error (or returns a specific error code) is sufficient to verify the handler's error path. The handler's responsibility is to translate queue-full error into 503 response; the queue's responsibility is to enforce limits (separate concern).",
       "test_description": "Mock the persistent queue's enqueue method to throw a specific error (e.g., 'QueueFullError' or return status 507). Send a valid webhook request. Verify the handler catches the error and returns HTTP 503 with Retry-After header set (e.g., 'Retry-After: 60'). Check that the queue error is logged but the response is clean. This can be a pure unit test using jest.mock or sinon.",
       "plan_consistent": true,
-      "plan_consistent_note": "Mocking the queue error is sufficient; no real queue needed. The handler's error handling logic is isolated and can be verified with a mock."
+      "plan_consistent_note": "Mocking the queue error is sufficient; no real queue needed. The handler's error handling logic is isolated and can be verified with a mock.",
+      "level_probabilities": {
+        "Unit": 1.0,
+        "Integration": 0.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 7,
@@ -63,7 +105,14 @@
       "justification": "This behavior tests the queue system itself, not the handler. The failure mode is: queue implementation does not enforce the configured capacity limit (off-by-one error, forgetting to check, configuration not read). A unit test with mocked queue cannot test this—it would be testing the mock, not the queue. An integration test with a real queue on a local database might suffice if the queue is a library; a system test is required if the queue is an external service (API, message broker, subprocess).",
       "test_description": "Provision a real persistent queue with a configured capacity limit (e.g., max 10 events). Write exactly capacity events successfully. Attempt to write one more event and verify it is rejected (error thrown, request fails, or queue returns error). Repeat at the boundary (write capacity-1, then capacity, then capacity+1). This is a system test of the queue itself; it may require docker-compose to run the queue service, or a real message broker connection.",
       "plan_consistent": true,
-      "plan_consistent_note": "Cannot be mocked. Must test the real queue implementation to ensure limits are actually enforced."
+      "plan_consistent_note": "Cannot be mocked. Must test the real queue implementation to ensure limits are actually enforced.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 0.0,
+        "System": 1.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     }
   ]
 }

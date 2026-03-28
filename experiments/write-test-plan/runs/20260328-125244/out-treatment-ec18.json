@@ -9,7 +9,14 @@
       "justification": "Grouping by trace ID requires verifying that logs arriving from multiple sources (different microservices) are correctly correlated. A unit test with mocked log data in a single list won't catch real failures: logs from different services might arrive in separate batches, with different latencies, or through different I/O paths. An in-process mock cannot reveal whether the grouping logic correctly handles concurrent ingestion from multiple streams or whether synchronization between data sources fails. The tool must ingest from multiple microservices, which implies multiple I/O sources.",
       "test_description": "Set up a local message queue or stream (e.g., in-memory queue with multiple producer threads or a local Kafka instance). Emit log entries with the same trace ID from separate 'microservice' producers. Verify that the grouping function receives all entries and groups them by trace ID correctly, regardless of which producer emitted them or arrival order. Test edge cases: logs arriving out of order across sources, batched arrivals, and clock skew between sources.",
       "plan_consistent": true,
-      "plan_consistent_note": "Confirmed. A unit test with static mocked data would not catch failures like: (a) race conditions during concurrent ingestion, (b) buffering/batching issues from multiple sources, (c) lost entries if the grouping function doesn't properly synchronize across queues."
+      "plan_consistent_note": "Confirmed. A unit test with static mocked data would not catch failures like: (a) race conditions during concurrent ingestion, (b) buffering/batching issues from multiple sources, (c) lost entries if the grouping function doesn't properly synchronize across queues.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 1.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 2,
@@ -18,7 +25,14 @@
       "justification": "Ordering is a pure function applied to log entries with timestamp fields. The real failure is not about OS timing or I/O — it's about the sorting algorithm. Clock skew is just a property of the timestamp data itself (e.g., one service's clock is 500ms ahead). A unit test can inject log entries with timestamps that differ by up to 500ms and verify the order is correct. No I/O, no external timing sources, no multi-module integration needed.",
       "test_description": "Unit test with parametrized timestamp values: create log entries with timestamps from different 'services' where service A's clock leads service B's by 500ms. Verify the timeline orders entries by actual timestamp, not arrival order. Test boundary cases: clock skew of exactly 500ms, clock skew of 499ms, clock skew of 501ms (exceeds tolerance — if applicable). Verify ordering is stable under various skew scenarios.",
       "plan_consistent": true,
-      "plan_consistent_note": "Confirmed. This is pure sorting logic. Only risk would be if the tool reads system time during ordering (e.g., normalizing timestamps to current time), but the description indicates it processes provided log timestamps. Unit test is sufficient."
+      "plan_consistent_note": "Confirmed. This is pure sorting logic. Only risk would be if the tool reads system time during ordering (e.g., normalizing timestamps to current time), but the description indicates it processes provided log timestamps. Unit test is sufficient.",
+      "level_probabilities": {
+        "Unit": 1.0,
+        "Integration": 0.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 3,
@@ -27,7 +41,14 @@
       "justification": "Anomaly detection is statistical computation on latency values. The real failure is if the p99 calculation is wrong, the baseline is miscalculated, or the 3x threshold is not applied correctly. These are pure algorithmic failures, testable with parametrized latency data. No I/O, no external timing, no multi-module integration required. Provide known latency values, compute expected p99 and baseline, verify the spike detection triggers correctly.",
       "test_description": "Unit test with parametrized latency datasets: (a) normal latencies (e.g., all 100ms), verify no spike flagged; (b) spike scenario with most latencies 100ms and some 400ms (3x+), verify spike flagged; (c) boundary: latencies that are exactly 3x baseline, verify flagged; (d) just below 3x, verify not flagged. Test false negatives: ensure the anomaly detector doesn't miss spikes due to rounding or off-by-one errors in p99 calculation.",
       "plan_consistent": true,
-      "plan_consistent_note": "Confirmed. Pure math, no I/O or timing dependencies. Only risk is if baseline is computed from real-time windows, but the behavior describes static data analysis."
+      "plan_consistent_note": "Confirmed. Pure math, no I/O or timing dependencies. Only risk is if baseline is computed from real-time windows, but the behavior describes static data analysis.",
+      "level_probabilities": {
+        "Unit": 1.0,
+        "Integration": 0.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 4,
@@ -36,7 +57,14 @@
       "justification": "Error handling for parsing is a local function boundary: attempt to parse JSON, catch exceptions, increment error count. Real failures are algorithmic: does the parser crash on specific malformed JSON patterns? Is the error count accurate? These can be caught with unit tests using various malformed JSON strings. No I/O sequencing, no multi-module interaction, no concurrency issues (assuming error counting is thread-safe or single-threaded).",
       "test_description": "Unit test with parametrized malformed JSON inputs: (a) invalid JSON syntax (missing quotes, trailing commas, unclosed braces); (b) valid JSON but missing required fields; (c) deeply nested invalid structures; (d) null/empty inputs. For each, verify the parser does not crash, the entry is skipped, and the error count increments. Test: total skipped count = sum of counts from each malformed batch.",
       "plan_consistent": true,
-      "plan_consistent_note": "Confirmed. Error counting could have off-by-one bugs, but those are catchable with unit tests. Only risk: if error counting is not thread-safe and the pipeline parses concurrently, we'd need Integration. But for a single-threaded or properly synchronized parser, Unit is sufficient."
+      "plan_consistent_note": "Confirmed. Error counting could have off-by-one bugs, but those are catchable with unit tests. Only risk: if error counting is not thread-safe and the pipeline parses concurrently, we'd need Integration. But for a single-threaded or properly synchronized parser, Unit is sufficient.",
+      "level_probabilities": {
+        "Unit": 1.0,
+        "Integration": 0.0,
+        "System": 0.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     },
     {
       "behavior_id": 5,
@@ -45,7 +73,14 @@
       "justification": "Throughput and backpressure under load cannot be tested with in-process mocks. A mocked output sink (e.g., mock write function) won't reveal real bottlenecks in I/O, buffering, or OS scheduling. The real failure modes are: (a) OS/kernel buffers overflow and drop entries, (b) real serialization/deserialization is too slow, (c) real network I/O (if reading from remote services) introduces latency, (d) process scheduling delays under sustained load. All require actual timing, actual I/O, actual resource contention. Must test with real subprocess, real pipes/sockets, or real message queues under concurrent load.",
       "test_description": "System test: spin up the log analysis tool as a subprocess. Feed it a real burst of 10,000 log entries per second (via stdin, named pipe, or local message queue) for at least 10 seconds. Measure: (a) entry count in (from input), entry count out (in output), verify no drops; (b) processing latency (time from entry emitted to entry processed), verify it does not degrade during the burst; (c) memory usage, verify no unbounded growth. Use real timers (not mocked time). Test backpressure: if input buffer fills, verify the tool does not crash and eventually catches up.",
       "plan_consistent": true,
-      "plan_consistent_note": "Confirmed. An Integration test with mocked output would not catch real bottlenecks in: (a) actual OS buffer overflow if output is slow, (b) real serialization overhead, (c) real scheduling delays. System level is necessary to ensure the tool actually handles the load in a realistic environment."
+      "plan_consistent_note": "Confirmed. An Integration test with mocked output would not catch real bottlenecks in: (a) actual OS buffer overflow if output is slow, (b) real serialization overhead, (c) real scheduling delays. System level is necessary to ensure the tool actually handles the load in a realistic environment.",
+      "level_probabilities": {
+        "Unit": 0.0,
+        "Integration": 0.0,
+        "System": 1.0,
+        "Agentic": 0.0,
+        "Workflow": 0.0
+      }
     }
   ]
 }

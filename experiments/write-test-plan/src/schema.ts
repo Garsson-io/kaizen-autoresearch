@@ -59,7 +59,7 @@ export const BehaviorOutput = z.object({
     System: z.number().min(0),
     Agentic: z.number().min(0),
     Workflow: z.number().min(0),
-  }).optional(),
+  }),
 });
 export type BehaviorOutput = z.infer<typeof BehaviorOutput>;
 
