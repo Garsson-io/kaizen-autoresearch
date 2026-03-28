@@ -12,9 +12,9 @@ a real failure — not just to verify happy-path logic.
 
 - **KEY-QUESTIONS** per behavior:
   - **MOCK-MISS**: Could a pure in-process mock miss this failure? If yes → at least Integration.
-  - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
-  - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
+  - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
+  - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
