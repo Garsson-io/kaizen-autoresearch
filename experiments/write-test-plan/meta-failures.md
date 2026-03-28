@@ -112,6 +112,18 @@ Read this before iterating. These are the ways the process itself broke, not the
 
 ---
 
+### post-run-report skill template uses score%, not loss
+
+**What happened**: The `/post-run-report` skill template says "Baseline score" and `| Score | Delta |` throughout. After switching to loss as the primary metric (iter 15+), reports generated from that template end up score-focused — burying loss or omitting it.
+
+**Symptom**: User: "FOCUS ON LOSS!!!! NOT ON SCORE!!!! WHY ARE YOU FOCUSING ON SCORE!!!"
+
+**Fix**: Override the template: report loss as the primary column, score% as secondary (or omit entirely). The table header should be `| Loss | Δ Loss |` not `| Score | Delta |`. The "Baseline" line should say loss, not score.
+
+**Lesson**: The skill template is a scaffold, not a constraint. When the experiment's primary metric diverges from the template's defaults, override explicitly.
+
+---
+
 ### Noise floor is ~3% on score, loss baseline not yet established
 
 **Status**: confirmed (1 data point, needs replication)
