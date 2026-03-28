@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "Real failure would be: missing transitive dependencies because the code only parses direct ones. This requires reading a real manifest file (package.json, requirements.txt) and testing against realistic nested dependency structures. A Unit test with a mocked manifest object could hide bugs in manifest parsing logic (JSON/YAML parsing, recursion, edge cases). We need filesystem I/O (real file) + wired manifest parser + dependency extractor. Subprocess dependency resolution (npm ls, pip freeze) may be mocked if abstracted; if called directly without abstraction, System level is needed instead.",
+      "test_description": "Create a real package.json with direct dependencies (express, lodash) and known transitive dependencies (express → body-parser → etc.). Mock or stub the optional subprocess resolver. Call the manifest extraction function and assert that both direct dependencies (express, lodash) and transitive dependencies (body-parser, etc.) appear in the final dependency list passed to the vulnerability database query.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "System",
+      "justification": "Real failure would be: sending a malformed query (wrong format, missing version range, incorrect operator syntax) to the API, causing the API to either reject the request, return zero results, or return unfiltered results. A mocked database would always accept any query format and return synthetic results, hiding the real failure. The code must construct a correctly-formatted query that the real (or test) vulnerability API understands. This is a boundary condition that only real API interaction—or a test server that validates query format—can expose.",
+      "test_description": "Call the vulnerability database query function with a manifest containing 'express@^4.17.0' (semver range). Use a real vulnerability API endpoint (e.g., NVD, Snyk API, or a test fixture that validates query format). Assert that results are returned only for versions matching the semver range (e.g., 4.17.1, 4.18.0) and NOT for 5.x or 3.x versions. Verify that the query was sent in the correct format (check request body or headers if possible).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "This is pure in-memory sorting logic with no I/O, external calls, or side effects. Real failure would be: incorrect sort order (e.g., High before Critical) or incorrect secondary sort (CVSS scores not ordered). We can provide mock CVE objects with known severity levels and CVSS scores, call the sort function, and verify the output order. No filesystem, network, or subprocess interaction is needed.",
+      "test_description": "Create a list of mock CVE objects: [CVE(name='CVE-1', severity='High', cvss=8.5), CVE(name='CVE-2', severity='Critical', cvss=9.0), CVE(name='CVE-3', severity='Critical', cvss=7.5), CVE(name='CVE-4', severity='Low', cvss=3.0)]. Call the sort function. Assert the sorted order is: [CVE-2 (Critical 9.0), CVE-1 (Critical 7.5), CVE-2 (High 8.5), CVE-4 (Low 3.0)]. Test edge cases: same severity different CVSS scores, empty list, single CVE.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.98,
+        "Integration": 0.01,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Integration",
+      "justification": "Real failure would be: incorrect parsing/serialization that corrupts other fields (e.g., reordering JSON keys, losing comments, changing indentation, modifying other dependencies). Unit tests with mocked file I/O would not catch formatting bugs. Must read a real manifest file, modify one dependency version, and verify: (1) that specific dependency is updated, (2) all other entries are byte-for-byte identical, (3) file format (JSON/YAML indentation, comments) is preserved. Requires filesystem I/O and real file parsing/serialization logic.",
+      "test_description": "Write a real package.json file with multiple dependencies (express, lodash, axios, etc.) and any formatting quirks (comments, trailing commas if allowed, custom indentation). Call the modification function to bump express from 4.17.0 to 4.18.0. Read the modified file and assert: (1) express version is now 4.18.0, (2) lodash, axios versions unchanged, (3) file is valid JSON, (4) indentation/formatting matches the original (or expected output).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "Real failure would be: malformed API request to GitHub (wrong headers, wrong payload format, wrong endpoint), authentication failure, permission failure, or incorrect diff being sent. A mocked GitHub API would always succeed, hiding real failures. The code must correctly interact with the real GitHub REST/GraphQL API—including authentication, diff format, branch creation, and PR payload structure. Only a real API call (or integration with a real GitHub test instance) can expose these failures.",
+      "test_description": "Set up a real GitHub test repository (or use GitHub's sandbox environment). Call the PR creation function with a single-dependency bump (express 4.17.0 → 4.18.0). Verify: (1) a PR is created on the target branch, (2) the PR title/description matches expected format, (3) the diff shows only the changed dependency, (4) the PR diff is correct (only package.json modified, only express version changed), (5) no extra commits or branch artifacts are left.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "This is pure semver comparison logic with no I/O or external dependencies. Real failure would be: incorrect comparison (e.g., treating 3.0.0 → 4.0.0 as non-breaking, or 4.0.0 → 4.1.0 as breaking). We can provide version strings and verify the breaking-change detection function returns correct boolean. No filesystem, network, or subprocess needed.",
+      "test_description": "Create a parameterized test with version pairs: (1.0.0 → 2.0.0, expect breaking=true), (2.0.0 → 2.1.0, expect breaking=false), (2.0.0 → 2.0.1, expect breaking=false), (0.1.0 → 0.2.0, expect breaking=true per semver), (1.0.0 → 1.0.0, expect breaking=false). Call the breaking-change function for each pair and assert the result. Test edge cases: pre-release versions, invalid semver strings.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.97,
+        "Integration": 0.01,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "Real failure would be: PR is created even though breaking change is detected (control flow bug), or the review flag is not written to output correctly. This tests the interaction between: (1) breaking change detection, (2) PR creation gate, (3) output generation. A Unit test mocking PR creation might pass while the real code still calls `create_pr()` due to a bug. Must wire together the full breaking-change → output flow with real output (file, stdout, or structured report). Integration level allows testing that the control flow correctly branches and output is correctly generated.",
+      "test_description": "Create a manifest with a breaking-change dependency bump (express 3.x → 4.x). Call the scanner end-to-end. Mock or stub the PR creation function. Capture or inspect the scanner output (stdout, file, or report object). Assert: (1) PR creation function is never called, (2) output contains a review flag or warning indicating breaking change was detected, (3) output includes the dependency name and version range, (4) no PR was created (check PR list or flag state).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

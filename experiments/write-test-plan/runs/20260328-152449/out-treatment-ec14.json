@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "System",
+      "justification": "A mock speech-to-text API will always return speaker labels in the expected format, hiding the real failure: the actual API may not support speaker labels for certain audio codecs, languages, or meeting types, or may return them in an unexpected structure. Only by calling the real external API can we discover format mismatches or capability gaps. A mocked API at Integration level would pass while production fails.",
+      "test_description": "Transcribe real or realistic meeting audio (multiple speakers, natural speech) via the actual speech-to-text API. Verify that the transcript includes speaker_id or speaker_name fields for at least 80% of utterances. If the real API returns transcripts without speaker labels, returns labels in an unexpected field, or fails for certain audio characteristics, the test fails. Repeat with varied audio quality, speaker counts, and languages to catch API limitations that a mock would hide.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "The failure is not a code logic bug but an LLM behavior issue: the real LLM may misinterpret task assignments, miss subtle phrasings, or fail to extract action items for certain attendees, even when the assignment is clear in the transcript. A mocked LLM would always produce correct output by design. The same transcript sent to the real LLM multiple times will yield different summaries due to non-determinism. Only running the real LLM on realistic transcripts reveals failures in extraction and categorization that a mock would hide.",
+      "test_description": "Create 5–10 meeting transcripts (real or realistic) with explicit and implicit task assignments (\"Alice, you'll write the report\"; \"Bob is responsible for follow-up\"; \"We need someone to coordinate with marketing — Sarah will do it\"). Submit each transcript to the real summarization LLM at least 5 times to account for non-determinism. Verify that for each attendee mentioned as assigned a task, at least one action item appears in the structured output. Log any runs where the LLM misses an attendee or misattributes a task. This catches extraction failures and linguistic misunderstandings that only the real LLM exhibits.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the \"decisions\" section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "Like behavior 2, the failure is an LLM behavior issue: the real LLM may fail to recognize decisions, place them in the wrong field (narrative instead of decisions), or misunderstand decision context. A mocked LLM would always categorize correctly. The test must use real LLM calls to reveal categorization failures, field misplacements, and decision recognition errors that deterministic mocks would hide.",
+      "test_description": "Create 5–10 meeting transcripts with 3–5 explicit key decisions each (\"We decided to launch on April 1\"; \"The team agreed to hire 3 senior engineers\"; \"We will discontinue the legacy API by Q3\"). Submit each to the real LLM summarizer multiple times. Verify that each decision appears in the structured output's \"decisions\" field and NOT in the narrative. Track recall (are all decisions captured?), precision (are non-decisions being added?), and field placement (are any decisions misplaced in narrative?). This catches the failure modes where the LLM misses decisions, misunderstands their importance, or places them in the wrong output section.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Integration",
+      "justification": "The core failure modes—off-by-one errors in splitting, data loss or duplication during merge, broken cross-segment context—are code-level logic bugs that can be caught by wiring together the segmentation, mocked APIs, and merging logic at Integration level. We don't need the real speech-to-text API to verify the segmentation and merge logic work correctly. However, there is secondary risk: the real API may have timeout or size limits for long audio, discoverable only at System level. Since the behavior emphasizes segmentation logic (not API constraints), Integration is the minimum, though System testing is prudent for production.",
+      "test_description": "Create a synthetic 65–120 minute audio signal or file. Feed it into the segmentation pipeline with mocked speech-to-text and LLM APIs that return distinct, identifiable outputs for each segment (e.g., segment 1 has action items for Alice, segment 2 for Bob). Run the complete pipeline: split audio, process each segment, merge results. Verify: (a) audio is split into ≤60-minute segments, (b) each segment is processed independently and produces output, (c) no data loss or duplication in the merge, (d) final summary includes all unique action items and decisions from all segments, (e) cross-segment context is preserved (decision from segment 1 appears in segment 2's context). Test edge cases: segments of exactly 60 min, very small final segments, and segments with overlapping content. This catches segmentation bugs and merge logic errors.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "This is an end-to-end test requiring multiple coordinated real agentic steps: real speech-to-text API call, real LLM summarization, real audio file handling, and real network I/O. Real failure modes only appear when all these pieces are integrated: network timeouts, real API response formats, real audio quality issues, LLM non-determinism, data coordination bugs across steps, and cascading failures when one service is slow or fails. A mock test would pass; only running the full pipeline on real data reveals integration failures. The multiple LLM calls and their non-determinism across the pipeline push this to Workflow level.",
+      "test_description": "Obtain 3–5 real meeting recordings (30 min to 120 min each) with known ground truth: expected attendees, transcripts, action items, and decisions. Run the complete service pipeline end-to-end on each: upload audio file, call the real speech-to-text API, run real LLM summarization, validate structured JSON output. Measure: (a) success rate (all recordings produce valid output), (b) absence of manual intervention (fully automated), (c) output completeness (attendees, decisions, action items present and accurate), (d) latency (e.g., <10 min for 60-min meeting). Capture logs and document any failures: API timeouts, malformed responses, network errors, LLM hallucinations, or merge bugs. Repeat the full pipeline to measure consistency. This catches integration failures, real-world I/O issues, and coordination bugs that mocked tests would hide.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.7
+      }
+    }
+  ]
+}

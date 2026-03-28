@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests pure rule-based logic: threshold comparison with configuration. No I/O, no external dependencies, no non-determinism. The failure (off-by-one error, wrong threshold lookup) is caught by comparing transaction amount against category-specific threshold and verifying the output score. This is a single function boundary with deterministic inputs and outputs.",
+      "test_description": "Create a transaction with an amount exceeding the configured threshold for its merchant category; pass it to the scoring model; verify it produces a numeric risk score equal to or above the configured threshold value for that category.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests pattern recognition that goes beyond simple threshold rules—it requires the actual risk model (whether a trained ML model or similar) to process contextual features (merchant category, history, device fingerprint) and detect non-obvious patterns. A mock cannot reliably verify pattern detection; the real model must be loaded and executed. The failure would be: model fails to flag a transaction pattern as fraudulent when it should. If the model is local (most likely given no mention of external API), loading and inference constitutes filesystem I/O and model execution (Integration). If it's LLM-based, this would be Agentic, but the description gives no indication of that.",
+      "test_description": "Construct a series of test transactions with amounts well below individual rule thresholds but forming a fraudulent pattern (e.g., rapid sequential purchases from geographically distant merchants). Persist these transactions. Call the risk model with this pattern; verify it flags the transaction as fraudulent despite the scoring model thresholds being unmet, demonstrating pattern recognition beyond simple rules.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.25,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The velocity check almost certainly queries a database to count recent transactions per user within a time window. The real failures are: (a) off-by-one or boundary errors in time window logic (e.g., inclusive vs exclusive endpoints), (b) timezone or time handling bugs, (c) database query returning incorrect results. While a Unit test with mocked time and database could catch (a), Integration is necessary to catch (b) and (c)—these require real database queries and realistic time behavior. MOCK-MISS: a pure mock cannot reveal database-level issues. REAL-INFRA: the failure manifests when real transaction data and real time boundaries interact.",
+      "test_description": "Insert multiple test transactions for a single user at controlled time offsets relative to a configured window boundary (e.g., one at window_start - 1 second, one inside window, one at window_end + 1 second). Execute the velocity check with a configured window duration; verify that the count includes only transactions within the window boundaries and handles edge-case timestamps correctly (e.g., window [T, T+60s) correctly includes T but excludes T+60s).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Integration",
+      "justification": "Testing the OR logic requires executing both models and verifying the orchestration outcome. While mocking both models is possible (Unit level), this would not catch real failures in how the system wires the models together or how model outputs are evaluated. MOCK-MISS: a purely mocked test cannot verify the true outputs of the scoring model (which applies real rules and configuration). Integration ensures that at least the scoring model (the simpler, rule-based one) is real, so the OR gate is tested against realistic model behavior. The failure would be: a transaction flagged only by the risk model is not held, indicating the OR logic failed.",
+      "test_description": "Create a transaction that the scoring model does not flag as risky but the risk model does flag as fraudulent. Execute the fraud detection pipeline; verify that the transaction is held for manual review (demonstrating OR-gate behavior) and that both model outputs are recorded in the hold reason.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is fundamentally about output structure and documentation: the combined output must have both fields and make attribution clear. This is testable at Unit level by mocking both models with controlled outputs and verifying the output object contains both fields and attribution information. MOCK-HIDE: not applicable here—the concern is output format, not model correctness. The failure would be: missing field or unclear attribution in the output, which a Unit test can catch. However, Integration would be prudent to ensure real model outputs integrate correctly into the final format.",
+      "test_description": "Mock the scoring model to return a numeric risk_score (e.g., 0.65) and the risk model to return fraud_probability (e.g., 0.82). Execute the fraud detection pipeline; verify that the combined output includes both values and clearly indicates which model produced each value (e.g., 'flagged by: scoring_model, risk_model' or structured fields showing source attribution).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    }
+  ]
+}

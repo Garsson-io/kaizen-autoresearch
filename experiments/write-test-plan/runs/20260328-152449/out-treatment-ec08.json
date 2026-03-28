@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is pure algorithm logic: 2^attempt_count up to max. No I/O or real-world interaction needed. Mock the API to return 429 errors and use fake timers (jest.useFakeTimers) to verify wait durations. A Unit test can thoroughly verify the backoff curve without external dependencies.",
+      "test_description": "Mock the HTTP client to return rate-limit errors on the first two attempts, then success on the third. Use fake timers to verify the wait time between attempt 1 and 2 is 2^1 seconds, between attempt 2 and 3 is 2^2 seconds, and that no wait exceeds the configured maximum backoff duration.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Detecting rate-limit requires parsing the HTTP response—status code, headers like Retry-After. Mocking a bare response object risks missing how the real HTTP client library structures responses (e.g., case-insensitive headers, lazy-loaded properties). Integration with a mock HTTP server and real HTTP client ensures the parsing logic works with realistic response objects. MOCK-MISS: a pure mock object might not surface parsing bugs that only appear with the real HTTP library's response format.",
+      "test_description": "Set up a mock HTTP server that responds with HTTP 429 and a Retry-After header set to 30 seconds. Make a request through the real HTTP client. Verify the client correctly identifies the 429 status as a rate-limit condition and extracts the Retry-After value to determine the wait time before retrying.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This behavior involves the full HTTP retry cycle: initial request → rate-limit response → wait → resend → success. Verifying that headers and request body are preserved across retries, and that the response is correctly returned, requires realistic HTTP interaction. Integration with a mock server and real HTTP client catches bugs in request re-sending and response handling that a pure mock might miss (e.g., incorrect header forwarding, response parsing).",
+      "test_description": "Mock HTTP server returns 429 on the first request, then 200 OK with a specific response body on the second. Verify the client waits and retries the original request (same method, URL, body, headers), receives the success response, and transparently returns that result to the original caller.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "This is error-type assertion after N failures. Mock the API to always return 429, configure max_retries to a small number (e.g., 2), and verify a QuotaExhaustedError is thrown. No I/O or complex interaction needed—just asserting the correct error type is raised when the retry budget is exhausted.",
+      "test_description": "Mock the HTTP client to always return rate-limit (429) responses. Set max_retries to 2. Call the API. Verify it throws an instance of QuotaExhaustedError with appropriate error details, not a generic error or HTTP exception.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "While Unit testing with fake timers can verify the retry loop, fake timers can mask async/await bugs or event-loop issues that only appear with real HTTP client behavior. Integration testing with a mock HTTP server and real HTTP client ensures the async loop truly terminates and doesn't hang. REAL-INFRA: real HTTP client interaction surfaces timing and async issues that mocked timers might hide.",
+      "test_description": "Mock HTTP server always returns 429. Issue a call with max_retries set to a small value (e.g., 3). Verify the retry chain completes and returns QuotaExhaustedError within a reasonable timeout window. Confirm there are no infinite loops, hanging awaits, or failure to surface the final error.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.55,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Shared quota tracking requires verifying that concurrent async calls correctly update and observe the same quota state. While Unit testing with mocked APIs and Promise.all() might appear to work, it risks missing concurrency bugs—race conditions or event-loop timing issues that only appear with real async interaction. Integration with a mock HTTP server tracking quota across requests ensures the shared state is correctly maintained under realistic async conditions.",
+      "test_description": "Mock HTTP server tracks quota per account and decrements it with each request. Issue two concurrent async calls that will both hit the rate limit if the quota isn't shared properly (e.g., first call uses 60% quota, second needs 60%; both fail if quota is per-request, succeed if shared). Verify both calls correctly consume and observe the same shared quota bucket.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Unit",
+      "justification": "Queue ordering is observable from the client side by tracking the sequence of HTTP calls. Spy on or mock the HTTP client to record the order of calls, and verify they match submission order. This requires no real HTTP or I/O—just in-process call tracking. Unit testing with a mocked HTTP client that logs call order is sufficient to catch ordering bugs.",
+      "test_description": "Submit three async requests concurrently (A, B, C) to an API with rate limiting enabled. Spy on the HTTP client to record the order of actual HTTP calls made. Verify the calls are dispatched in submission order (A, then B, then C) even if they become ready to retry at different times due to staggered backoff.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

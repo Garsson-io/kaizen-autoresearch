@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when total exceeds the context window.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure logic test: given a history array of size N, does the function select exactly the last 10 items before passing to the LLM? A unit test with a mock LLM can verify the input structure without needing database, network, or real LLM—the failure is deterministic (off-by-one indexing, wrong slice boundaries). The LLM doesn't care what we pass; we're verifying the trimming logic itself.",
+      "test_description": "Create a conversation history with 25 messages. Call generate_response() with this history. Mock the LLM and verify the function invokes the LLM with exactly 10 messages (not 25, not 11). Verify those 10 are the most recent chronologically.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "This is fundamentally an LLM output quality test. The only way to verify that a real LLM produces on-topic responses is to call a real LLM. A mock will always pass—you can mock it to return 'on-topic response' and pass the test, but you haven't validated prompt engineering or system message. The failure mode is real: bad prompt → real LLM produces off-topic responses. Mocks hide this. This requires non-deterministic behavior validation (the same input might get different outputs on different runs due to sampling), which is the definition of Agentic.",
+      "test_description": "Create a specific customer question: 'Why hasn't my refund been processed yet?' Call generate_response() with real LLM calls (no mocking the LLM itself, though mock the database). Verify the returned response mentions refund processing, timing, or status—not generic pleasantries or unrelated topics. Consider running this test multiple times with the same seed to ensure consistency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.88,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "If the tone-check is rule-based (keyword blacklist), this could be Unit. But the behavior 'correctly identifies when too formal for casual-tier' implies semantic understanding of tone and customer context. Semantic tone checking likely requires an LLM call (or a sophisticated ML classifier). Mocking a tone-checker hides the real failure: the real LLM-based or classifier-based tone-check incorrectly evaluating responses. You need to call the real tone-check logic with real responses to verify it correctly flags formality. This is Agentic if the tone-check is LLM-powered.",
+      "test_description": "Generate a formally-worded response (e.g., 'Your inquiry regarding temporal status of your parcel is acknowledged') to a casual-tier customer. Call the tone-check on this response with the real tone-checking logic (not mocked). Verify it returns 'too formal' and that this triggers a regeneration flag. Verify a second LLM call (regeneration) is initiated.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.25,
+        "System": 0.01,
+        "Agentic": 0.7,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with a mocked database can verify that save() is called with the right parameters, but it won't catch real persistence failures: database connection drops mid-insert, write constraint violation, timestamp serialization bugs, transaction rollback. The failure is real-infrastructure-dependent. Integration test with a real or in-memory database (SQLite) will catch actual write failures, timestamp formatting issues, and data loss. This doesn't require System (real network/subprocess) because an in-memory DB is sufficient.",
+      "test_description": "Execute a full conversation flow: user message → generate response → tone check (trigger regeneration) → generate new response. Query the real in-memory database (or test database instance) and verify all messages are present (user message, first response, regenerated response), each with a timestamp. Verify timestamps are recent, in chronological order, and match the expected sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first—the customer never sees the rejected draft.",
+      "minimum_level": "Integration",
+      "justification": "The core failure is: tone-check triggers regeneration, but the function returns (or the database stores, or the API sends) the original response instead of the regenerated one. A unit test mocking the tone-check and LLM can verify the replacement logic in isolation. But to catch real failures (e.g., code path doesn't actually replace in the return value, or regenerated response is stored but old one is retrieved from cache), you need Integration: wire the full flow with real/in-memory dependencies, trigger regeneration, and verify the customer-facing output is the regenerated response, not the draft.",
+      "test_description": "Set up a customer and message that will trigger tone-check rejection (mock tone-check to flag 'too formal'). Call generate_response(). Verify the returned response is the regenerated one (verify by comparing to a known bad response or checking metadata). Query the database and verify only the regenerated response is stored (or if both are stored, verify the API returns/displays the regenerated one). Confirm the original draft is not in the returned data structure.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.02,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    }
+  ]
+}

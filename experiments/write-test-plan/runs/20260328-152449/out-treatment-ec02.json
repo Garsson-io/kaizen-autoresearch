@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature is rejected with 401 response; body is not forwarded to queue",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is deterministic cryptographic computation. The failure mode (invalid signature still queued) is caught by mocking the queue and verifying queue.add was never called. No I/O, no latency, no non-determinism—pure logic.",
+      "test_description": "Mock the queue and HMAC validator. Send a request with mismatched X-Signature-256 header. Assert: 401 response AND queue.add was never invoked. Test both off-by-one tamper and completely invalid signature.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is persisted to queue before HTTP 200 acknowledgment is sent to the client",
+      "minimum_level": "Integration",
+      "justification": "The failure is a race condition: response sent before queue acknowledges persistence. Unit mocks return instantly, masking timing issues. Real persistent storage (DB or in-memory queue with observable latency) is needed to verify the ordering guarantee. Need to verify queue write completes before response bytes are committed.",
+      "test_description": "Use a real or high-fidelity in-memory queue (e.g., test SQLite or in-memory DB). Inject a callback to track when queue.add resolves vs when res.send is called. Assert: queue persistence completes (awaited) before res.status(200).send() executes. Test with a queue that has realistic latency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream processing to complete",
+      "minimum_level": "Unit",
+      "justification": "The failure is: handler awaits downstream processing before returning response. This is code-structure verification—can be caught by spying on function calls and verifying res.send is invoked before any downstream processor await. Unit test with mocks catches the wrong await pattern. Downstream delays (behavior 4) are separate.",
+      "test_description": "Mock queue and downstream processor. Spy on handler calls. Assert: res.status(200).send() is invoked before await on downstream processor. Verify the handler function returns immediately after queuing, not after processing. Test with a slow mock processor to confirm no await ordering.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock time even when downstream processing is slow and concurrent",
+      "minimum_level": "Integration",
+      "justification": "Timing SLAs cannot be verified with instant mocks—they hide latency. Real or simulated delays are required to prove the handler doesn't block downstream. Concurrent event handling must be tested with multiple in-flight requests and real/simulated processing latency. Need wall-clock measurement, not mock timing.",
+      "test_description": "Send multiple concurrent webhook requests (5–10 events). Inject realistic delays into downstream processing (e.g., 1–2 second sleeps per event). Measure HTTP response latencies for each request. Assert: all responses complete within 3 seconds wall-clock time, even when earlier events are still processing. Verify no response is blocked by prior event processing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to queue a second time (idempotency)",
+      "minimum_level": "Integration",
+      "justification": "Idempotency requires persistent state: a real store (DB) that tracks seen event IDs. Unit mocks cannot reliably model this—a mock deduplicator would pass but hide real storage bugs (stale cache, missing index, transaction isolation issues). Must test against actual persistent storage.",
+      "test_description": "Use a real or in-memory persistent store (SQLite, or test MongoDB) for event ID tracking. Send the same event (same ID) twice with valid signatures. Assert: queue contains exactly one entry for that event ID. Verify the deduplication check queries and updates the persistent store correctly. Test with duplicate IDs arriving concurrently.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue reports it is full, handler returns 503 with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "Error path testing. The failure is: handler does not return 503 when queue.add fails with 'full' error. Unit test mocks the queue to throw/error with full status, verifying the error handler returns correct response. No latency, no I/O, no persistence issues—pure conditional logic.",
+      "test_description": "Mock the queue to throw a 'queue full' error (or return a full status) when add() is called. Call handler with valid event. Assert: response is 503 AND Retry-After header is present (with reasonable backoff value, e.g., 60 seconds). Test both exception throw and error return code paths.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces its configured capacity limit and rejects events that would exceed it",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue implementation's actual capacity enforcement, not just the handler's error response. Unit mocks don't enforce real limits—they return success unless explicitly configured. Must fill a real or realistic queue to verify rejection at boundary. Behavior 6 tests handler error response; this tests queue actually enforces the limit.",
+      "test_description": "Use a real or in-memory queue with configurable capacity (e.g., max 10 events). Add events up to capacity. Assert: queue accepts first N events. Assert: event N+1 is rejected (throws or returns error). Verify queue.add fails at exactly the capacity boundary. Test with both in-memory queue and real persistence (if applicable).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

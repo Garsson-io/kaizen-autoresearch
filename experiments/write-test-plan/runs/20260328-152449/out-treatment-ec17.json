@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response",
+      "minimum_level": "Agentic",
+      "justification": "This behavior's failure mode—a generic, contextless response—only emerges when a REAL LLM processes the email. A mock LLM can be configured to always return specific references, hiding the actual failure that happens in production where the LLM may not extract or reference email context. Unit/Integration tests with mocked LLM would pass even if the real LLM produces generic output. Testing with real email data and a real LLM is required to catch the non-determinism and quality failures of the model.",
+      "test_description": "Feed a real email thread into the system with a real LLM call. Assert that the generated draft explicitly mentions 2+ specific facts or questions from the email (e.g., names, dates, requests mentioned). Run the test multiple times to verify consistency. If the LLM sometimes generates generic output despite specific input, this test catches it; a mocked LLM would hide this variance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base",
+      "minimum_level": "Integration",
+      "justification": "The contradiction-detection logic itself is deterministic—given a draft and KB entries, it either finds a contradiction or it doesn't. A mock KB is sufficient to test the checking algorithm. However, the failure to catch contradictions (the real failure) could stem from: (a) flawed contradiction-detection logic, or (b) incorrect KB lookup/retrieval. Testing at Integration level with a real (or local, realistic) KB and test data catches both. Unit level (logic only) could miss KB integration failures; System level (real external KB API) is not required unless the KB is truly remote.",
+      "test_description": "Create test data: a draft with a factual claim (e.g., 'Our SLA is 99% uptime') and a KB with contradicting entries. Wire the real fact-checking logic to perform KB lookup (mock or in-memory DB). Assert that the contradiction is flagged in the consistency report. Also test the negative case: draft with no contradictions should pass clean.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts",
+      "minimum_level": "Unit",
+      "justification": "This tests a simple control-flow rule: 'if KB lookup returns empty, append disclaimer to draft.' The failure (missing disclaimer when KB is empty) is deterministic and can be caught in isolation. A unit test mocking the KB lookup to return no results is sufficient. No need for Integration (wiring multiple modules) or Agentic (LLM behavior) here—the system either enforces the rule or it doesn't.",
+      "test_description": "Test the disclaimer-appending logic in isolation. Mock KB lookup to return an empty result set. Call the draft-post-processing function (or fact-check + draft assembly step). Assert that a disclaimer string is present in the final draft (e.g., 'Based on available information...' or similar). Also test the positive case: with KB entries present, no disclaimer should be added.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically",
+      "minimum_level": "Unit",
+      "justification": "This is a safety-critical control-flow guarantee: 'no send without approval.' The failure—draft sent without approval—is a simple logical breach, not dependent on I/O, external APIs, or LLM behavior. A unit test mocking the approval response (return False) and the send function (stub it), then asserting send() was never called, is sufficient. No need for Integration (UI wiring) or higher levels.",
+      "test_description": "Unit test: mock the user approval step to return False (no approval). Mock the send_email() function. Call the workflow function that should block sending without approval. Assert that send_email() was never called. Also test the positive case: approve=True should result in send_email() being called exactly once.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread",
+      "minimum_level": "Agentic",
+      "justification": "While most of the pipeline (reading, fact-checking, approval logic) is deterministic and could be tested at Integration level with mocked LLM, the requirement 'for a real email thread' implies testing with realistic data and outputs. To catch failures where the draft quality, LLM behavior, or subtle fact-check failures emerge only with real LLM outputs, you need Agentic level. A mock LLM returning a fixed, benign draft would hide real-world failures: e.g., LLM generates hallucinations that the fact-checker should flag but doesn't. End-to-end testing with a real LLM and test email data catches integration failures and LLM-specific edge cases.",
+      "test_description": "End-to-end test: use a realistic test email thread (e.g., a customer support scenario with specific details). Call the real system with a real LLM (or in-house model serving) to generate a draft. Verify: (1) draft is not None, (2) draft text is passed to the fact-checker, (3) consistency check completes, (4) system awaits approval (not auto-sending), (5) after mocked approval, the system is ready to send. Repeat with 3+ diverse email threads to verify robustness across varying LLM outputs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0
+      }
+    }
+  ]
+}

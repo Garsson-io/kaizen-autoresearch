@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed, not only files in the root directory",
+      "minimum_level": "Integration",
+      "justification": "Testing recursive directory watching requires real filesystem operations. Mocking fs.watch could miss missing recursive flags or incorrect event routing from subdirectories. The failure only manifests when actual files in subdirectories trigger real watcher events. This can be tested with real temp directories and in-process watcher (no subprocess needed), but filesystem I/O is essential.",
+      "test_description": "Create a real temporary directory structure with subdirectories. Write test files to both the root and nested subdirectories. Verify the daemon's transformation pipeline is triggered for both root and subdirectory files. Assert that file counts and processing results match expectations for all directory depths.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards a second processing request for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic in-process state logic: lookup file path in a time-bounded cache, skip if present, expire after TTL. No filesystem, network, or subprocess involved. Using fake timers (jest.useFakeTimers), you can drive time forward and verify dedup cache behavior in isolation. Mocking the cache structure is appropriate because the behavior is purely algorithmic.",
+      "test_description": "Use fake timers to control clock advancement. Submit the same file path for processing and verify it is tracked. Submit the same path again within the time window and verify deduplication prevents a second processing call. Advance time past the configured window, submit the path again, and verify processing is allowed (cache entry expired).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "Integration",
+      "justification": "This failure can only be caught by observing real filesystem events and the daemon's response. Mocking the event stream misses how chokidar or fs.watch actually debounces and coalesces real OS events. The watcher library's batching behavior plus the daemon's dedup logic must work together on real filesystem writes. Integration testing with actual file creation captures both layers.",
+      "test_description": "Create a real temporary file in the watched directory and write to it, triggering actual OS filesystem events. Verify the daemon's processing pipeline is invoked exactly once despite multiple underlying events. Optionally, instrument the watcher to log events and confirm multiple events are received but produce only one processing call.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart",
+      "minimum_level": "System",
+      "justification": "The requirement 'without a restart' means testing that the daemon process itself survives and recovers, not just that the watcher logic can recover. This requires a subprocess running the daemon. Real directory deletion triggers OS-level watcher closure that only the running daemon will experience. The failure is process crash or silent watcher death—only visible if the daemon runs long-term in a subprocess.",
+      "test_description": "Spawn the daemon as a subprocess. Write a test file and verify it is processed. Delete the watched directory using real filesystem operations. Poll the subprocess to verify it is still running (process did not exit, no crash). Recreate the watched directory. Write a new test file and verify the daemon processes it without restart. Assert process uptime shows continuous operation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps",
+      "minimum_level": "Integration",
+      "justification": "Testing timestamp-based sorting requires reading real file creation metadata via fs.stat. Mocking stat calls could mask filesystem-specific issues (e.g., Windows vs. Linux timestamp precision differences). The sorting logic plus real timestamp extraction must work together. Real temp files with controlled timestamps reveal if metadata is read and ordered correctly without guesswork.",
+      "test_description": "Create multiple real temporary files with distinct, controlled creation timestamps (ensure sufficient time spacing for reliable stat). Write all files to the watched directory within a tight time window to simulate simultaneous arrival. Verify the daemon processes them in strict creation-timestamp order, not file-arrival order. Assert output order matches timestamp order consistently.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete",
+      "minimum_level": "Integration",
+      "justification": "Testing incomplete-write detection requires real file I/O: open a file, leave it open, verify the daemon detects it is incomplete and waits, then close the file and verify processing resumes. Mocking file operations would hide the actual behavior of file locks or size-stability checks that the daemon uses. Real filesystem operations reveal whether the detection mechanism works correctly.",
+      "test_description": "Create and open a file in the watched directory with write access but do not close it. Allow the watcher event to fire while the file is still open. Verify the daemon does not process the file (or logs that it is deferring). Close the file. Verify the daemon now processes it successfully. Optionally, monitor file size over time to confirm the daemon waited for stability.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
