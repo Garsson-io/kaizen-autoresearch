@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is pure computation logic—exponential backoff formula. The failure boundary is a math error in the doubling logic. You can mock the API to return rate-limit errors consistently and mock the sleep function to record wait times, then verify the sequence: initial_delay, 2x, 4x, 8x, ... up to max. No real I/O, external API, subprocess, or LLM needed.",
+      "test_description": "Mock the REST API to always return a rate-limit response. Mock the sleep function to record all requested wait times without actually waiting. Trigger multiple consecutive rate-limit hits and verify the wait times are: min_delay, 2*min_delay, 4*min_delay, etc., capping at max_delay and staying there for subsequent retries.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test with mocked sleep catches formula errors. Test timeout prevents infinite loops. A real failure (wrong exponent, missing cap) is caught.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "The library wraps a real third-party REST API, and the failure boundary is whether the library correctly parses rate-limit signals from the actual API's response structure (status code like 429, Retry-After header, or response body fields). A naive unit test with a simplified mock response might miss API-specific details. Integration testing with a realistic mock HTTP response (using a test server or mock HTTP client) ensures the library works with the actual API format.",
+      "test_description": "Set up a mock HTTP server (or mock HTTP client with realistic responses) that returns a rate-limit response matching the actual third-party API's format (status 429, Retry-After header, etc.). Call the client library and verify it correctly identifies the response as a rate-limit and extracts the correct wait time from headers or response body.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test with realistic mock responses ensures the library parses the actual API's rate-limit signal. A unit test with oversimplified mocks could pass but fail in production if the real API uses different fields or header names.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying actual async timing (the wait really happens, not skipped) and request resending (same request is issued, not mutated) in a realistic async context. While this could theoretically be unit-tested with perfect mocking of sleep/delay and HTTP, the failure boundary is subtle: async bugs (incorrect await, lost context), request mutation during retry, or result corruption. Integration testing with a mock HTTP server and real async/await ensures these work correctly together.",
+      "test_description": "Set up a mock HTTP server that returns rate-limit on first call, then success on retry. Call the client async function, measure elapsed time to verify the wait actually occurred, then verify the request is resent identically (same method, URL, body) and the successful result is returned to the original caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test ensures actual async timing and request resending. A unit test with mocked sleep might miss async/await bugs or result-handling issues that surface in real async execution.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "This is pure error-handling logic: retry count logic and error type selection. The failure boundary is a logic bug (wrong max, off-by-one, or wrong error type). You can mock the API to consistently return rate-limit errors and verify that after exactly N failures, a `QuotaExhaustedError` is thrown. No real I/O, timing, or external dependencies needed.",
+      "test_description": "Mock the REST API to always return a rate-limit response. Configure max retries to 3. Call the client and verify that after 3 failed attempts (1 initial + 2 retries, or similar per implementation), it throws `QuotaExhaustedError`, not a generic Error or other type.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test catches wrong retry count (off-by-one bugs) and wrong error type. No infrastructure beyond mocking needed.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "The failure boundary is the retry loop control flow: the loop must exit when max retries is reached. You can mock the API to return failures, add a test timeout (e.g., 5 seconds), and verify the call returns an error before timeout. Count the iterations to confirm the loop exits at the right point, not earlier or later. No real timing or I/O needed—mocking is sufficient.",
+      "test_description": "Mock the API to always return rate-limit errors. Set a test timeout (e.g., 5 seconds) to catch infinite loops. Call the client, verify it returns `QuotaExhaustedError` before timeout, and verify the total number of attempts matches max_retries + 1 (initial + retries).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test with timeout and iteration counting catches infinite loops and premature termination.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This tests quota state management with concurrent async access. A unit test of isolated calls would never detect race conditions, lost quota updates, or per-caller isolation bugs. The failure boundary is concurrency: does the quota counter remain consistent when multiple async tasks update it simultaneously? Integration testing with multiple concurrent async callers hitting the same rate-limited endpoint is required to catch these failures.",
+      "test_description": "Launch 5 concurrent async calls to the same rate-limited endpoint (quota limit: 3 calls per second). Verify that all 5 calls draw from the same shared quota pool—e.g., the first 3 succeed immediately, and the last 2 are queued/delayed due to shared quota exhaustion. Verify quota tracking is consistent: total issued matches quota accounting across all callers.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Concurrent async tasks expose race conditions and isolation bugs that unit tests would miss. Integration test with multiple real concurrent tasks ensures shared state is correct.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This tests queueing order under concurrency with varying retry backoff times. A unit test of isolated requests would not catch reordering bugs caused by backoff logic. The failure boundary is concurrency: when multiple requests hit rate limits and enter the retry queue, does the queue maintain FIFO order (original submission order) or does it reorder by backoff deadline? Integration testing with concurrent requests having staggered backoff times is required.",
+      "test_description": "Submit 3 requests concurrently in order: A, B, C. Cause B and C to hit rate limits (longer computed backoff). Instrument the library to log the actual send order. Verify requests are dispatched in original order: A first (success), then B (after backoff), then C (after longer backoff)—not by backoff-time deadline.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Concurrent requests with different backoff times expose reordering bugs that unit tests would miss. Integration test ensures FIFO queue is maintained despite backoff variations.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

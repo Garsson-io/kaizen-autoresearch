@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The critical failure happens at the DLQ boundary. A pure Unit mock of the DLQ hides real failure modes: row numbers may be miscalculated during streaming, serialization may corrupt the data, async writes may fail silently, and the row metadata may not match what downstream consumers expect. Testing against a real DLQ (database table, message broker, or file) reveals whether rows actually persist with correct numbering and content.",
+      "test_description": "Create a CSV with rows containing missing required fields (e.g., no email, no ID). Write to localstack S3. Run the pipeline and query a test PostgreSQL dead-letter table (or local message broker topic). Verify: (1) invalid rows appear in the DLQ, (2) original row numbers match the CSV source, (3) original row data is intact in the DLQ record, (4) error details explain the rejection. Restart the pipeline; confirm no duplicates in DLQ.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Integration",
+      "justification": "While the transformation logic itself could be unit-tested, real failures occur at the CSV-to-database boundary. The date may be extracted differently from CSV context (whitespace, column position), or the database column may reject the canonical format due to type mismatch, timezone, or precision loss. A real test database is required to confirm the transformed date is both accepted by the schema and stored/retrieved correctly.",
+      "test_description": "Create a test CSV with dates in ISO 8601 (2026-03-28), US (03/28/2026), and European (28/03/2026) formats. Run the pipeline against a test PostgreSQL database with a DATE or TIMESTAMP column. Query each row and verify: (1) all dates are in the canonical format (e.g., YYYY-MM-DD), (2) dates are accepted by the database type, (3) dates can be retrieved and used in range queries. Include edge cases: leap years (2026-02-29 should fail or be handled), timezone-aware strings, and extra whitespace.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "Performance and resource-constraint failures cannot be caught at Unit or Integration scope. A Unit test with a 500-row mock dataset won't reveal memory leaks, buffer overflows, algorithmic inefficiencies (e.g., quadratic time), or garbage-collection pressure. The real failure—OOM or timeout—only manifests when processing a genuinely large file with real streaming I/O and actual system memory constraints. Real file I/O and memory/time measurement are non-negotiable.",
+      "test_description": "Generate (or obtain) a 500,000-row CSV file with realistic row sizes. Configure the pipeline with the target timeout (e.g., 5 minutes) and memory limit (e.g., 2 GB). Execute the pipeline while monitoring peak and average memory usage (using system tools like /proc/[pid]/status on Linux). Verify: (1) all 500k rows are processed, (2) peak memory stays within the limit, (3) execution completes within the timeout. Run with a memory profiler (e.g., py-spy, tracemalloc) to detect leaks. Test with varied row sizes (small, medium, large columns) to ensure consistency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The retry and backoff logic must be tested against realistic S3 service behavior, not a simple mock. A mock that naively returns '503, then success' misses real failure modes: S3 rate-limiting headers, SDK-specific retry semantics, network timeout behavior, and actual timing of backoff intervals. Using localstack or minio provides protocol-level S3 realism without external costs, allowing measurement of retry counts and backoff delays without relying on live AWS.",
+      "test_description": "Set up localstack (or minio) configured to return HTTP 503 for the first 2 read attempts on a test file, then succeed. Run the pipeline against this S3 service. Capture logs or inject timing instrumentation. Verify: (1) the pipeline does not immediately fail on 503, (2) retries occur (visible in logs), (3) backoff delays increase exponentially (e.g., 1s → 2s → 4s between attempts), (4) the batch eventually succeeds, (5) all data is processed. Vary the 503 count (1, 3, 5 consecutive errors) to ensure backoff is robust.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "True idempotency requires real S3 and database behavior: checkpoint durability, transaction atomicity, primary key constraint enforcement, and re-read consistency. Mocking both S3 and DB hides real failure modes: checkpoint files not flushed to disk, uncommitted transactions rolled back, constraint violations on retry, or S3 re-reads returning different data. A real test PostgreSQL instance and localstack S3 are required to verify restart safety.",
+      "test_description": "Load 1000 rows into localstack S3. Create a test PostgreSQL table with a unique constraint on (batch_id, row_id) or similar idempotency key. Run the pipeline, programmatically halt it after ~400 rows are inserted (e.g., by raising an exception in the write loop). Verify the checkpoint is persisted (check logs or query checkpoint storage). Restart the pipeline. Verify: (1) the checkpoint is read and the pipeline resumes from row ~401, (2) no duplicate rows appear (final count = 1000), (3) no constraint violation errors occur, (4) the final data matches a fresh end-to-end run. Test multiple halt points (early, mid, late) to ensure robustness across the pipeline.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.87,
+        "System": 0.07,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "A mock vision model could be hard-coded to always return explicit=true, hiding integration bugs and the model's actual detection capability. The real failure is that the system doesn't detect explicit content in real images. This requires calling the actual AI vision model to verify it detects explicit images correctly—a mock cannot simulate this. The detection behavior is non-deterministic per image: the same model might classify different explicit images with varying confidence.",
+      "test_description": "Call the real vision model API with an image containing explicit content (e.g., from a standard test dataset). Verify the system receives the model's classification and flags the post as explicit. Confirm the post is moved to a review queue, not published. Repeat with borderline images to verify the model's behavior matches expectations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Agentic level, the test directly exercises the real failure boundary (the model's actual detection of explicit content). A lower level (Integration with mocks) would not catch failures where the real model fails to detect explicit images.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "The behavior specifically requires robustness to obfuscation. A mock text classifier can be hard-coded to flag obvious hate speech, but a real model's robustness to unicode lookalikes, leetspeak, and letter substitutions is learned behavior. A mock cannot reliably simulate this without encoding every obfuscation pattern. The failure is: the real model doesn't detect obfuscated hate speech, or the system doesn't process the model's response correctly. Only the real text classification model can verify this.",
+      "test_description": "Create test cases with hate speech using various obfuscation techniques (unicode lookalikes: 'а' vs 'a', letter substitution, spacing tricks). Call the real text classification model on each variant. Verify the system flags all of them consistently, regardless of obfuscation method.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The real failure boundary is the model's ability to detect obscured hate speech. An Integration test with a mock would miss failures where the real model is not robust to the obfuscation techniques.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the system's publish logic, not in the models' behavior. Both models can be mocked to return safe results—this simulates the precondition correctly. The bug would be in how the system handles 'both models returned safe': does it publish, hold, or silently drop? A mock that returns the correct results from both models is sufficient to test this decision logic. We don't need real models because we're not testing their behavior; we're testing the system's response logic.",
+      "test_description": "Mock both the vision model (returns non-explicit) and text model (returns no hate speech). Submit a post with an image and text. Verify the system publishes the post (not held for review, not dropped). Check the post appears in the published feed or notification system.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with accurate mocks, the test catches the real failure (broken publish logic). The models' actual behavior is not in question here—only how the system reacts when both models agree the post is safe.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline—image check, text check, publish decision—completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "Mocks are too fast to test performance; the real failure is latency under real model execution. The pipeline has two sequential agentic steps (image classification, text classification) that must complete in parallel or quickly enough to stay under 5 seconds. Real vision and text models have real API latency (network round-trip, model inference). Only by calling the actual models in sequence can you measure whether the total time is under 5 seconds. This is a Workflow-level concern because multiple agentic steps must coordinate within a time budget.",
+      "test_description": "Submit a post with both image and text content. Measure the end-to-end time from submission to completion of all checks. Call the real vision and text models (not mocked). Verify the total pipeline time is under 5 seconds. Repeat with multiple posts to ensure consistency. Monitor network latency and model response times.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Workflow level, the test measures real latency from multiple agentic steps. A lower level (Integration with mocks) would not reveal timing failures because mocks return instantly, and a single Agentic step alone wouldn't test the coordination overhead between two models.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.4,
+        "Workflow": 0.45
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the system's error handling and retry logic, not in the model itself. A mock that simulates model unavailability (raises TimeoutError, connection exception, or returns 503) is sufficient to test the retry path. The system must catch the exception/error and queue for retry instead of auto-approving. The retry logic is deterministic and local to the system; it doesn't depend on real model non-determinism. A well-designed mock that simulates the real failure mode (timeout, connection error) is sufficient.",
+      "test_description": "Mock the vision model to raise a TimeoutError (or return a connection error). Submit a post with an image. Verify the system catches the exception, does not auto-approve the image, and adds the post to a retry queue (or dead-letter queue). Check that the post is not published immediately.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with a mock that simulates realistic failure modes, the test catches the real failure (broken retry logic). If the real model fails differently (e.g., returns 503 instead of timeout), the mock should be updated to match, but the test structure remains valid.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.6,
+        "System": 0.3,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the system's caching or decision-making consistency, not in the model's behavior. By mocking the vision model and submitting the same image twice within a short window, you can verify that either (a) the model is only called once (cached), or (b) the decisions are identical. A mock tracks call count and can reveal caching bugs. If the real model were non-deterministic (returning different classifications for the same image), that's a model training issue, not a system bug. The system's responsibility is to cache correctly or handle the model's decisions consistently.",
+      "test_description": "Mock the vision model to track call count. Submit the same image content twice within a short time window (e.g., 10 seconds). Verify either: (1) the mock is called only once (caching is working), or (2) both decisions are identical. Confirm the image is flagged or passed consistently both times.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level, the test verifies the system's caching or consistency logic. A lower level (Unit) would not test the full decision pipeline; a higher level (Agentic with real models) is unnecessary because the model's non-determinism is not the system's responsibility.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

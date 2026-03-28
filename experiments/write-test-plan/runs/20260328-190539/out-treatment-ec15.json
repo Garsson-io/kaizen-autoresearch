@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "Integration",
+      "justification": "Mocking the embedding model could return any dimensionality without failing, hiding the real failure where the actual embedding service produces vectors incompatible with the vector DB schema. A mismatch between embedding dimensions and DB index dimensions breaks the entire search pipeline. Integration testing with a real embedding model (local or sandboxed API) + real vector DB schema is the minimum needed. This catches deployment failures when the embedding model changes (e.g., switching from 1536-dim to 768-dim) or configuration mismatches between embedding service and DB.",
+      "test_description": "Configure a real embedding model with a known output dimensionality. Submit a test query and verify the returned embedding vector has exactly the dimensionality required by the vector database schema. Cross-check against the vector database initialization configuration and known model specification. Repeat with different query inputs to ensure consistency.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.6,
+        "System": 0.3,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "Mocking the vector database allows tests to return results in any arbitrary order without failure, hiding bugs in the actual search implementation. The real failure surfaces only when the actual vector DB is queried—it might return unordered results, ascending order, or with incorrect similarity calculations. Integration testing with a real vector database instance (local or dockerized) + pre-computed test vectors with known similarity scores to a query vector is the minimum needed to verify correct sort order. Unit tests with mocked DB results cannot catch this.",
+      "test_description": "Load vector database with test vectors having pre-calculated cosine similarity scores to a reference query vector. Execute a similarity search and verify results are returned in strictly descending order by similarity score. Use known test data (e.g., embeddings with similarities 0.95, 0.87, 0.62, 0.31) to confirm exact ordering. Verify both that results are ordered AND that the similarity values match expected calculations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "Mocking the LLM re-ranking service defeats the test entirely—a mock can be hard-coded to return any reordered results, hiding the real failure where the actual LLM either isn't being called, returns the same order, or produces low-quality rankings. The correctness depends fundamentally on what the real LLM produces. Different LLM instances or runs may rank differently based on semantic understanding. Testing requires calling the actual LLM service (not mocks) to verify it produces meaningful context-aware reorderings for nuanced queries. LLM outputs are inherently non-deterministic, so test must run multiple times to confirm re-ranking occurs consistently.",
+      "test_description": "Query the API with a multi-intent query (e.g., 'mechanical keyboard under $100' or 'lightweight Python testing framework that supports async') that benefits from semantic re-ranking beyond keyword similarity. Retrieve raw similarity-ranked results and LLM re-ranked results from the full API endpoint. Verify the order differs for at least some items. Run this test multiple times (10+ queries) and confirm re-ranking occurs in the majority of runs, accounting for LLM non-determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic test will catch the failure of missing or broken LLM re-ranking. Note: LLM outputs vary across runs, so test may show minor differences in rank ordering between runs. This is expected and acceptable as long as re-ranking generally occurs. Consider using low temperature settings if determinism is required.",
+      "level_probabilities": {
+        "Unit": 0.0125,
+        "Integration": 0.0125,
+        "System": 0.025,
+        "Agentic": 0.85,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "Mocking the vector database could always return empty results, hiding bugs where the real database search doesn't apply a minimum similarity threshold or where the filtering logic is broken. The real failure occurs when the vector database is queried and returns low-relevance results below the threshold, which should be filtered out. Integration testing with a real vector database + test queries that have no close matches ensures the threshold filtering is correctly applied during actual search operations. Unit tests with mocked DB results cannot expose threshold-checking failures.",
+      "test_description": "Load vector database with domain-specific test content. Construct a query guaranteed to have no similar vectors in the database (e.g., a random token sequence, out-of-domain term, or intentionally dissimilar string). Submit the query through the API and verify the response contains an empty result set, not low-relevance items. Confirm the API respects the minimum similarity threshold and doesn't return noise. Repeat with multiple no-match queries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "Latency failures hide completely under unit or integration tests with mocked components—mocks are instant and mask real-world delays. Real latency emerges only when the full pipeline executes with real infrastructure: actual embedding model inference, actual vector database search, and actual LLM re-ranking calls all incur network/compute delays. This behavior requires testing multiple agentic steps (embedding + LLM re-ranking) in sequence, plus system-level database operations, measured end-to-end. Workflow testing is the minimum needed to catch real-world slowdowns from any step in the pipeline.",
+      "test_description": "Submit 100+ representative product-search queries through the full REST API endpoint (from query receipt to re-ranked response). Measure total latency for each query including all steps: embedding model call, vector database search, LLM re-ranking, and response formatting. Use realistic embedding models, vector database, and LLM services (or performance-equivalent test doubles). Calculate the median latency across all queries and verify it is strictly below 2 seconds. Identify which step contributes most to latency.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.0125,
+        "Integration": 0.0125,
+        "System": 0.15,
+        "Agentic": 0.025,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

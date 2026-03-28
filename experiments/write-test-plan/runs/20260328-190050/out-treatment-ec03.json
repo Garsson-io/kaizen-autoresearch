@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is whether the tool correctly invokes git with rename detection enabled and properly parses git's actual rename markers. A mock of git commands could return incomplete rename data (e.g., without the -M flag for move detection), missing production failures where: (1) git is called without proper rename detection flags, (2) git's actual output format for renames differs from mock expectations, or (3) rename similarity thresholds cause real renames to be misclassified as add+delete. Real git subprocess on a real repository with actual renamed files is required to verify the tool captures renames correctly.",
+      "test_description": "Create a real git repository, add a file with content, commit it, then rename the file (and optionally modify its content slightly), and commit the change. Run the tool on the commit range and verify the report categorizes the change as a single 'renamed' entry, not as both a deletion and an addition. Verify the renamed file count matches the actual rename, not inflation from double-counting.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System confidence is highest (0.6), consistent with minimum level assignment.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.2,
+        "System": 0.6,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is whether the tool's parsing logic robustly handles binary file markers in git diff output (e.g., 'Binary files a/foo and b/foo differ') without crashing or mishandling binary content. A Unit test with realistic mocked diff output can catch basic parsing failures. However, Integration testing with real binary files in a git repository ensures: (1) the tool doesn't attempt to read or decode binary file contents incorrectly, (2) actual git diff output format for binary files is handled correctly, and (3) edge cases with various binary formats (images, compiled binaries, archives) don't cause unexpected errors. Real files catch file-handling bugs that pure parsing mocks might miss.",
+      "test_description": "Create a real git repository and add a binary file (e.g., a PNG image, PDF, or compiled executable). Commit the addition. Then modify the binary file (e.g., by replacing its content with different binary data) and commit the modification. Run the tool on the repository and verify: (1) no crash or error occurs, (2) the binary file appears in the report's 'modified' category, (3) the count of modified files includes the binary file, and (4) no exception is raised when parsing the diff output.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration confidence is highest (0.5), consistent with minimum level assignment.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.5,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is how the actual git executable behaves when invoked on a repository with no commits. Git's behavior may vary: (1) some commands return empty output with exit code 0, others return an error message like 'fatal: your current branch ... does not have any commits yet', or (2) behavior differs across git versions. A mock of git commands that always returns empty output will miss the actual error that the real git subprocess produces. The tool must robustly handle the real git response, which requires invoking the actual git subprocess on an empty repository to catch bugs such as unhandled error messages, incorrect exit code handling, or crashes when git returns 'no HEAD' errors.",
+      "test_description": "Initialize a new git repository with `git init` (no commits made). Run the tool on this empty repository and verify: (1) no error or exception is raised, (2) the output is an empty report (shows 0 files added, deleted, renamed, modified), (3) the tool exits with a success status code, and (4) the tool handles the absence of HEAD gracefully without attempting to reference non-existent commits.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System confidence is highest (0.65), consistent with minimum level assignment.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is the accuracy of the tool's counting logic against actual git history. To verify counts are correct, the test must use a real git repository with known change history and invoke real git to retrieve actual changes, then compare the tool's counts against git's definitive report. A mock of git output could be constructed with expected counts, but this only tests 'can the tool parse this specific data?' not 'are the counts actually correct?'. Real git repositories and subprocess invocation are required to catch counting bugs such as: (1) off-by-one errors, (2) missed or double-counted changes, (3) category miscounts due to rename vs. add+delete logic errors, or (4) race conditions when reading repository state.",
+      "test_description": "Create a real git repository with a controlled sequence of changes: add 3 new files (A, B, C), delete 1 existing file (D), rename 2 files (E→E_renamed, F→F_renamed), and modify 4 files (G, H, I, J). Commit these changes as a single commit. Run the tool to analyze this commit and verify the reported counts exactly match: 3 added, 1 deleted, 2 renamed, 4 modified. Cross-check these numbers against `git diff HEAD~1 HEAD --name-status` to confirm the tool's counts are accurate.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System confidence is highest (0.75), consistent with minimum level assignment.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged",
+      "minimum_level": "System",
+      "justification": "The real failure boundary is whether the tool applies consistent logic when analyzing changes in different git states (staged in the index vs. unstaged in the working directory). The tool must consistently scope its analysis: (1) always use `git diff --cached` (staged), (2) always use `git diff` (unstaged), or (3) apply equivalent logic for both. A mock of git diff output might assume staged and unstaged outputs are identical, missing real bugs where the tool's code paths diverge or git returns different data based on staging state. Real git staging behavior and real subprocess invocation are required to verify the tool produces identical output for the same logical changes regardless of whether they're staged or unstaged.",
+      "test_description": "Create a real git repository with a known set of uncommitted changes (e.g., modify 2 files, add 1 new file, delete 1 file). Stage these changes using `git add`. Run the tool and record the output (A). Reset the staging area using `git reset` (without --hard, to preserve working directory changes). Run the tool again and verify the output is identical (A). Repeat the test with different combinations of staged/unstaged file changes to ensure the tool consistently analyzes the same logical changes regardless of git staging state.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System confidence is highest (0.75), consistent with minimum level assignment.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    }
+  ]
+}

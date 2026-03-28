@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when full history exceeds the LLM's context window",
+      "minimum_level": "Integration",
+      "justification": "The trimming logic itself is deterministic and Unit-testable, but the real failure is token overflow: passing too many tokens to the LLM API, causing rejection or degraded output. A mock LLM would accept any message count without validation. Real failure detection requires a real tokenizer (e.g., tiktoken for OpenAI models) to verify the trimmed payload stays within the actual context window limit. This is Integration-level: wire the trimming logic to a real tokenizer library without calling the LLM API.",
+      "test_description": "Create a conversation with 25+ messages spanning multiple turns. Pass the full history through the trimming function, then use the real LLM tokenizer library to verify token count is ≤ the documented context window limit. Test with messages of varying lengths to catch edge cases where item count doesn't map linearly to tokens.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real tokenizer library is accurate; no tokens will slip through. Consider System testing if token counting differs between the library and actual LLM implementation.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's specific question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "This is fundamentally LLM-dependent and non-deterministic. The real failure is that the LLM, on some runs, produces an off-topic, generic, or hallucinated response—not addressing the question. A mock LLM can never produce this failure; it will always return a well-formed, on-topic response. A real LLM may fail 5-10% of the time depending on model, temperature, and input. Unit and Integration tests with mocks cannot detect this failure mode. Agentic testing with the real LLM over multiple runs is the only way to surface non-deterministic failures.",
+      "test_description": "With the real LLM (not mocked), send a specific, unambiguous customer question (e.g., 'What is your return policy for electronics?'). Call the chatbot 15-20 times with the same input and verify all responses address the return policy for electronics. Use either manual review or a separate evaluator LLM to assess relevance. Document any off-topic or generic responses; this test is expected to have variability.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real LLM will occasionally fail non-deterministically; multiple runs expose this behavior. Test outcomes will vary between runs; acceptance criteria should account for probabilistic success rates (e.g., 95% on-topic responses).",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.15,
+        "Agentic": 0.75,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "System",
+      "justification": "The real failure is that the tone classifier (whether rule-based, library-based, or LLM-based) misclassifies a response. A Unit test with a mocked classifier can verify the conditional logic ('if too_formal: regen'), but it cannot catch classifier errors. The classifier itself is the critical dependency. If the classifier is an LLM (most robust for nuance), it requires a System-level call to the real classification API. If it's rule-based, a mock will still hide edge cases (e.g., moderately formal responses, cultural/linguistic variations). System-level testing with the real classifier exposes true classification failures.",
+      "test_description": "Generate test responses deliberately crafted to be formally-toned (e.g., 'I shall elucidate the matter for your consideration...') and neutral-toned. Call the real tone-classification system for a casual-tier customer and verify formal responses are flagged for regeneration. Include boundary cases (mildly formal, slightly casual) and verify the classifier doesn't over-trigger. Assert that only formal responses trigger the regeneration flag.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real classifier is used; no misclassifications will be hidden by mocking. Ensure test cases cover the classifier's decision boundaries with realistic customer language samples.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.25,
+        "System": 0.55,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "The real failures include: data not written (connection issue), missing fields, wrong timestamps (using system time instead of message creation time), data truncation (response exceeds column width), or loss of regeneration records. A mock database will accept any data without validation, hiding all these failures. A real test database instance (local, ephemeral) wired to the code catches these. Integration-level testing uses a local test DB (SQLite in-memory, Docker-based Postgres) to simulate database behavior and persistence correctness without external dependencies or network calls.",
+      "test_description": "Execute a full chatbot flow: user message → LLM response → [tone check → regeneration if triggered]. Verify all steps are persisted to a test database with correct timestamps (message received time, response generated time, regeneration time if applicable). Retrieve records and assert: (1) no data is missing, (2) timestamps match expected sequence (generation time > message time), (3) regeneration replaces the initial response record (or is logged separately if that's the design). Use a local test DB with schema validation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test DB schema and write operations are real; persistence bugs will be caught. If production DB uses a different timezone, add System testing to verify timestamp correctness across timezones.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone-check triggers regeneration, the second response replaces the first; the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a logic bug: the code returns response1 (the draft) instead of response2 (the regenerated response) to the customer, or stores both in the DB. This is deterministic and testable at Integration level: mock the LLM to control what response1 and response2 are, run the full regeneration flow, and verify the final response and DB record contain only response2. A secondary failure (race condition: response1 sent asynchronously while response2 is being generated) would require System testing with real concurrency, but the primary logic failure is Integration-level.",
+      "test_description": "Mock the LLM to return a specific response1 for the initial call and a different response2 for the regenerated call. Run the full flow with a casual-tier customer and a formal response1 that triggers tone-check. Verify: (1) only response2 is returned to the customer, (2) only response2 is persisted in the database (or response1 is explicitly marked as rejected/intermediate), (3) the final API response does not contain response1 anywhere. Test with simulated async/concurrent operations to verify no race condition exposes response1.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Logic is deterministic; replacement will be verified. If responses are sent asynchronously to the customer before regeneration completes, System testing with real concurrency is needed to catch timing-based exposure of the draft.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

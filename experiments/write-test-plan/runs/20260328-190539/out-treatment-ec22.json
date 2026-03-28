@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure, deterministic function with no external dependencies. The failure—collision or non-determinism in key generation—can only occur in the key generation logic itself. Mocking does not hide failures here; the function is self-contained. Injecting a mocked database or file system would not catch any failure that the function itself would not reveal.",
+      "test_description": "Parametrized test over multiple query parameter combinations; for each combination, verify that: (1) identical parameters passed multiple times always produce the same key, and (2) different parameter combinations produce different keys. Use collision detection to ensure no false positives from similar-but-different keys.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Key generation is a pure function with no external dependencies. Unit tests directly test the function and catch all determinism and collision failures. No mocking can hide failures here.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "The failure modes include both the TTL computation logic and the loading of the freshness configuration. A unit test with hardcoded rules could pass while the actual configuration (from file, environment, or database) is misconfigured or not loaded correctly in production. Integration-level testing with a real configuration source ensures the full path from configuration source to TTL result is validated. Mocking the configuration would hide failures in the loading mechanism.",
+      "test_description": "Load a test configuration with multiple data categories and their freshness rules (e.g., 'user_profiles: 5 minutes', 'product_catalog: 1 hour'). For each category, call the TTL computation function and verify the result matches the expected rule. Test edge cases like missing categories, malformed configurations, and rule overrides.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with a real configuration source ensures both loading and computation are validated. Unit tests alone would miss configuration-loading failures. The test captures the real failure boundary: the full path from configuration source to computed TTL.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "Testing the strategy switch requires observing the cache's state as memory pressure increases. A unit test with a mocked memory reporter could verify the switching logic in isolation, but would not catch if the actual memory measurement is inaccurate or if the switch does not functionally change eviction behavior. Integration testing—filling the cache with real entries until the threshold is exceeded, then verifying that eviction behavior changes—ensures the switch is both triggered and functionally effective.",
+      "test_description": "Insert entries into the cache until the in-process memory counter exceeds the configured threshold. Check that the eviction strategy field has switched from LRU to LFU. Trigger one more cache operation and verify the eviction behavior uses LFU (e.g., by confirming a frequently-used entry is evicted instead of a recently-used entry).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with real cache fills and memory pressure ensures the strategy switch is both triggered and functionally effective. Testing the behavior change (eviction strategy difference) alongside the switch ensures the invariant is maintained in practice.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "The cache invalidation mechanism depends on detecting and responding to changes in the underlying database. Whether invalidation is triggered by database triggers, application-level hooks, or change-data-capture systems, failure modes are at the DB-application boundary. A unit test with a mocked write event could verify the invalidation logic but would miss failures in detecting actual writes from PostgreSQL. Integration testing with a real (test) database ensures writes are committed, invalidation is triggered, and entries are removed from the cache.",
+      "test_description": "In a test database: (1) issue a SELECT query that populates the cache, (2) verify the entry is cached, (3) perform an UPDATE or DELETE on the underlying table affecting the cached row(s), (4) attempt to retrieve the entry from cache and verify it is no longer present. Test with different affected-row patterns (single row, range of rows, all rows, partial overlaps).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with a real (test) database ensures the write-to-invalidation path is validated. Unit tests with mocked writes would miss failures in database-side trigger/CDC mechanisms. The test captures the real failure boundary: writes must be committed, then detected and acted upon by the cache layer.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries—least-recently-used under LRU, least-frequently-used under LFU—when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "The eviction algorithm—which entry to remove given LRU or LFU metadata—is deterministic logic testable in isolation. The failure—removing the wrong entry—occurs in the eviction selection logic itself. A unit test that creates cache entries with known metadata (timestamps or access counts) and verifies which entry is removed will catch bugs in the algorithm (off-by-one errors, incorrect comparisons, incorrect data structure updates). In-memory data structures are sufficient.",
+      "test_description": "Parametrized test over LRU and LFU strategies. For each strategy: (1) create cache entries with known metadata (timestamps for LRU, access counts for LFU), (2) fill the cache to near capacity, (3) insert a new entry to trigger eviction, (4) verify the evicted entry is the one with least recent use time (LRU) or lowest access count (LFU). Test both single-eviction and multi-eviction scenarios, and verify no data corruption.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit tests directly test the eviction selection logic, which is where the failure (removing wrong entry) occurs. The invariant is validated by checking which entry was removed. No external infrastructure is needed; in-memory data structures are sufficient to test the algorithm.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

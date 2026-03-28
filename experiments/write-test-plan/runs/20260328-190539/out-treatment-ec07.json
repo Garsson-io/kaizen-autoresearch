@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Content passed to the summary-generation step includes data retrieved from all three sources",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be one data source failing silently while its data is missing from the aggregated input to summary generation. Unit tests with mocked sources could pass while integration fails due to data format mismatches, aggregation logic bugs, or state corruption across sources. However, Integration level (with test doubles for HTTP responses) can catch this by verifying the aggregation logic itself without needing real endpoints.",
+      "test_description": "Create an integration test that: (1) Set up test doubles or fixtures for all three data sources with realistic response schemas, (2) Call the data collection and aggregation logic, (3) Verify the aggregated object contains non-null/non-empty fields from all three sources with correct structure, (4) Test with one source returning minimal/edge-case data to ensure it still appears in aggregation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is appropriate for catching real aggregation bugs. Risk: if real APIs deviate from test-double schemas, some issues could slip through—mitigated by using documented API contracts or recorded real responses.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be the script crashing, hanging, or producing a corrupted report when one source is unreachable. Unit tests of error handlers alone miss cascading failures and state corruption. Integration level (with one mocked source throwing an exception while others succeed) will catch whether the error is properly caught, whether the note is inserted, and whether the report generation completes successfully.",
+      "test_description": "Create an integration test that: (1) Mock or fixture the data sources such that one raises a retrieval exception (connection error, timeout, HTTP 500), (2) Call the full data collection and report generation pipeline, (3) Assert the report is generated successfully, (4) Verify the report contains the 'data unavailable' marker for the failed source, (5) Verify data from the other two sources is still present and correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level catches error-handling bugs and state consistency. Risk: mocked timeouts may not reflect real timeout behavior (edge case)—but most graceful-degradation failures will be caught.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data",
+      "minimum_level": "Agentic",
+      "justification": "Whether the summary 'accurately represents' data depends on the implementation. If it is template-based (deterministic), Integration would suffice. However, if narrative generation uses an LLM (likely given 'narrative'), then the minimum level is Agentic because: (1) LLM outputs are non-deterministic; (2) accurate semantic representation requires running against a real model to verify it doesn't hallucinate or omit key values; (3) mocking an LLM always returning the same canned response hides real failures where the LLM sometimes misses data or fabricates values.",
+      "test_description": "Create two test suites: (1) If deterministic (template-based): Integration test with known input data and verify exact or near-exact output against expected template. (2) If LLM-based (most likely): Agentic test that calls the real summary-generation endpoint with test data, then uses semantic similarity or key-value extraction to verify that all major numeric values and entity names from input are represented in the summary; run the test multiple times to detect non-deterministic failures.",
+      "plan_consistent": false,
+      "plan_consistent_note": "The minimum level depends on whether narrative generation is LLM-based or deterministic. Marked inconsistent because the issue description does not specify. Recommend: clarify implementation of 'narrative summary' before finalizing this test. If LLM: use Agentic. If template/rules-based: use Integration.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0.45,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report from data collection through email delivery reaches the configured recipient's inbox correctly",
+      "minimum_level": "Workflow",
+      "justification": "Real failure modes: email never arrives, arrives corrupted, sent to wrong recipient, or attachment broken. Mocking the email service hides SMTP failures, malformed headers, encoding issues, and delivery authentication problems. System level (with real SMTP or high-fidelity test double) catches email-layer bugs, but end-to-end correctness also depends on the narrative generation step. If narrative generation is LLM-based (Agentic), the full pipeline from data collection through email delivery involves multiple agentic+system steps, making Workflow the true minimum level.",
+      "test_description": "Create a Workflow/end-to-end test that: (1) Trigger the full scheduled script or its main entry point, (2) Provide test data sources (live test doubles or recorded fixtures), (3) Use a test email service (mailtrap, smtp4dev, or in-memory mock that records deliveries), (4) Assert that an email was sent to each configured recipient, (5) Verify email headers, body content includes the narrative summary, and any attachments are present and readable, (6) For LLM-based summaries, run multiple times to detect generation variability.",
+      "plan_consistent": false,
+      "plan_consistent_note": "Minimum level depends on narrative generation method. If deterministic, System suffices; if LLM-based, Workflow is correct. Additionally, 'configured recipient list' must be testable—if it's hardcoded or environment-dependent, the test must inject a test recipient.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.4,
+        "Agentic": 0.1,
+        "Workflow": 0.4
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run",
+      "minimum_level": "Workflow",
+      "justification": "Real failures: report is generated but never saved, saved to wrong location, permissions issue prevents write, or retry logic never triggers. System level catches file-write and email-service failures in isolation, but the behavior also depends on scheduling/retry orchestration and possibly LLM-based summary generation. Testing that a generated report is saved *and* that retry actually happens on the next run requires Workflow level (full pipeline with scheduler/time mocking, or real scheduled execution).",
+      "test_description": "Create a Workflow test that: (1) Mock email service to be unreachable (exception or timeout), (2) Call the report-generation and email-delivery pipeline, (3) Verify the report was generated (call narrative-generation with test data), (4) Verify the generated report was written to the configured fallback file path with correct content, (5) Delete the file or reset state, (6) Simulate or trigger the next scheduled run, (7) Verify retry logic attempts to send the saved report and succeeds (or correctly handles continued email unavailability).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Workflow level is appropriate because the behavior spans report generation, file I/O, scheduling, and retry logic. Risk: scheduling/timing is often hard to test deterministically—use dependency injection of time/scheduler for testability.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.25,
+        "Agentic": 0.05,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}

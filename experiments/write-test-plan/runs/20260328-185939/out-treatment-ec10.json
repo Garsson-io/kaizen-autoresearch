@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is a logic bug: the parsing code extracts full file content instead of just the diff. A Unit test with mocked GitHub API responses can verify that diff parsing correctly filters to changed lines. The behavior is about scoping logic, not about GitHub API robustness. A well-formed mock diff is sufficient to catch failures in the extraction logic (wrong line ranges, missing deleted lines, etc.). Real GitHub edge cases (binary files, renames, merge conflicts) are less likely to cause this specific scoping failure—the risk is in the parsing logic itself.",
+      "test_description": "Create test diffs with multiple file changes, deletions, and additions. Mock the GitHub API to return these diffs. Verify that for each diff, the extracted input contains only the changed lines and does not include untouched context lines or full file content. Assert line number boundaries are correct for each modified file.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test directly verifies scoping logic at the boundary between GitHub diff data and code review input. No mock avoidance because the failure (full file extraction) is in local parsing, not in API interaction.",
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is: does the code construct and post a comment request such that GitHub places it at the intended line? A Unit test can verify request construction (correct line numbers, commit SHA, endpoint), but this doesn't catch subtle real failures: GitHub API quirks, edge cases in line number mapping (e.g., merge commits, force-pushed changes), or ambiguous positions in the diff. An Integration test that wires together the diff parser, comment construction, and a mocked GitHub API can catch most failures. A System test with real GitHub would be better, but requires a real PR; Integration with a realistic mock is the pragmatic minimum.",
+      "test_description": "Set up integration test with real PR checkout and mocked GitHub API. Create a test PR with multiple modified files. Execute the review process to post inline comments at specific lines. Mock the GitHub API to record requests and return success responses. Verify each POST request has correct line numbers, commit SHA, and position in the diff. Assert that for each intended position, the corresponding API call was made with the right parameters.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test integrates diff parsing, comment construction, and API interaction. Could elevate to System (real GitHub) for higher confidence, but Integration is sufficient to catch most real failures in code and configuration.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends entirely on what a real LLM produces. A mock LLM that always returns 'defect found at line X' passes the test but proves nothing about the real agent's intelligence. The actual failure mode is: the real LLM fails to recognize the bug (wrong model, wrong prompt, wrong context window, insufficient training). Running the agent 100 times on the same bug may produce different results (temperature, non-determinism, model updates). This is inherently non-deterministic and LLM-dependent. No mock or deterministic substitute can replace real LLM inference for this behavior.",
+      "test_description": "Create a test PR with a known, non-trivial introduced bug (e.g., missing null check, off-by-one error, unhandled exception case). Run the actual PR review agent with the real LLM endpoint. Verify that the agent's analysis identifies at least one of the known defects and posts it in an inline comment. Run multiple times to account for LLM non-determinism. Document the defect clearly so results can be manually verified.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real LLM call; mocking always fails because the behavior is fundamentally about LLM capability. No mock can substitute for this check.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Unit",
+      "justification": "This is a data consistency check: the code must ensure that for every finding in the findings list, there is a corresponding inline comment posted. The failure is a logic bug: the code may skip a finding when constructing the summary, or skip constructing an inline comment for a finding. A Unit test with mocked GitHub API can verify this: given a mock set of findings, the test checks that the code creates exactly matching inline comment requests. A mock GitHub API is sufficient because the failure is in local logic (list processing, deduplication), not in GitHub API interaction or LLM behavior.",
+      "test_description": "Create a test findings list with 5 distinct defects at different locations. Mock the GitHub API to accept and record inline comment requests. Execute the review logic to post comments and generate the summary. Verify that the summary contains exactly 5 findings and that each finding in the summary has a corresponding POST request for an inline comment. Assert no summary findings exist without a matching comment request, and no orphaned comments exist.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test directly checks the mapping between findings and comments. Logic error caught at Unit level because no external systems are involved in the consistency check itself.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior requires the entire agent pipeline: GitHub read (System), LLM analysis (Agentic), GitHub writes (System), in sequence. A Unit or Integration test with mocks might verify each step in isolation, but would miss real failures that arise from the pipeline: timing issues (comments posted out of order), state inconsistency (summary posts before inline comments), LLM errors in the middle of the sequence causing incomplete behavior, or GitHub API rate limiting. The failure boundary is the full workflow with multiple agentic and system steps. Only a Workflow test running the entire pipeline on a real PR (or very realistic integration environment) can catch failures in orchestration, sequencing, and error handling across the full pipeline.",
+      "test_description": "Create a test PR with known defects on a real or staging GitHub instance. Execute the full review agent pipeline from start to finish without any manual steps. Verify: (1) diff is read correctly from GitHub, (2) LLM analysis completes and produces findings, (3) each finding results in exactly one inline comment posted to the PR at the correct position, (4) the summary comment is posted after all inline comments, (5) the full process completes without errors or timeouts. Log all GitHub API interactions and LLM calls. Assert that the sequence completes atomically (all or nothing).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test runs the complete multi-step agent pipeline on a real PR, integrating System (GitHub API), Agentic (LLM analysis), and orchestration logic. No mock can catch failures in cross-step coordination. Workflow level is necessary and sufficient.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.2,
+        "Agentic": 0.05,
+        "Workflow": 0.7
+      }
+    }
+  ]
+}

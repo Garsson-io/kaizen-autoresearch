@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are discovered from the migrations/ directory and applied in ascending numeric order based on filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "While numeric sorting logic is deterministic and could be unit tested in isolation, the real failure mode involves correct filesystem discovery and enumeration. Testing must include actual file I/O to catch edge cases where files are not discovered or ordered correctly by the filesystem layer. A pure mock might miss filesystem-specific issues (e.g., case sensitivity, platform-specific path handling).",
+      "test_description": "Create a temporary directory with migration files using mixed-order numeric prefixes (e.g., 001_init.sql, 010_second.sql, 002_between.sql, 100_last.sql). Run the migration runner against a fresh database and verify migrations execute in correct numeric order by checking execution order in the _migrations table or database state after each step.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is appropriate; real filesystem interaction required to catch discovery issues.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the migration runner executes multiple times, migrations already in the _migrations table are not re-executed.",
+      "minimum_level": "Integration",
+      "justification": "This requires real database state to be reliable. The real failure is that a mocked check might always say 'not applied', while the actual database could have stale or corrupted records, or the check query could be wrong. Must test against a real database to verify idempotency at the database level.",
+      "test_description": "Run the migration runner on a fresh database, verify migrations complete and are recorded in _migrations. Run the runner again on the same database and verify: (a) no duplicate records are added to _migrations, (b) database operations are not re-executed (e.g., no duplicate constraint violations, sequences not incremented again, no duplicate data inserts).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level correctly captures database state persistence and idempotency verification.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back and no further migrations in that run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback semantics cannot be mocked reliably. The real failure modes are: (1) transaction not started properly, (2) ROLLBACK not called on error, (3) subsequent migrations still executed. All require actual database transaction semantics to test. Must use a real database to create intentional failures and verify rollback behavior.",
+      "test_description": "Create a migration sequence where migration #2 intentionally fails (e.g., invalid SQL, PRIMARY KEY constraint violation). Run the migrations and verify: (a) migration #1 is applied and persisted, (b) migration #2 fails and all its changes are rolled back (check no partial state in database), (c) migration #3 is never executed (not in _migrations table, no side effects).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level required for real transaction behavior and failure state validation.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start simultaneously against the same database, each migration is applied exactly once across both instances with no duplicates or race conditions.",
+      "minimum_level": "System",
+      "justification": "This is a timing-dependent race condition that cannot be caught by mocks or even Integration-level multiple connections. The real failure mode is: at time T, both processes check the _migrations table, both see migration X is not applied, both attempt to apply it. A mock would always return deterministic results; multiple connections in the same process might not create true concurrency timing. Only actual separate OS processes (or threads with true OS-level concurrency) running real database operations can reveal this race condition.",
+      "test_description": "Spawn two independent Node.js processes that simultaneously invoke the migration runner against the same PostgreSQL database. Verify: (a) each migration is applied exactly once (one record per migration in _migrations), (b) no database constraint violations or deadlocks occur, (c) both processes complete successfully, (d) the final database state is identical to what would result from a single runner invocation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is necessary because concurrency must be real OS-level; Integration mocks or multi-connection tests cannot reliably trigger the race condition timing. The trade-off is that concurrency tests are inherently non-deterministic, but System level is the only way to catch the actual failure.",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.35,
+        "System": 0.55,
+        "Agentic": 0,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the first run against a fresh database, the _migrations metadata table is automatically created before any migrations are applied.",
+      "minimum_level": "Integration",
+      "justification": "While the CREATE TABLE logic could be unit tested with a mocked database, the real failure is that the table might be created with wrong schema, missing columns, wrong constraints, or not created at all. The only way to verify the actual table structure is to test against a real database.",
+      "test_description": "Start with a completely fresh PostgreSQL database (or drop all tables). Run the migration runner and verify: (a) the _migrations table exists after the runner completes, (b) the table has the correct schema (columns for migration name and applied timestamp, appropriate data types, primary/unique keys), (c) subsequent migrations are correctly applied and recorded in the table.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is sufficient for verifying table creation and schema correctness against a real database.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

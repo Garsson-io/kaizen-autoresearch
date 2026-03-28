@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Backoff wait time doubles with each retry failure, up to a configured maximum",
+      "minimum_level": "Unit",
+      "justification": "The backoff computation is deterministic arithmetic. A unit test mocking the API to return 429 repeatedly can verify wait times (1, 2, 4, 8... seconds) without real timing infrastructure. The logic doesn't depend on I/O or external timing—only the exponential formula itself.",
+      "test_description": "Mock the HTTP client to return 429 status on each attempt. Capture the calculated delay before each retry and verify it doubles: 1s → 2s → 4s → 8s, capping at the configured maximum (e.g., 60s). Verify no retries occur after hitting the maximum delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": "No real failure is hidden by mocking. The doubling logic is purely algorithmic—if the code calculates backoff correctly but never actually waits, that's a separate bug in the sleep/scheduling layer, not in this behavior.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Library correctly identifies HTTP 429 rate-limit response and extracts wait time from headers",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection and Retry-After parsing is deterministic string/number processing. Unit tests with mocked HTTP responses (429 + header in expected formats) can fully verify this without calling the real API. The parsing logic itself has no hidden dependencies.",
+      "test_description": "Mock HTTP responses with 429 status and Retry-After headers in multiple formats (e.g., 'Retry-After: 30' for seconds, 'Retry-After: <http-date>' for dates). For each format, verify the library correctly extracts the wait duration in seconds. Include edge cases like missing header and malformed values.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The behavior is 'parse the response format'—it is fully deterministic. Real API variance (e.g., unexpected header names) is outside the scope of this specific behavior.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After computed wait, library resends the request and transparently returns result to caller",
+      "minimum_level": "Unit",
+      "justification": "The retry control flow (fail → wait → resend → return) can be verified with a mocked API that returns 429 on first call and success on second. The mock captures whether resend occurred by tracking call count and arguments. No real infrastructure is needed.",
+      "test_description": "Mock the HTTP client with two responses: first call returns 429, second call returns 200 with a valid result. Invoke the library's call() method, verify it waits, then verify the caller receives the successful result from the second call (not an error). Assert the mock was called exactly twice with the same request body.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocking fully captures the control flow. A real failure (code doesn't resend, or returns wrong result) will be caught by the mock's call count and result assertion.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After maximum retries are exhausted, library returns a typed QuotaExhaustedError instead of generic error",
+      "minimum_level": "Unit",
+      "justification": "Error type and throwing behavior is deterministic. A unit test mocking the API to always return 429 can verify that after the configured max retries (e.g., 5), a QuotaExhaustedError is thrown, not a generic HTTP or network error. No real infrastructure needed.",
+      "test_description": "Mock the HTTP client to always return 429. Set max retries to a small number (e.g., 3). Invoke the library's call() method and verify it throws QuotaExhaustedError specifically. Verify the error message contains the count of attempts made. Check that a generic Error or HttpError is not thrown instead.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Error handling is deterministic. Mocking captures whether the right error type is thrown and whether the retry count is correct.",
+      "level_probabilities": {
+        "Unit": 0.89,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain including initial attempt, backoff waits, and retries terminates correctly without infinite loops",
+      "minimum_level": "Unit",
+      "justification": "Loop termination is algorithmic and deterministic. A unit test with mocked API and a timeout safety net (or iteration count assertion) can verify the loop exits. Mocking the API to always fail ensures the test exercises the max-retry path. No real timing or I/O needed.",
+      "test_description": "Mock the HTTP client to always return 429. Set a configurable max retry count (e.g., 5). Invoke the library's call() method and verify it terminates by checking that QuotaExhaustedError is thrown. Count the number of API calls made and assert it equals initial attempt + max retries. Include a test timeout (e.g., 5 seconds) as a backstop to catch infinite loops.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Termination is purely algorithmic. Mocking ensures we test the failure path (all retries exhausted) which is the most likely place for a loop bug.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Concurrent async requests from multiple callers in same process all draw from and respect shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Shared quota tracking under real async concurrency is the critical failure boundary. A unit test with mocked or sequential async would miss race conditions (lost updates, inconsistent quota state). Integration test with real async.Task/Promise.all and a mocked API tracks quota correctly across concurrent calls and catches synchronization bugs.",
+      "test_description": "Launch 5+ async tasks concurrently, each issuing a request. Mock the API to track a shared quota counter and return 429 once quota is exhausted. Verify that all tasks correctly decrement the quota (no skipped decrements), and once quota is exhausted, remaining tasks get QuotaExhaustedError. Assert the total number of successful calls equals the quota limit, with no race conditions on the shared state.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Concurrency issues only manifest under real async execution. Mocking the API call order is not enough—the quota tracking logic must run in parallel, exposing atomicity bugs. A unit test with fake sequential concurrency would hide these failures.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests wait for quota recovery, they are dispatched in the order they were originally submitted",
+      "minimum_level": "Integration",
+      "justification": "Request ordering under quota exhaustion requires real async timing and queue semantics. A unit test with mocked sequential logic would miss the real failure: requests getting dispatched out of order when quota recovers. Integration with real async tasks and a mocked API that simulates quota exhaustion followed by recovery tests the queueing behavior.",
+      "test_description": "Submit 3 requests concurrently (labeled A, B, C). Mock the API to reject the first N calls with 429, then start returning 200. Capture the order in which requests are actually sent to the API. Verify they are dispatched in the order submitted (A, B, C), not in some other order (e.g., C, A, B). Use real async timing (even with mocked HTTP) to ensure requests genuinely queue up.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Ordering issues only manifest when multiple requests wait concurrently for quota to recover. Pure unit tests with sequential processing or deterministic mocks would hide the queueing behavior and not catch an out-of-order dispatch bug.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

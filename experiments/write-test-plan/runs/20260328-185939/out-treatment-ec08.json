@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "The backoff calculation logic is deterministic and sequence-specific (attempt 1→2→4→8...→cap). A unit test can mock HTTP failures and spy on setTimeout calls to verify each retry is delayed by the correct exponential amount. Fake timers or timeout inspection will catch missing waits or incorrect calculations. The failure is in the math/scheduling logic, not in distributed behavior.",
+      "test_description": "Mock HTTP client to return 429 on each call. Use a timer spy (fake timers via Sinon/Jest) to capture all setTimeout calls. Verify: (1) setTimeout called between each retry, (2) delays follow exponential pattern (baseWait, baseWait*2, baseWait*4...), (3) delays capped at configured max, (4) no delays exceed the cap.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection is a parsing problem: recognize 429 status code, extract Retry-After header or compute default wait time. This logic is deterministic. A unit test creates mock HTTP responses with different formats (429 + Retry-After header, 429 + no header, 429 + invalid header) and verifies the library's parser produces correct wait times. No real network or infrastructure needed.",
+      "test_description": "Create mock HTTP responses for different rate-limit scenarios: (1) 429 with 'Retry-After: 30' header → verify computed wait ≥ 30s, (2) 429 with no Retry-After → verify default wait is used, (3) 429 with malformed Retry-After → verify fallback to default. Assert computation is correct in each case.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "This tests the happy path of the retry mechanism: first call fails (429), wait, second call succeeds. A unit test can mock HTTP with a sequence (fail, succeed) and verify the result returned is from the successful call, not an error. The failure would be: library returns error instead of retrying, or doesn't preserve request parameters on retry. Mocks can detect both.",
+      "test_description": "Mock HTTP client with stateful responses: first call returns 429, second call returns 200 with valid response body. Call library's async function. Verify: (1) result is the successful response (not error), (2) request was sent twice (spy on HTTP mock), (3) same request parameters used on both calls.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "Error type and retry exhaustion are deterministic behaviors. A unit test mocks HTTP to always fail with 429, calls the library, and verifies it throws exactly `QuotaExhaustedError` after N retries (not 'Error', not N+1 retries). With a test timeout, this also catches infinite loops. No real infrastructure required.",
+      "test_description": "Mock HTTP to always return 429. Call library function and expect it to throw `QuotaExhaustedError`. Verify: (1) error type is exactly QuotaExhaustedError (not generic Error), (2) error is thrown after exactly MAX_RETRIES attempts (inspect mock call count), (3) test completes within a short timeout (catches infinite loops).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "This is about **termination guarantees**, not just calculation correctness. A real failure is: deadlock, infinite loop, or promise that never settles. Unit tests with synchronous mocks can hide timing-related deadlocks—the mock returns instantly, masking real async issues. An integration test with actual async/await machinery and timeouts will catch hangs that mocks hide. The failure boundary is real async behavior, not just logic.",
+      "test_description": "Launch library call with mock HTTP always returning 429. Use test framework timeout (e.g., 5s) to ensure the call completes. Verify: (1) function returns (doesn't hang), (2) returns QuotaExhaustedError (not undefined or pending), (3) completes in bounded time (timeout doesn't fire). Repeat several times to catch intermittent hangs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This behavior depends on **concurrent execution and shared state**—a race condition territory. A unit test that calls the function sequentially (one after another) will always pass because each call owns the quota in isolation. A real failure is: two concurrent requests both see available quota, both send requests, both hit 429. This happens only under real concurrent load. Integration test with simultaneous async calls detects this.",
+      "test_description": "Launch 2+ concurrent async calls (Promise.all) to library, with mock HTTP returning 429 on all attempts. Verify: (1) all callers eventually get QuotaExhaustedError (not just first), (2) mock HTTP was called only once or a small number of times (not each caller retrying independently), (3) callers all respect the same shared quota—no 'duplicate' requests from independent retry loops.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Queue ordering under concurrent access is a **synchronization problem**. Unit tests with instant mocks can't expose out-of-order dispatch—each call runs in isolation. A real failure is: requests queue (e.g., waiting for quota to reset), but are dispatched LIFO or in random order instead of FIFO. This manifests only under concurrent load with real queue mechanics. Integration test launches concurrent calls and inspects dispatch order via mock.",
+      "test_description": "Launch 3+ concurrent async calls. Mock HTTP to: (1) return 429 for the first N seconds (or first call), then succeed. (2) record the order and payload of each HTTP request. Verify: all requests are dispatched in the order they were originally submitted (FIFO), not reversed or shuffled. Inspect mock call history to confirm request IDs or parameters arrived in order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

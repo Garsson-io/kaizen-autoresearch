@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix (e.g., 001-init.sql before 002-add-users.sql)",
+      "minimum_level": "Integration",
+      "justification": "Filename sorting is algorithmic and could theoretically be unit-tested, but the real failure—migrations with inter-dependencies executing out of order, causing schema errors or silent data corruption—only manifests when executing against a real database with actual migration dependencies. A mock would never exercise the constraint violations that out-of-order execution would trigger.",
+      "test_description": "Create 5 migration files with numeric prefixes (001-init, 002-schema, 003-data, etc.), apply them to a fresh PostgreSQL database, verify they execute in order by checking that each subsequent migration can reference objects created by previous migrations (e.g., 003 references a table created by 002), and verify the _migrations table records them in order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with real database and real migration files, out-of-order execution would cause immediate, detectable failures (constraint violations, reference errors). No failure can slip through.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run",
+      "minimum_level": "Integration",
+      "justification": "A mock database can claim a migration is 'already recorded,' but that would never catch the real failure: the runner's idempotence check passes but the migration silently executes again. Only a real _migrations table with actual INSERT records reveals whether the runner truly skips re-execution versus running it again under the hood.",
+      "test_description": "Apply a migration to a PostgreSQL database and verify it's recorded in the _migrations table, run the migration runner again against the same database, capture database state before and after the second run, verify the migration does not appear twice in _migrations and verify the underlying data/schema was not modified during the second run.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with a real _migrations table, any re-execution or duplicate record would be immediately visible. The idempotence guarantee cannot slip through.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.92,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted",
+      "minimum_level": "Integration",
+      "justification": "Mocking a failed query is trivial; verifying that a real PostgreSQL transaction rolls back atomically and no partial state remains requires a real database engine. The rollback semantics are database-specific and depend on proper transaction boundary setup in the runner.",
+      "test_description": "Create a sequence: migration 001 (successful—creates a table), migration 002 (fails with a reference error or constraint violation). Run the migrations, verify that migration 001's table is rolled back (table does not exist after the run), verify migration 002 is recorded as failed, verify no migration 003 or later is attempted, and verify the _migrations table shows only the failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with a real PostgreSQL transaction system, failed rollbacks would immediately fail the test (e.g., table would unexpectedly exist). Partial state cannot hide from the test.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances",
+      "minimum_level": "System",
+      "justification": "This is a distributed race condition: both processes check 'is migration X applied?' nearly simultaneously, find nothing, and both try to apply it. Mocks hide this entirely. Even Integration tests with async concurrency in a single process risk missing OS process scheduling edge cases. The real failure mode requires actual OS process separation and concurrent database access. Separate Node.js processes hitting the same PostgreSQL instance is the minimum to reliably catch such races.",
+      "test_description": "Spawn two concurrent Node.js processes, each running the migration runner against the same PostgreSQL database containing the same set of migration files. Coordinate their start times to maximize race condition likelihood (e.g., both reach the 'check if applied' step before either commits). Monitor database connection activity. Verify: each migration is applied exactly once (no duplicate records in _migrations), no migration succeeds in both processes, and both processes complete without conflict errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At System level with actual OS process concurrency against a shared database, any failure to serialize migration application would be caught. However, this test depends critically on proper synchronization to trigger the race; if sync is weak, the race might not always reproduce.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.25,
+        "System": 0.7,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied",
+      "minimum_level": "Integration",
+      "justification": "A mock with _migrations pre-existing would pass even if the runner crashes when trying to insert into a non-existent table. Only a truly fresh database reveals whether the runner correctly creates _migrations before attempting to record the first migration.",
+      "test_description": "Obtain a fresh PostgreSQL database with no existing _migrations table (or use a test DB that starts empty). Run the migration runner with a set of migration files. Verify the _migrations table is created, verify the first migration record is successfully inserted, and verify all subsequent migrations are properly tracked in _migrations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Integration level with a fresh database, any failure to create the table before use would manifest immediately as an INSERT error. The initialization order guarantee is enforceable by the test.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

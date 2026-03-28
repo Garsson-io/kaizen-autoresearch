@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests whether a real neural machine translation API produces semantically coherent output. Mocking the API to return 'guten tag' always passes regardless of real output quality. Real failures—when the API produces gibberish, mistranslations, or word-for-word output—only surface when calling the actual API. The correctness depends entirely on what a real ML model produces, making non-deterministic outcomes per run possible across different test runs.",
+      "test_description": "Call the primary translator API with a corpus of test phrases (e.g., 'hello world', idiomatic expressions, domain-specific terms) in various source languages. Compare output to reference translations or evaluate using automated semantic similarity metrics (embeddings-based cosine similarity, BLEU score, or chrF). Additionally, verify outputs are not mere word-for-word substitutions by checking that function words are properly adapted (e.g., 'the big dog' → 'le grand chien', not 'le grand chien' → 'the big dog' reversed). Document baseline quality expectations and test that real API outputs meet semantic thresholds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The behavior depends on real LLM/ML model output quality. Mocks hide this entirely; only the real API reveals whether it produces coherent, meaning-preserving translations.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0,
+        "Agentic": 1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests error handling and fallback routing when HTTP 503 is returned. While you could mock the API to raise an exception (Unit level), this assumes the API client correctly wraps HTTP status codes into exceptions. To reliably test that 503 errors are properly caught and handled, Integration level testing with mocked HTTP responses that return actual 503 status codes is needed. This ensures the code correctly interprets HTTP protocol without assuming the API wrapper is correct.",
+      "test_description": "Mock the HTTP client to return a 503 status code response (use a library like requests-mock or httpx-mock). Call the translation service. Verify: (1) no exception is raised to the caller, (2) the fallback dictionary translator is invoked, (3) a valid translation is returned from the fallback. Test additional error codes (500, 429) to verify the fallback logic handles various API failures. Verify that error metadata (status code, error message) is logged but not exposed to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": "HTTP error handling can slip through Unit-level tests that only mock API exceptions. Integration level with mocked HTTP responses ensures the code properly parses and reacts to real HTTP error codes.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests database query correctness and data retrieval. A Unit-level mock that returns {\"hello\": \"bonjour\"} won't catch real failures: incorrect SQL syntax, data format mismatches, NULL handling, or SQLite-specific issues (e.g., COLLATE mismatch, encoding problems). A real SQLite database with test data reveals these failures. Without it, bugs in the SQL query or data schema could slip through.",
+      "test_description": "Create a real SQLite database with known phrase-translation pairs (e.g., {\"hello\": \"bonjour\", \"goodbye\": \"au revoir\"}). Call the fallback translator with these phrases. Verify the correct translations are returned. Test edge cases: empty strings, special characters (accents, punctuation), case sensitivity, whitespace handling. Test missing phrases (should return None or empty, not error). Verify database connection errors are properly caught and logged. Test concurrent access if the service supports parallel requests.",
+      "plan_consistent": true,
+      "plan_consistent_note": "SQL query correctness and data format handling can only be verified with a real database. Mocks will hide bugs in SQL syntax, column names, or data type conversions.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "This behavior has two parts: (1) computing edit distance (pure logic) and (2) storing the metric. The calculation itself can be tested at Unit level with mock inputs, but to ensure the metric is actually persisted (to logs, database, or metrics service) and not just computed in memory, Integration level testing is needed. Without it, code that calculates but never stores the metric passes Unit tests but fails in production.",
+      "test_description": "Generate pairs of translations with known edit distances (e.g., primary='hello', fallback='hallo' → distance=1; primary='abc', fallback='abc' → distance=0). Trigger quality tracking. Verify: (1) edit distance is computed correctly by checking against reference calculations, (2) the metric is stored/logged (query the storage mechanism—logs, database, or metrics endpoint), (3) stored values match computed values. Test edge cases: empty strings (distance = length of non-empty string), completely different strings, NULL/missing translations. Verify that failed storage operations are properly logged as errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The calculation can be tested at Unit level, but storage verification requires Integration level. A mock storage layer will always succeed, hiding real failures when the storage system is unavailable or misconfigured.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests orchestration logic: the service must prefer primary over fallback and trigger quality logging. While the orchestration logic itself is deterministic (Unit level), testing with a real fallback database (Integration level) catches integration failures: database unavailability, concurrent access issues, or incorrect integration between the primary and fallback systems. Unit-level mocks hide these real failure modes.",
+      "test_description": "Set up both a mocked primary translator (configured to return a successful translation) and a real SQLite fallback database with test data. Call the translation service with a phrase. Verify: (1) the primary translation is returned (not the fallback), (2) the quality comparison is logged/stored in the background, (3) the response is returned to the caller without delay. If logging is asynchronous, verify the async task completes successfully and the metric appears in storage. Test with phrases that exist in the fallback database to ensure the system can access fallback data for the quality comparison.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The orchestration logic can be mocked at Unit level, but real integration with the fallback database catches failures in system wiring that mocks would miss (e.g., database connection errors, data access bugs, or timing issues in the quality comparison step).",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

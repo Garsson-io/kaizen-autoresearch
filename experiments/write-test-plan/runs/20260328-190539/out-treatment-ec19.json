@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "The behavior depends on what the real LLM generates in response to the interface description. While a Unit test with a mocked LLM could verify our parsing logic (e.g., extracting parameter names from code text), it would miss real failures: (1) the prompt doesn't communicate the interface clearly to the LLM, (2) the LLM misinterprets the spec and generates wrong parameter names or types. A mock would always return whatever we programmed it to return. The real failure boundary is: does the real LLM actually produce code with the correct signature when given the natural language description? Testing this requires an Agentic-level call to the real LLM.",
+      "test_description": "Call the real LLM with a function description specifying parameter names, types, and return type (e.g., 'Create a function sort_array(arr: List[int]) -> List[int]...'). Verify the generated code's signature (after parsing) exactly matches the expected interface. Run this test multiple times to catch cases where the LLM occasionally misunderstands.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies that the real LLM consistently generates correct signatures when given a description.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Agentic",
+      "justification": "The behavior directly depends on whether the real LLM generates code that correctly solves the problem. A Unit test mocking the LLM would test our code-execution and test-parsing logic, not whether the real LLM's code actually passes tests. The real failure is: the LLM generates incorrect code that fails the provided test suite. To catch this, we must run tests against real generated code. This is Agentic-level because the test outcome varies depending on the LLM's non-deterministic generation (some runs pass, some fail).",
+      "test_description": "Select a problem where a single LLM call typically fails (or you'll increase attempts in behavior 5). Call the real LLM, extract the generated code, and run it against the provided test suite (in-process execution or compiled execution, depending on the language). Verify the test results are captured correctly. Repeat multiple times to confirm the LLM can eventually pass the tests through iteration.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test confirms that real LLM-generated code can pass the test suite.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Agentic",
+      "justification": "While the service's internal logic (capturing failure output, formatting, and including it in the prompt) can be tested at Integration level with a mocked LLM that records prompts, the real failure is more subtle: the prompt format or content must be clear enough that the real LLM understands and acts on it. A mock LLM (which accepts any prompt) won't catch malformed failure messages, incorrect formatting, or prompts the real LLM can't parse. The real failure boundary is: does the real LLM receive the failures in a format it understands and use them to refine? Agentic-level test catches this.",
+      "test_description": "Trigger a test failure with the first LLM-generated code. Capture the failure messages. Call the real LLM a second time with the refined prompt (including failure output). Verify that (a) the failure messages appear in the prompt, and (b) the real LLM's second attempt makes progress toward a fix (e.g., addresses the failure reason). Check that the prompt is well-formatted for the LLM to parse.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test ensures real LLM receives and understands failure context in the refinement prompt.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.6,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the service's retry logic and error handling, not the LLM's output. The real failure would be: (1) the service continues beyond 3 attempts (retry loop bug), (2) the error response is malformed or incomplete (response formatting bug), or (3) not all attempt results are included (state tracking bug). All of these can be caught at Integration level by mocking the LLM to return code that fails tests, then verifying the service stops at 3 attempts and returns the correct structure. No real LLM output variation is needed; the behavior is deterministic given mock failures.",
+      "test_description": "Mock the LLM to consistently return code that fails the test suite. Run the service and verify: (1) exactly 3 refinement attempts occur (no more, no fewer), (2) the error response is a valid structured error (schema check), (3) the response includes all three attempts with their test results, (4) attempting a 4th refinement does not happen. Use assertions on the response structure and retry counter.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies the service's deterministic stop-and-error behavior independent of LLM quality.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior requires multiple sequential agentic steps: (1) LLM generates code, (2) tests run and fail, (3) service includes failure messages in a new prompt, (4) LLM is called again with context, (5) tests run on refined code, (6) loop repeats up to 3 times or until code passes. The outcome depends on the real LLM's ability to improve when given failure feedback. This is non-deterministic (the LLM might succeed on attempt 1, 2, or 3, or fail all 3). Testing the full loop requires calling the real LLM multiple times in sequence and verifying that the refinement feedback actually helps the LLM converge toward a solution. No amount of mocking or single-step testing captures this emergent behavior.",
+      "test_description": "Select a problem where a single LLM call typically fails (verified with a baseline test). Run the full service: initial generation, test, refinement loop (1–3 attempts) with failure feedback included in each prompt. Verify that: (1) generated code is different across attempts (refinement happens), (2) test pass rate improves or succeeds (feedback helps), (3) if code passes, it produces correct outputs on additional unseen test cases. Repeat with multiple problems to verify the loop is robust.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test confirms the multi-step refinement loop works end-to-end with the real LLM.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0.15,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

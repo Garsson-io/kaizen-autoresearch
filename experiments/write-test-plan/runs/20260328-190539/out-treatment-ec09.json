@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin with missing required manifest field is rejected before code execution",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that code from the plugin executes despite manifest validation failing. A Unit test of just the validator function would miss this: someone could fix validation but accidentally call require() before checking the manifest, and a mocked filesystem would never reveal this ordering bug. The failure boundary spans filesystem I/O (reading manifest.json), validation logic, and the plugin module's require() — all must work together. Integration level catches the full path: real manifest files, real require() calls, and verification that the module never enters require.cache when validation fails.",
+      "test_description": "Create a manifest.json with a required field missing (e.g., missing 'name' or 'version'). Attempt to load the plugin via the loader. Verify: (1) the loader rejects the plugin with a clear error message, and (2) the plugin's entry module is never require()'d — check by verifying it doesn't appear in require.cache or by instrumenting the module with a marker function that would throw if executed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must verify module is never imported, not just that validation rejects. Mocking require() would hide the real failure entirely. Test must use real manifest files on disk and real Node.js require().",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A depends on plugin B, plugin B's onLoad hook is called before A's",
+      "minimum_level": "Integration",
+      "justification": "The real failure is incorrect load order due to incomplete dependency resolution or async interleaving. A Unit test of just the dependency-resolution algorithm (with mocked manifests and mocked hook calls) could pass even if the real system loads plugins in the wrong order — especially if module side effects or real promise timing affect order. The failure boundary includes manifest parsing, dependency graph traversal, and actual hook invocation timing. Integration level catches this: real plugin files with real manifests, real require() of plugin modules, and real onLoad() invocations in measured order.",
+      "test_description": "Create three plugin modules A, B, C where A's manifest declares dependency on B, and B's manifest declares dependency on C. Each plugin exports an onLoad hook. Load all three via the loader. Record the actual order in which onLoad hooks are invoked. Verify the order is C → B → A (dependencies loaded first).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must measure actual hook invocation order with real promises if hooks are async. Mocking dependency resolution or hook timing would hide real ordering failures. Test must use real manifest.json files and real module loading.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins declare circular dependencies, the loader detects the cycle and loads neither",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that circular-dependency detection fails on real manifests. A Unit test of just the cycle-detection algorithm (with mocked/synthetic dependency graphs) could pass even if real manifest parsing or graph construction has edge cases. The failure boundary includes manifest file reading, JSON parsing, dependency extraction, and cycle detection logic. Integration level catches this: real manifest.json files with actual circular dependencies, real loader execution, and verification that neither plugin's code executes.",
+      "test_description": "Create two plugin files A and B where A's manifest declares dependency on B, and B's manifest declares dependency on A. Attempt to load both plugins. Verify: (1) the loader reports a circular dependency error, (2) neither plugin's onLoad hook is called, and (3) neither plugin's entry module is imported into require.cache.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must parse real manifest.json files from disk; mocking manifest loading would hide edge cases in parsing or graph construction. Test must use actual file I/O and real Node.js module resolution.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that onLoad() is called before or during module require(), missing side effects that happen at module load time. A Unit test with mocked require() would completely miss this: if someone refactors the code to call onLoad before require (a real bug), a mocked require would never reveal it. The failure boundary is the ordering of require() and hook invocation. Integration level catches this: a real plugin module with a deterministic top-level side effect (e.g., sets a global variable, calls a tracked function), real require() execution, and verification that the side effect occurred before onLoad() was invoked.",
+      "test_description": "Create a plugin module that, when require()'d, executes a top-level side effect (e.g., sets a global variable like `global.pluginModuleLoaded = true`, or appends to an execution log). The plugin's manifest declares an onLoad hook. Load the plugin via the loader. Verify: the side effect occurred before the onLoad hook was invoked (check the execution log or global state at the moment onLoad is called).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must use real require() of actual plugin module with actual module-level code execution. Mocking require() would entirely defeat this test and hide the real failure. The side effect is the proof that the module executed.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing remaining plugins that do not depend on it",
+      "minimum_level": "Integration",
+      "justification": "The real failure is complex: the loader must catch the error, not crash, and then determine which plugins do not depend on the failing plugin and continue loading them. A Unit test with mocked plugins and error handling could pass even if real error propagation or dependency resolution fails in production. For example, mocking error handling might not catch the real scenario where an error in one plugin's async hook leaves the loader in an inconsistent state. The failure boundary includes real manifest dependency graphs, real error throwing in onLoad hooks, error handling, and selective continuation of independent plugins. Integration level catches this: multiple real plugin files with real dependencies, one plugin that throws in onLoad, and verification of the loader's behavior.",
+      "test_description": "Create five plugins: A (which throws an error in its onLoad hook), B (whose manifest declares dependency on A), C, D, E (no dependencies). Attempt to load all five. Verify: (1) the loader catches the error from A's onLoad and does not crash, (2) B is not loaded (because A, its dependency, failed), (3) C, D, E are loaded successfully (because they have no dependency on A), (4) the loader's result or status indicates partial success (A and B failed, C/D/E succeeded).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Must use real plugins with real errors thrown in real onLoad hooks, not mocked error scenarios. Dependency resolution must be real to verify that only non-dependent plugins continue. Mocking error handling or dependency resolution would hide the real failure mode where the loader leaves the system in an inconsistent state.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.82,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

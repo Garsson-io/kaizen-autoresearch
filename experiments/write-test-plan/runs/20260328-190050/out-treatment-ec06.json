@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed by the transformation pipeline, not only files in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "The failure is that the file watcher doesn't recursively monitor nested directories. Mocked file lists won't expose this; you need a real directory structure with nested paths to verify that the watcher is configured to traverse subdirectories and that the daemon actually processes files at all depths.",
+      "test_description": "Create a temporary directory structure with nested subdirectories (e.g., root/sub1/sub2/), place test files at various depths, start the daemon, and verify that all files—regardless of nesting level—are successfully processed and their results appear in the output directory.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window (e.g., 5 seconds).",
+      "minimum_level": "Integration",
+      "justification": "While the dedup state machine could be tested in isolation (Unit), the real failure is in the event handler's deduplication—whether duplicate file-changed events are actually suppressed by the watcher integration. Testing this with mocked events risks missing race conditions or timing bugs in how the handler integrates with the event stream. Real (or realistically sequenced) file events are needed.",
+      "test_description": "Create a single file, then emit two rapid file-changed events for the same file path within the dedup window. Verify that the transformation pipeline is invoked exactly once and only one result is written to the output directory.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "Different operating systems emit different event counts and types for the same write (e.g., macOS: 'add', 'change', 'close'; Linux: 'change' only; Windows: varies). Catching platform-specific event patterns and ensuring deduplication works across OSes requires real OS file watcher events. Simulated or mocked events won't expose OS-specific behavior or edge cases in event ordering.",
+      "test_description": "Perform an actual file write operation (create and write a file via Node.js fs API), monitor the daemon's processing, and verify that despite the OS emitting multiple file-changed events for the single write, the file is processed exactly once and exactly one result appears in the output.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed while the daemon is running and then recreated, the daemon resumes watching the new directory without requiring a restart.",
+      "minimum_level": "System",
+      "justification": "The daemon must detect and recover from OS errors (ENOENT or equivalent) when the watched directory is deleted, then re-establish the watch when it reappears. This requires real directory operations and real file watcher state management. Mocking the error will not expose the actual recovery logic, timing issues, or error handling edge cases in the watcher's re-initialization.",
+      "test_description": "Start the daemon watching a directory, delete the directory entirely while the daemon is running (triggering an OS error in the watcher), recreate the directory, place a file in it, and verify that the daemon resumes watching and processes the file without requiring a restart.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "The failure is that the daemon processes files in arrival order (which may be random due to OS event batching) instead of sorting by timestamp. Real file creation timestamps from the filesystem are required to test this ordering logic. Mocked timestamps or unit-level tests won't expose real OS timestamp precision or behavior quirks across platforms.",
+      "test_description": "Create multiple files in quick succession with deliberately staggered creation times, start the daemon, and verify that the transformation results appear in the output directory in the order of the files' creation timestamps (not arrival order or alphabetical order).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "Detecting whether a file is 'still open for writing' depends on OS-level file handle states and platform-specific locking semantics (Windows and POSIX differ). The daemon must safely check for file readiness; mocking 'file is complete' will hide real failures where the daemon processes partially-written files due to missing or broken lock checks. Real file I/O state is required.",
+      "test_description": "Create a file and open it for writing but do not close the write handle. Allow the daemon to detect the file arrival (or trigger it manually). Verify the file is not processed while the handle is open. Then close the write handle and verify the daemon subsequently processes the file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.15,
+        "System": 0.78,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

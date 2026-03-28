@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The validator logic alone is testable at Unit level, but the core failure—rows losing their row number during pipeline transit, or the DLQ write failing—requires the validator and DLQ writer wired together with metadata threaded through. A unit mock of the DLQ hides failures where the actual queue is unavailable or the row number isn't correctly serialized/transmitted.",
+      "test_description": "Create a CSV with a row missing a required field, run the full pipeline with a real DLQ implementation (or local in-memory queue with proper row metadata tracking), verify the rejected row appears in the DLQ with its original row number intact. Assert no row number loss or corruption.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure function with no external dependencies, no I/O, and no mocking boundary. The transformation logic is entirely local—string parsing and formatting. A unit test directly calling the transformation function with a variety of input formats is sufficient to catch all real failures (wrong parsing, wrong output format, edge cases).",
+      "test_description": "Unit test: parameterized test with inputs ('2026-03-28', '03/28/2026', '28/03/2026') and assert all convert to canonical format 'YYYY-MM-DD'. Test edge cases (leap years, invalid dates, ambiguous formats like '01-02-03').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with 100 rows will not reveal memory leaks or timeout behavior. Real OOM and timeout failures happen under sustained I/O and large data volume. Mocking S3 and Postgres with small payloads hides memory leaks in the CSV parser, row buffering, or Postgres client connection pooling. Integration testing with real data volume, real CSV parsing, and real I/O to a local Postgres instance is the minimum to catch these failures.",
+      "test_description": "Integration test: generate or load a real 500k-row CSV. Run the pipeline with a real CSV parser and real Postgres writes to a local database. Measure memory usage over time and wall-clock latency. Assert memory stays below a threshold and processing completes within timeout. Use actual stream processing to simulate S3 reads.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with a simple in-process mock can verify retry count and backoff math, but risks missing the real failure boundary: how the actual S3 client library handles HTTP 503 errors and whether the pipeline's retry logic correctly propagates and recovers from them. A mock that is just a Python function may not simulate HTTP error semantics, headers, or connection state correctly. Integration testing with a realistic S3 mock (moto, responses) that simulates actual HTTP 503 responses catches failures where the real S3 client behaves differently than the mock.",
+      "test_description": "Integration test: use moto or responses library to mock S3. Configure the mock to return 503 on first 2 calls, then succeed on third. Verify the pipeline retries exactly as specified (e.g., 3 attempts), measure time between retries to confirm exponential backoff (2^n), and assert the batch completes successfully.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with a mock Postgres can verify the code logic (e.g., 'the code calls UPSERT'), but misses the real failure boundary: whether the actual Postgres instance enforces the deduplication constraint, whether transactions roll back correctly on restart, and whether partial writes create race conditions. Real Postgres unique constraints, transaction semantics, and crash recovery behavior can only be tested against a real instance. A mock Postgres that is just an in-memory list will not catch unique constraint violations or transaction rollback scenarios.",
+      "test_description": "Integration test: write first batch of rows to a real local Postgres instance, kill the pipeline mid-batch (before final commit), restart the pipeline with the same input batch. Query Postgres and verify: (1) total row count matches expected (no duplicates), (2) all rows are present (no data loss), (3) duplicate-detection logic (UPSERT, unique constraint, or checksums) prevented duplicates.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them",
+      "minimum_level": "Unit",
+      "justification": "The trace ID grouping logic is a deterministic, local algorithm that operates on structured data (log entry objects). The core failure mode—entries with matching trace IDs failing to group together—can be caught by testing the grouping function directly. Mock log entries representing different services with identical and varied trace IDs will reveal algorithmic failures (incorrect comparison, lost entries, wrong partition boundaries) the same way real logs would.",
+      "test_description": "Unit test that creates mock log entries from multiple services (e.g., authentication, order, payment) with both identical and different trace IDs. Call the grouping function and verify it returns partitions where each partition contains all and only the entries matching a single trace ID. Test edge cases: empty trace ID, special characters, case sensitivity.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A Unit test directly on the grouping algorithm will not miss failures because trace ID comparison is deterministic and independent of the data source. Assumes trace ID extraction from logs is tested separately.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.25,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services",
+      "minimum_level": "Integration",
+      "justification": "While the ordering algorithm can be Unit tested in isolation with pre-parsed timestamps, this behavior requires verifying that the tool ingests timestamps from multiple services in real formats, extracts them correctly, and applies clock-skew compensation end-to-end. Clock skew between services is a real-world phenomenon—some logs may arrive with timestamps ahead or behind the 'true' order. A Unit test with mock timestamps may pass while real timestamps from multiple service sources (ISO-8601, Unix epoch, timezone variations) fail to parse or order correctly. Integration testing with actual log data from heterogeneous services is the minimum to catch format-specific parsing failures or compensation logic that only works with certain timestamp formats.",
+      "test_description": "Integration test with log entries from 3+ simulated services with timestamps offset by 0-500ms (simulating clock skew). Entries should span a request's journey (service A at t0, service B at t0+300ms, service C at t0-100ms). Verify timeline orders entries by logical sequence, not just raw timestamp value. Verify skew compensation correctly identifies that service C's earlier timestamp was due to clock drift, not true temporal order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test ensures both timestamp parsing from real log formats and ordering/skew compensation work together. A pure Unit test with pre-parsed timestamps could miss bugs in parsing or format-specific handling. Real failure boundary is 'real logs with clock skew produce correct timeline', not just 'algorithm works on synthetic timestamps'.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report",
+      "minimum_level": "Unit",
+      "justification": "Spike detection is deterministic math: calculate latencies from log timestamps, compute p99 percentile, compare to baseline, apply threshold (3x). Mocking does not hide failures here—you can construct mock latency data where 99% of requests are ~100ms and 1% are ~350ms, verify p99 is calculated correctly (~350ms), verify it's 3.5x the median/baseline, and verify the flag is raised. The algorithm has no I/O, no concurrency, no model-dependent behavior. The failure mode—missing a real spike or false-positive flags—will be caught by Unit test with representative synthetic latency data.",
+      "test_description": "Unit test that constructs mock log entries with controlled latencies: 1000 entries with 100ms latency, 10 entries with 350ms latency. Call anomaly detector and verify: p99 is ~350ms, baseline is calculated correctly, spike flag is raised if and only if p99 > 3x baseline. Test boundary: set baseline to 110ms, p99 to 330ms (just under 3x) and verify no flag; then set p99 to 331ms (just over 3x) and verify flag.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test directly on the detection algorithm will not miss real failures because p99/spike detection is deterministic and data-driven. A real spike in production would trigger the same algorithm logic as a test spike.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported",
+      "minimum_level": "Unit",
+      "justification": "The core failure mode is that malformed JSON causes an unhandled exception that crashes the pipeline, or that skipped entries are not counted. Both can be caught at Unit level: directly test the JSON parser with malformed input (missing closing brace, unterminated string, invalid escape), verify no exception propagates, verify the skipped counter is incremented. The parser's error handling is local and deterministic—if a Unit test verifies the exception is caught and counted, the same code path will handle real malformed entries from any source the same way.",
+      "test_description": "Unit test that calls the JSON parser directly with various malformed inputs: truncated JSON, missing quotes, invalid escape sequences, extra trailing commas. For each malformed entry, verify: no exception is raised, the entry is not added to the parsed result set, and the skipped_count is incremented by 1. Test that valid entries before and after malformed ones are still parsed correctly, proving the parser recovers.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test on the parser's error handling will not miss real failures because error handling is deterministic. If the parser catches exceptions and increments a counter in Unit test, it will do the same in production. Assumes error handling is at the parser layer, not in middleware.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind",
+      "minimum_level": "Integration",
+      "justification": "This is a performance and capacity behavior—the real failure modes are dropped entries (due to buffer overflow or I/O backpressure) or falling behind (throughput < 10k/sec). A Unit test with 10k mock entries in memory can only measure CPU time, not real I/O latency, network delays, or resource contention. It cannot reveal buffer overflow, dropped packets, or blocking I/O that causes queuing. To catch real failures: (1) need a real data source (file, stream, queue) that produces 10k entries, (2) need to measure actual end-to-end throughput including I/O, (3) need to verify no entries are dropped. This requires Integration (real I/O, filesystem or in-process queue). System-level testing (real Kafka, real HTTP stream) may be needed if the tool is designed for real-time streaming, but Integration is the minimum to catch buffer/throughput issues.",
+      "test_description": "Integration test that sources 10,000 log entries from a test fixture (file or simulated stream) and processes them through the full pipeline. Measure end-to-end time and verify throughput ≥ 10k/sec. Verify the output contains all 10,000 entries (no drops). Add a second test that sources entries at a sustained 10k/sec rate for 10 seconds (100k total) and verify: no entries dropped, processing stays within real-time bounds (latency does not grow unboundedly).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test with real I/O will catch real failures Unit test cannot: buffer overflow (if 10k entries arrive in 1 second, does the tool's input buffer have capacity?), throughput degradation (does I/O or object allocation cause slowdown?), dropped entries (real filesystem or queue source, not in-memory mock). Unit test with in-process data hides I/O bottlenecks and concurrency issues.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

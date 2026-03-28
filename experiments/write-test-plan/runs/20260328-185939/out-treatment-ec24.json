@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The neural machine translation API returns translations that are grammatically coherent and semantically meaningful, preserving intent rather than performing word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real NMT model produces. Different models exhibit different quality levels—some may degrade to word-for-word output (a real failure), others produce natural language. Mocking the API to return 'correct' translations would mask the actual failure: that the deployed model produces poor output. Only the real API call exposes whether the service receives high-quality translations or degraded ones. This is non-deterministic—different languages and inputs may yield different quality results from the live model.",
+      "test_description": "Call the real NMT API with diverse source texts (multiple language pairs, sentence structures, technical vs. colloquial content). Verify translations are grammatically sound and preserve semantic intent, not mere word-for-word mappings. Repeat to validate consistency across multiple API calls.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.1,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the primary translation API returns HTTP 503 (Service Unavailable), the service transparently falls back to the dictionary translator and returns a successful response, without surfacing the error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is at the database integration point. We can safely mock the API to return 503 (deterministic, safe to simulate), but we *must* test against a real SQLite database. Real failures hide here: wrong schema, missing table, incorrect query syntax, encoding issues, or missing indexes. Mocking SQLite would pass silently while the real database fails. The behavior requires both error-handling logic (Unit) and correct database integration (Integration).",
+      "test_description": "Mock the primary API to return a 503 response. Call the service with a phrase that exists in a real SQLite database. Verify the service queries the database, retrieves the fallback translation, and returns HTTP 200 to the caller with the fallback result. Repeat with phrases that exist and don't exist in the database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.07,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For phrases stored in the SQLite dictionary, the fallback translator returns the exact pre-stored translation without modification.",
+      "minimum_level": "Integration",
+      "justification": "This is a database query test. While the lookup logic is simple, real failures are database-specific: schema mismatch, query syntax errors, character encoding issues, null handling, or data persistence problems. Mocking SQLite would hide all of these. The behavior depends on correct integration with the actual database structure and stored data.",
+      "test_description": "Load test data (phrase pairs in multiple languages) into a real SQLite database. Query the fallback translator with phrases that exist in the database. Verify exact match with the stored translation. Test edge cases: special characters, Unicode, empty strings, very long phrases, phrases not in database (should return null or default).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service correctly computes the character-level edit distance (Levenshtein distance) between primary and fallback translations and persists the quality metric.",
+      "minimum_level": "Integration",
+      "justification": "The edit distance algorithm itself is Unit-testable (pure function, deterministic). But the full behavior requires *persistent* storage of the metric. Real failures appear in the storage layer: serialization errors, wrong format, metric never actually written, or retrieval failing later. Mocking storage would hide these. The behavior requires both correct computation (Unit) and correct persistence (Integration).",
+      "test_description": "With both primary and fallback translations available, call the quality tracking component. Verify edit distance is computed correctly (spot-check against known examples like 'cat' vs 'bat' = 1, 'kitten' vs 'sitting' = 3). Verify the metric is stored to persistent storage (database, log file, etc.) and can be retrieved in a later query or inspection.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both primary and fallback translators are available, the service returns the primary translation to the caller synchronously and logs the quality comparison metrics in the background asynchronously without blocking.",
+      "minimum_level": "Agentic",
+      "justification": "This is the full happy-path behavior, and it critically depends on the real NMT API call. The service must integrate the live API output with the quality tracking and fallback system. Real failures include: API call not placed correctly, API response not handled in the integration chain, or quality metrics computed on artificial (mocked) data instead of real divergence between live primary and fallback outputs. The behavior is only meaningful if tested with the real, non-deterministic API output. Additionally, logging must occur in the background without blocking the caller—a failure here requires end-to-end system interaction, not just isolated logic.",
+      "test_description": "Call the service with source text using the real NMT API and real SQLite database. Verify the primary translation is returned to the caller immediately (measure response latency to confirm synchronous return). Verify the quality comparison metrics are logged to persistent storage in the background. Run multiple calls with different source texts and verify quality metrics vary (confirming real, non-mocked API output). Test with sources that differ significantly in difficulty to confirm fallback is actually invoked for comparison.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.18,
+        "System": 0.12,
+        "Agentic": 0.6,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

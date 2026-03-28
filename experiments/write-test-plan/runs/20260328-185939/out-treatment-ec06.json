@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is that the daemon doesn't recursively traverse subdirectories. A Unit test with mocked fs.readdir could fake returning nested paths without testing whether the actual code walks the directory tree. Real subdirectory structure and files are needed to verify the traversal logic works correctly.",
+      "test_description": "Create a temporary directory structure with nested subdirectories, place test files at multiple levels (root, 1st subdir, 2nd subdir), run the daemon watcher, and verify all files are discovered and processed regardless of nesting depth.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level correctly captures the need for real filesystem structure while excluding unnecessary OS-specific behaviors like subprocess management.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This is primarily state-management logic: checking if a file path is in a recent-requests cache and if the elapsed time falls within the configurable window. Time can be mocked, and the logic doesn't depend on real filesystem events or OS behavior. A well-designed Unit test with mocked Date and parametrized time windows can verify all paths through the deduplication logic.",
+      "test_description": "Mock filesystem events and Date.now(). Send the same file path twice within the time window (via mocked Date progression), verify it's deduplicated. Advance mock time past the window, send the same path again, verify it is processed. Parametrize tests with different window durations to ensure the configurable window is actually used.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit level is sufficient because the failure boundary is the deduplication logic itself, which can be exhaustively tested with mocked dependencies.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "The failure mode depends on the actual OS event sequence. Different operating systems (Windows, macOS, Linux) emit different numbers and types of events (e.g., 'create', 'change', 'close') for a single file write. A Unit test with mocked fs.watch events could never reproduce the real OS behavior. Only real filesystem events captured from the actual OS can verify the deduplication handles them correctly.",
+      "test_description": "Create a real temporary directory with fs.watch enabled. Write a file to disk and capture all events emitted by the operating system. Verify that despite receiving multiple OS events, the file is processed exactly once by the daemon.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is necessary because the failure surface is OS-specific event behavior that cannot be reliably mocked.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "The failure mode is that the daemon crashes, stops watching, or fails to reattach to the recreated directory. This requires real filesystem operations (remove, recreate directories) combined with monitoring the daemon's subprocess state. A Unit test with mocked fs.watch wouldn't test whether the daemon's error handling and rewatch logic actually works under real OS filesystem disruptions.",
+      "test_description": "Start the daemon watching a real temporary directory. While running, remove the directory completely. Verify the daemon either gracefully handles the error or detects it. Recreate the directory. Verify the daemon resumes watching it without requiring a restart, and new files in the recreated directory are processed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is required because the failure involves both OS filesystem state changes and daemon subprocess behavior under real disruption.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is that files are processed in arrival order rather than creation-timestamp order, implying the code fails to read or sort by file timestamps. Testing requires real files with real creation timestamps from the filesystem. A Unit test with mocked fs.stat could hide a failure where the code doesn't actually call fs.stat or sorts incorrectly. Real files with staggered creation times ensure the timestamp-reading and sorting logic is correct.",
+      "test_description": "Create multiple temporary files with distinct creation times (e.g., file1 created at T, file2 at T+100ms, file3 at T+50ms). Trigger a batch of filesystem events for all files simultaneously. Verify they are processed in order file1 → file3 → file2, i.e., sorted by creation timestamp, not arrival order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is appropriate because the test needs real file timestamps but not OS-specific behaviors like event sequences or subprocess management.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "The failure mode is that the daemon processes a partially-written file, corrupting the transformation output or reading incomplete data. Detecting 'still being written' depends on OS-specific mechanisms: file locks, inode state, file size changes, or handle status. A Unit test with mocked file state cannot reliably capture how the real OS indicates a file is in-progress. Real file I/O with open handles is required.",
+      "test_description": "Open a real temporary file for writing (leaving the handle open). Fire a file-arrival event while the write is in progress. Verify the daemon does not pick it up for processing. Close the file. Verify the daemon then detects and processes it. Repeat with different write patterns (small vs. large, buffered vs. unbuffered) to ensure robustness.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System level is required because detecting write-in-progress is an OS-level concern; mocking file state would miss real failure modes.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

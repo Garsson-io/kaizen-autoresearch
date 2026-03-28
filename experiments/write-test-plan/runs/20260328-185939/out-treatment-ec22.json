@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "Key generation is pure logic with no external dependencies. A Unit test calling the key generation function with identical and distinct parameters can verify both determinism (same input → same key) and collision-free behavior. No mocking or infrastructure needed.",
+      "test_description": "Create a parametrized Unit test that generates keys from identical parameters multiple times (asserting all equal), generates keys from different parameters (asserting all differ), and tests edge cases like empty params and special characters. Example: assert key_gen({'user_id': '123'}) == key_gen({'user_id': '123'}).",
+      "plan_consistent": true,
+      "plan_consistent_note": "No dependencies to mock or simplify. Function determinism and collision detection are fully testable at Unit level with proper isolation.",
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "TTL computation depends on reading configuration rules. A Unit test mocking the config provider would miss config loading bugs, parsing errors, and category-lookup failures. Integration testing with a real config fixture (file or test DB) verifies the full flow: config load → category lookup → TTL calculation.",
+      "test_description": "Create an Integration test that loads a test configuration with multiple data categories and TTL rules, then for each category calls the TTL computation function and verifies it matches the configured value. Test rule changes to ensure updates propagate. Example: assert compute_ttl('user_profile', config) == 5 * 60 (in seconds).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real config loading (not mocked) is essential to catch parsing and lookup failures. Integration level tests the true failure boundary: does the system use the configured rules correctly?",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "Testing the strategy switch in isolation (Unit + mocked memory) would miss bugs in memory threshold detection. Integration testing requires filling the cache to realistic capacity and observing whether the strategy actually switches. This tests both detection and switching together, catching real failures in the threshold-crossing logic.",
+      "test_description": "Create an Integration test that creates a cache with a configured threshold, populates it to approach/exceed the limit (via item insertion or size measurement), and asserts the eviction strategy has switched from LRU to LFU. Verify subsequent evictions use the new strategy. Example: before threshold assert cache.eviction_strategy == LRU; after threshold assert cache.eviction_strategy == LFU.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing with actual cache population (not mocked pressure) ensures both threshold detection and strategy switch are real. Most cache implementations use cache size or item count as a proxy for memory pressure, which Integration can handle.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "System",
+      "justification": "This is an integration boundary with real PostgreSQL. Mocking the write would miss the real failure: the system not detecting database changes and invalidating stale cache. The failure boundary is: 'I wrote to the database; was the cache invalidated?' This requires real PostgreSQL (or at minimum a real database) because invalidation may depend on triggers, write notifications, or transaction semantics that can't be reliably mocked.",
+      "test_description": "Create a System test that inserts/updates rows in a real PostgreSQL test database, then verifies all cache entries with keys matching affected rows are invalidated while unaffected entries remain valid. Test multiple rows, batch writes, and different data categories. Example: after INSERT INTO users (id) VALUES (123), assert cache key 'user:123' is gone; cache key 'user:456' remains.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real PostgreSQL is non-negotiable. Any mocking of database writes or invalidation triggers hides the true failure boundary: can the system detect and react to real database changes?",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries—least-recently-used under LRU, least-frequently-used under LFU—when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "This tests the eviction algorithm itself: given a cache at capacity and specific access patterns, is the correct item evicted? A Unit test can control access order/frequency, trigger eviction, and verify the right victim. The algorithm correctness is deterministic and doesn't require concurrency, OS behavior, or external services.",
+      "test_description": "Create parametrized Unit tests for each policy: (LRU) Add items A, B, C to full cache; access A, B, C in that order; add D; assert A is evicted. (LFU) Add items A, B, C; access A twice, B once, C once; add D; assert B is evicted. Include edge cases like ties in recency or frequency.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure algorithm testing with no hidden state or timing dependencies. If the production system also has concurrency or complex timing behavior around eviction, those are separate failure modes warranting integration tests.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

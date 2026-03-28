@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The core logic is schema validation + row rejection, but testing the actual write to the dead-letter queue is critical. A pure Unit test with a mocked DLQ could miss failures where the queue write itself fails (serialization errors, queue connection issues, or row number lost during transformation). Integration testing with a real queue (or in-memory test queue) ensures the complete path from validation to DLQ write is correct. The row number must survive the entire chain.",
+      "test_description": "Set up a test DLQ (in-memory or testcontainers), run the pipeline on a CSV with missing fields, and verify: (1) invalid rows appear in DLQ, (2) original row numbers are preserved and correct, (3) the queue write actually succeeds. Test edge cases like row 0, row 1, missing field in first row, missing field in last row.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Self-check: Could a real DLQ write failure (auth, network, serialization) slip through a mocked test? Yes. Need Integration level to catch actual queue interaction bugs.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure, deterministic transformation function with no I/O, external dependencies, or non-determinism. The function takes a string input and produces a string output. Real failures would be parsing bugs, format mismatches, or edge cases (leap years, invalid dates). All of these are caught by Unit tests alone. There is no benefit to Integration or System testing here—mocking doesn't hide anything because there's nothing to hide.",
+      "test_description": "Write parameterized Unit tests covering: ISO 8601 formats (2024-01-15, 2024-01-15T10:30:00Z), US format (01/15/2024), European format (15/01/2024), edge cases (29 Feb in leap year, 31 Dec, 01 Jan), invalid inputs, and timezone variations. Assert all convert to a single canonical output format.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Self-check: Could a real failure slip through? No. Pure transformation has no external dependencies or runtime behaviors to miss.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "Testing performance and resource constraints requires real I/O, real data scale, and actual memory measurement. A mocked file read or a smaller test dataset (e.g., 1,000 rows) will not expose memory leaks or performance degradation that only manifest at 500k scale. The failure modes are: (1) actual memory exhaustion, (2) timeout exceeded under real I/O conditions, (3) inefficient resource usage. All require System-level testing with actual file I/O, real dataset size, and resource monitoring tools (memory profilers, timeout measurement).",
+      "test_description": "Create a 500k-row test CSV (or generate it on-the-fly). Run the pipeline with resource limits and monitoring in place. Measure: (1) peak memory usage stays below configured limits, (2) wall-clock processing time stays within timeout, (3) no OOM errors occur. Use memory profilers (psutil, memory_profiler) to detect leaks. Verify streaming/chunked processing if applicable. Test timeout boundary conditions (set timeout to 99% of measured time, verify it still completes; set timeout to 50%, verify it fails correctly).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Self-check: Could memory leaks or timeout failures be caught by Integration tests with smaller data? No—failures only manifest at real scale. Could they be caught with mocked I/O? No—real I/O performance characteristics are required.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The retry and exponential backoff logic can be tested by injecting a 503 response into the S3 client mock. However, the critical question is whether the application's retry logic correctly integrates with the actual S3 SDK's behavior. At Integration level, we can mock S3 to return 503 and verify the pipeline's retry logic (detecting 503, computing backoff delay, retrying). At System level, we would test against localstack or actual AWS to catch SDK-specific behaviors. Integration is the minimum because the core logic (detect error, backoff, retry) is testable with a mock; System would be needed only if we suspect SDK-specific retry conflicts.",
+      "test_description": "Mock the S3 client to return 503 on the first N calls, then succeed. Verify: (1) the pipeline detects the 503 and triggers retry, (2) backoff delays increase exponentially (e.g., 1s, 2s, 4s), (3) retries eventually succeed and processing completes, (4) no exceptions are raised before the final retry succeeds. Test edge cases: max retries exceeded, backoff overflow, timeout during retry sequence. Measure actual backoff delays to verify exponential growth.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Self-check: Could a real failure in SDK retry behavior or network timeout slip through? Possibly, but the core application retry logic is testable at Integration level. Would raise to System if actual S3 SDK behavior is complex or conflicts suspected.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "Idempotent writes require testing against an actual database to verify that the mechanism (e.g., UPSERT, unique constraints, deduplication logic) actually prevents duplicates. A mocked database cannot expose failures in constraint setup, upsert logic, or transaction handling. Real failures would be: (1) no unique constraint defined, (2) upsert logic broken, (3) transaction rollback leaves half-written state, (4) restart logic doesn't preserve idempotency. All require a real database (or testcontainers) to test. Integration level with a real PostgreSQL instance (via testcontainers or test fixture) is the minimum.",
+      "test_description": "Set up a test PostgreSQL instance (testcontainers or local). Write N rows to the table. Simulate a mid-batch restart (kill the pipeline after row N/2). Restart the pipeline from the checkpoint. Verify: (1) no duplicates in the table (SELECT COUNT DISTINCT(id) == original expected count), (2) all rows from the original batch are present, (3) table constraints (unique keys, primary keys) prevented duplicates. Test edge cases: restart on the same row, restart after the batch completed, multiple restarts.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Self-check: Could a real database constraint failure or upsert bug be caught by a mocked database? No—the mock would always succeed, hiding the actual constraint issue. Real PostgreSQL is required.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

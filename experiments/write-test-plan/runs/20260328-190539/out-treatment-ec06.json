@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the filesystem watcher is not configured to recurse into subdirectories. Unit tests with mocked file discovery would hide this: you could mock a `getFiles()` call that claims to recurse, but the real watcher behavior only matters when watching actual filesystem structure. Integration testing with real directories and subdirectories is the minimum needed—you must create an actual subdirectory, place a file in it, and verify it's picked up by the daemon.",
+      "test_description": "Create a file in a nested subdirectory of the watched root (e.g., watched/subdir/file.txt), trigger the daemon, verify the file appears in the output directory without requiring the application to be restarted or reconfigured.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is deterministic logic: store file + timestamp, check if elapsed time < window, skip if true. Unit testing with a mocked/controlled clock (e.g., sinon fake timers or similar) can reliably test this. The failure would occur if the time comparison is broken (e.g., using `>` instead of `<`), which a Unit test with deterministic time control catches. Real filesystem event deduplication (Behavior 3) is a separate concern requiring a higher level.",
+      "test_description": "Submit the same file path twice within a mocked time window (e.g., window=60s, submit at T=0 and T=30), verify the daemon processes it once and skips the duplicate. Then advance mocked time past the window and submit again, verify it is processed a second time.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.68,
+        "Integration": 0.27,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "The real failure depends on OS-level filesystem watcher behavior. When you write a file rapidly (or certain OSes emit 'add' followed by 'modify'), the watcher might emit multiple events. Unit tests can't trigger this; mocking events hides it. Integration testing with real filesystem *might* randomly trigger multiple events on some OSes but won't do so reliably. Only System-level testing—where the daemon runs and the real filesystem watcher receives actual OS events from file I/O—reliably exercises this behavior. This is a classic MOCK-HIDE case: you could mock a single event and pass, hiding the real OS behavior.",
+      "test_description": "Write a file to the watched directory in rapid succession or in a way that induces multiple filesystem events (e.g., create, then immediately modify). Alternatively, run the daemon on an OS or filesystem where duplicate events are common and monitor the output log or file-processing count to verify the file is processed exactly once despite multiple events.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.32,
+        "System": 0.62,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the watcher throws an error when the directory is deleted and does not recover. Unit tests with mocked filesystem operations can't trigger real watcher failure modes. Integration testing with actual directory deletion and recreation exercises the real recovery path: the watcher must detect the error, clean up, and re-establish the watch on the recreated directory. This tests the real error handling, not a mock version of it.",
+      "test_description": "Start the daemon watching a directory, then delete the watched directory while the daemon is running, recreate it, and place a new file in it. Verify the daemon continues running and processes the new file without requiring a restart or manual intervention.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Unit",
+      "justification": "Processing order is deterministic sorting logic. You can construct a unit test that: (a) mocks a file discovery function to return files with specific timestamps, (b) calls the sorting/ordering function, (c) verifies the output is in timestamp order. This is pure logic, not dependent on real filesystem timing or OS behavior. The failure (wrong sort order) is a logic bug, not a runtime/environmental bug, and is fully testable at Unit level.",
+      "test_description": "Create mock file metadata for three files with out-of-order timestamps (e.g., file1: T=1000, file2: T=500, file3: T=1500), pass them to the ordering function, verify the output is sorted by ascending timestamp (file2, file1, file3).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.73,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the daemon processes a file while it is still open for writing. Unit tests with mocked file states can't accurately simulate real file handles and write-completion semantics. Integration testing with actual filesystem operations can: (a) open a file for writing and keep it open, (b) trigger or observe the watcher's behavior, (c) verify the file is deferred, and (d) close the file and verify it becomes available. This exercises the real file handle detection logic (whether checking inode locks, file size stability, or access times) without requiring a subprocess.",
+      "test_description": "Open a file in the watched directory for writing but do not close it, then wait for the watcher to emit an event or manually trigger a scan. Verify the file is not picked up for processing. Then close the file (or wait for its size to stabilize if that's the detection method) and verify the daemon processes it.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.67,
+        "System": 0.27,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

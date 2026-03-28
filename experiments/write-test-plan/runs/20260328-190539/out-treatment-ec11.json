@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when the full history exceeds the context window",
+      "minimum_level": "Integration",
+      "justification": "Trimming must be tested within the flow where it actually executes. While the trimming logic itself could be unit-tested in isolation, a real failure manifests as the LLM receiving untrimmed history. Testing requires mocking the LLM call and verifying it receives exactly 10 messages (not 15), which demands wiring together the conversation handler, history manager, and LLM caller. A pure unit test of the trimming function doesn't guarantee the flow calls it correctly.",
+      "test_description": "Invoke the conversation handler with a 15-message history plus a new user message. Mock the LLM.call() and capture its arguments. Assert the call received exactly 10 messages in the history parameter and that they are the 10 most recent ones (not the 10 oldest). Verify the trimmed history does not include dropped messages.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with mocked LLM will catch the real failure (trimming not applied or applied incorrectly) because the test verifies the exact payload sent to the LLM.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "Assessing whether a response 'addresses the question' is fundamentally a semantic task that depends on the real LLM's behavior and prompt quality. Mocking the LLM to return a hard-coded off-topic string only tests whether the system passes through whatever it receives; it does not test whether the prompt is well-designed or whether the real LLM produces relevant responses. Real failures (LLM returns off-topic output for a well-formed customer question) are only caught by invoking the actual model.",
+      "test_description": "Call the system with a concrete customer question (e.g., 'How do I reset my password?') and relevant customer context. Invoke with the real LLM and real prompt. Verify the response is topically relevant (addresses password reset, not a generic greeting). Repeat with 3–5 diverse questions and customer tiers to detect prompt weaknesses that would cause off-topic responses.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic testing with the real LLM catches failures in prompt design and model behavior. Integration tests with mocked responses would pass even if the actual LLM produces garbage for these questions.",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone-checking step correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "The core failure is whether the tone classifier correctly detects formality mismatches. If the tone classifier is LLM-based (likely for nuanced tone assessment), then correctness depends on the real classifier's behavior. Mocking the tone checker to return 'too formal' allows testing of regeneration logic, but not whether the classifier actually identifies formality in real responses. Real failures (tone classifier misses a formal response or false-positives on casual responses) only surface with the real classifier.",
+      "test_description": "Generate a deliberately formal response (e.g., 'I appreciate your inquiry and would like to provide comprehensive elucidation regarding...'). Pass it to the real tone classifier with customer_tier='casual'. Assert the classifier returns 'too_formal' signal. Verify the system then regenerates the response. Repeat with responses of varying formality levels (formal, neutral, casual) and customer tiers to catch classifier edge cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic testing with the real tone classifier catches failures in tone detection. Integration tests with mocked signals would not catch a tone classifier that silently misses formality issues.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.1,
+        "Agentic": 0.65,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct and consistent timestamps",
+      "minimum_level": "Integration",
+      "justification": "Persistence is an I/O operation that requires interaction with a real database system (even if it's a test database like in-memory SQLite). Mocking the database call at unit level only verifies the system passes a correct data structure; it does not catch database-level failures: constraint violations, schema mismatches, timestamp precision loss, missing indices, or data corruption during write/read. Real persistence failures only manifest when data is actually written to and queried from a database.",
+      "test_description": "Invoke the conversation handler with a customer message. Allow it to generate a response and trigger tone-based regeneration. Query the test database for the exchange record. Assert: (1) user message is persisted, (2) initial response is stored, (3) regenerated response is stored, (4) all timestamps are within ±1 second of the current time, (5) regenerated response timestamp > initial response timestamp, (6) no duplicate records exist, (7) all required fields are non-null.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with a real test database catches failures in schema compliance, timestamp accuracy, and data integrity. Unit tests with mocked DB calls would not catch these failures.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.85,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first; the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is whether the system's output (API response, database record, or internal state) exposes both responses or only the final one. Testing requires invoking the system with a message that triggers regeneration, mocking both the LLM (to return response A then B) and tone checker (to reject A), and verifying the final output contains only response B. This wiring of multiple components (LLM caller, tone checker, response selector, output handler) requires integration testing. The primary concern is the backend API contract ensuring the customer-facing response is final, not draft.",
+      "test_description": "Invoke the conversation handler with a message. Configure mocks: first LLM.call() returns response A ('formal response'), tone_checker(A) returns 'too_formal', second LLM.call() returns response B ('casual response'), tone_checker(B) returns 'ok'. Query the response object / API response / database record. Assert the customer_facing_response field contains only response B (not both A and B, not A at all). Verify the conversation history stored in the database shows only the final exchange, not rejected drafts.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration testing with mocked dependencies verifies the backend correctly selects the final response. If the failure is in UI rendering (frontend displays both responses despite backend sending one), that would require system-level testing—but the minimum to catch backend failures is Integration.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}
