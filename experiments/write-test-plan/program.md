@@ -93,10 +93,33 @@ LOOP:
   9. LOG — append one JSON line to experiments/write-test-plan/autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
      Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
   10. COMMIT RUNS — git add experiments/write-test-plan/runs/<timestamp>/ and commit the output JSONs.
-  11. GOTO 1
+  11. NEXT ITERATION — update task list: clear completed tasks, create fresh tasks for
+      the next iteration's inner loop (MINE through COMMIT RUNS). This keeps the task
+      list showing the CURRENT iteration's progress, not stale completed tasks.
+      Then GOTO 1.
 ```
 
 **Steps 1–4 are MANDATORY.** You must mine the prose, read the taxonomy, consult meta-failures, AND run the IDEATE subagent BEFORE editing the prompt.
+
+### Task list management
+
+The outer loop (`--iterations N`) is the experiment. Each iteration has an inner loop (steps 1-10).
+Use the task list to show the inner loop of the CURRENT iteration:
+
+```
+Iteration 3/5: IDEATE
+  ✓ Iter 3: MINE — extracted justifications, appended [run3] to taxonomy
+  ✓ Iter 3: DIAGNOSE — top pattern: U1 (impact 40), 10 occurrences
+  ✓ Iter 3: META — no new evidence for meta-hypotheses
+  ~ Iter 3: IDEATE — spawning subagent...
+  ◻ Iter 3: EDIT + COMMIT
+  ◻ Iter 3: RUN + SCORE
+  ◻ Iter 3: LOG + COMMIT RUNS
+  ◻ Iter 3: → Next iteration (refresh tasks)
+```
+
+At step 11, mark "→ Next iteration" complete, then create a fresh set of tasks for iteration 4.
+Include the iteration number and the current score in each task name for context.
 
 ### How to diagnose (step 2)
 - Which tasks score lowest? Which behaviors are `direction: under`?

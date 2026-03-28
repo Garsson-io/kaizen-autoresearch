@@ -29,6 +29,10 @@ The loop in program.md has two kinds of steps:
 
 You execute the subagent's recommendation. If it sounds wrong, you can override — but document why in the commit message.
 
+## Task list = inner loop visibility
+
+Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks for its inner loop steps (MINE, DIAGNOSE, META, IDEATE, EDIT+COMMIT, RUN+SCORE, LOG+COMMIT RUNS, → Next iteration). Mark each complete as you go. At "→ Next iteration", clear and recreate for the next iteration. Include iteration number and current score in task names.
+
 ## Execute
 
 Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
