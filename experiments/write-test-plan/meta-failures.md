@@ -241,3 +241,63 @@ and treatment ideas.
 **Lesson**:
 - Unit-boundary fixes can help globally but may over-tighten escalation thresholds.
 - Next edits should preserve the Unit gain while restoring correct escalation to System/Agentic/Workflow on multi-step or real-infra behaviors.
+
+---
+
+### "MOCK-MISS floor only" clarification helped without destabilizing
+
+**Status**: hypothesis supported (2nd keep in same family)
+
+**What happened**:
+- Follow-up wording on top of `mock-miss-scope-clarification` added: "This sets the Unit floor only; then still apply REAL-INFRA, LLM-DEP, and MULTI-STEP..."
+- Full run `20260329-002612` improved loss from `390.59` to `390.23` (`-0.36`), so it was kept.
+
+**Lesson**:
+- Keeping the strong Unit-vs-Integration disambiguation while explicitly re-opening higher-level checks can preserve gains and reduce over-anchoring risk.
+- Effect size is small; needs more runs to confirm beyond noise.
+
+---
+
+### SELF-CHECK Unit guard can catastrophically over-anchor downward
+
+**Status**: supported (1 strong disconfirmation run)
+
+**What happened**:
+- Added SELF-CHECK clause to downweight "hypothetical wiring bug" reasoning and push those cases to Unit before re-checking escalation gates.
+- Full run `20260329-004233` regressed from `390.23` to `453.53` (`+63.30`), then was reverted.
+
+**Lesson**:
+- Unit-bias language in `SELF-CHECK` is high-risk even when paired with explicit higher-level gates.
+- Keep Unit-vs-Integration disambiguation in `MOCK-MISS`; avoid repeating Unit-favoring policy in final validation blocks.
+
+---
+
+### Sonnet has an Integration anchor, not a Unit anchor
+
+**Status**: hypothesis (1 data point — sonnet baseline run 20260329-012210)
+
+**What happened**:
+- Sonnet baseline on 36-task corpus yielded loss `439.54` (score 87.2%).
+- 53 of 82 errors (65%) had Integration as the predicted level.
+- Dominant patterns: Integration→Unit (25 cases), Integration→System (20 cases, impact 60), Integration→Agentic/Workflow (8 cases, impact 32).
+- 35 of 82 errors (43%) were self-aware — model knew the right answer but chose Integration anyway.
+
+**Contrast with Codex**: Codex's dominant error was Unit→Integration (U2 pattern). Sonnet doesn't get stuck at Unit — the bottom-up gates successfully pull it off Unit, but then it stops at Integration. Ideas that worked on Codex (mock-miss-scope-clarification) may not transfer.
+
+**Lesson**:
+- Model-specific error shapes require model-specific interventions.
+- Test Integration-specific gates (INTEGRATION-CHECK) rather than Unit-definition changes.
+
+---
+
+### Requiring explicit handoff text under-calls true Integration
+
+**Status**: supported (1 disconfirming run)
+
+**What happened**:
+- Added `MOCK-MISS` clause: escalate to Integration only when the behavior text explicitly names the handoff/state interaction.
+- Full run `20260329-004857` regressed from `390.23` to `404.78` (`+14.55`), then was reverted.
+
+**Lesson**:
+- Some genuine Integration behaviors are phrased implicitly.
+- Hard textual-evidence gates are too strict; keep failure-boundary semantics without requiring explicit wording patterns in the issue text.
