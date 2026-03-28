@@ -141,7 +141,12 @@ If you generate a new idea, WRITE it to ideas/ with full frontmatter and steelma
 Return EXACTLY this:
 
 IDEA: {idea id — existing or newly created}
-EDIT: {what to change in treatment.md — which named section, what to add/remove/replace, be SPECIFIC}
+EDIT: {symbolic description — which named section, adding/removing/replacing what}
+DIFF:
+```diff
+- {exact lines to remove, if any}
++ {exact lines to add}
+```
 RATIONALE: {one sentence — why this targets the top taxonomy pattern}
 SKEPTIC: {one sentence — the strongest argument against this idea}
 ```
