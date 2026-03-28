@@ -106,40 +106,6 @@ export const IterationResult = z.object({
 });
 export type IterationResult = z.infer<typeof IterationResult>;
 
-/**
- * Schema for run statistics (run-stats.jsonl).
- * One JSON object per eval run, appended by run-stats.ts --append-log.
- */
-export const RunStats = z.object({
-  /** Run directory name (e.g. "20260328-150512") */
-  run_dir: z.string(),
-  /** Number of probes in this run */
-  probes: z.number().int().min(0),
-  /** Total wall-clock time across all probes (seconds) */
-  total_duration_s: z.number(),
-  /** Total API cost (USD) */
-  total_cost_usd: z.number(),
-  /** Total input tokens (including cache) */
-  total_input_tokens: z.number().int(),
-  /** Total output tokens */
-  total_output_tokens: z.number().int(),
-  /** Average time per probe (seconds) */
-  avg_duration_s: z.number(),
-  /** Average cost per probe (USD) */
-  avg_cost_usd: z.number(),
-  /** Average input tokens per probe */
-  avg_input_tokens: z.number(),
-  /** Average output tokens per probe */
-  avg_output_tokens: z.number(),
-  /** Model used */
-  model: z.string(),
-  /** Number of tools available to probes */
-  tools_available: z.number().int(),
-  /** Number of MCP servers connected */
-  mcp_servers: z.number().int(),
-});
-export type RunStats = z.infer<typeof RunStats>;
-
 export const GroundTruthBehavior = z.object({
   behavior_id: z.number().int().min(1).max(10),
   ground_truth_level: Level,
