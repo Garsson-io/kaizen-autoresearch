@@ -6,6 +6,8 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 
 ## Iteration history
 
+> **Legacy metric**: Iterations 0–2 used score % (higher = better) before loss tracking was introduced. The second table (iteration 15+) uses weighted cross-entropy loss (lower = better) which is the current primary metric.
+
 | # | Condition | Score (r1) | r2 | r3 | Δ | Commit | Change |
 |---|-----------|-----------|----|----|---|--------|--------|
 | 0 | baseline | 72.3%* | — | — | — | — | built-in, no guidance |
@@ -35,6 +37,10 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 §30-task full corpus (EC-01 through EC-30), revised GT. Loss available from iteration 15+.
 
 **[Autoresearch run 2 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16356414)** — 5 iterations, 2 keeps, baseline loss 454.16 → best 368.08 (-19%). Largest gain: concrete-agentic-example (-79.84 loss). Unit def changes cause O1/U2 explosion — avoid.
+
+---
+
+**[Autoresearch run 3 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16357640)** — 5 iterations (iters 21–25), 0 keeps, 4 discards, 1 no-op. Baseline loss held at 368.08. Key finding: **ceiling effect confirmed** — any definition addition to lower levels (Unit, System) causes model to cap there, missing higher levels. Only safe territory: Agentic/Workflow. Self-check is post-hoc (changing its direction didn't help). Explore selection bias documented. Prompt is near a local optimum; next batch should try few-shot examples or a larger model.
 
 ---
 
