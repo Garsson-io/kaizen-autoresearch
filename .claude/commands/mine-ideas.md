@@ -14,7 +14,6 @@ If $ARGUMENTS is provided, use it as the experiment name. Otherwise default to `
 
 Set:
 - `EXPERIMENT_DIR=experiments/<name>`
-- `RUNS_DIR=$EXPERIMENT_DIR/runs/latest`
 - `GT_DIR=$EXPERIMENT_DIR/ground-truth`
 - `IDEAS_DIR=$EXPERIMENT_DIR/ideas`
 
@@ -33,16 +32,16 @@ Use the extract-thinking tool to get both layers of reasoning:
 
 ```bash
 # Full error analysis with thinking + self-aware detection
-$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest
 
 # Just the self-aware contradictions (model knew and overrode)
-$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --self-aware-only
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --self-aware-only
 
 # Lines ready to append to taxonomy/
-$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --taxonomy-lines
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
 
 # Machine-readable for deeper analysis
-$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --json
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --json
 ```
 
 The tool pairs each behavior's structured output (justification, predicted level) with the model's internal thinking from the .log file. It automatically flags ⚠ SELF-AWARE cases where thinking contains correct reasoning the model overrides.
@@ -87,7 +86,7 @@ The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern.
 
 Use the taxonomy-lines output as a starting point:
 ```bash
-$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --taxonomy-lines
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
 ```
 
 This gives pre-formatted lines with justifications, thinking excerpts, and ⚠ SELF-AWARE flags. For each pattern file:
