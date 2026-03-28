@@ -72,7 +72,10 @@ Report all three scores in `leaderboard.md`.
 
 ```
 LOOP:
-  1. MINE — extract justifications from experiments/write-test-plan/runs/latest/, append [runN] to taxonomy/, note what changed
+  1. MINE — extract BOTH thinking blocks AND justifications from experiments/write-test-plan/runs/latest/.
+     The .log files contain stream-json with thinking blocks (raw reasoning) and the .json files
+     have justification fields (post-hoc rationalization). Mine BOTH — the thinking often contains
+     correct reasoning that the model overrides in the final output. Append [runN] to taxonomy/.
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
