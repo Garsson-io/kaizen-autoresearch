@@ -163,24 +163,11 @@ Before adding an adversarial task to the corpus, verify:
 | Systems that don't exist | Can't validate ground truth | Base on real open-source projects or production architectures |
 | Jargon soup | Real engineers write plainly | Use domain-standard terminology |
 
-## Generating at Scale with /autoresearch:scenario
+## Generating at Scale
 
-For systematic generation, use the scenario mode with realism constraints in the seed:
+Use `/autoresearch:scenario` (see [autoresearch-modes.md](autoresearch-modes.md#autoresearchscenario----edge-case-generator)) to systematically generate tasks. Include realism constraints in the seed scenario — specify that tasks should describe plausible production systems, use natural architectural ambiguity, and follow the label distribution targets above.
 
-```bash
-/autoresearch:scenario
-Scenario: Generate realistic software engineering issue descriptions for systems
-  that mix deterministic and AI components. Each task should describe a plausible
-  production system with 5-10 behaviors. The adversarial element should come from
-  natural architectural ambiguity, not trick phrasing. Label distribution should
-  be roughly 60% Unit, 20% Integration, 10% System, 8% Agentic, 2% Workflow.
-Domain: software
-Focus: edge-cases
-Depth: deep
-Iterations: 10
-```
-
-After generation, apply the realism checklist to each task before adding it to the corpus.
+After generation, apply the realism checklist to each task before adding it to the corpus. See [adversarial-training.md](adversarial-training.md#generating-adversarial-tasks-with-autoresearchscenario) for the full generate→review→convert→validate workflow.
 
 ## Validating Adversarial Quality
 

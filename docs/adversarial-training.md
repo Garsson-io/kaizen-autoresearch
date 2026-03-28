@@ -63,66 +63,11 @@ Design noise that targets the specific failure modes of your classification task
 
 ## Using Autoresearch Modes for Adversarial Work
 
-### /autoresearch:scenario -- Generate Adversarial Tasks
+Three autoresearch modes are particularly useful for adversarial testing. See [autoresearch-modes.md](autoresearch-modes.md) for full usage, flags, and persona details.
 
-The scenario mode systematically explores 12 dimensions of edge cases. Use it to generate new adversarial corpus items.
-
-```bash
-/autoresearch:scenario
-Scenario: A model classifies software behaviors by minimum test level
-Domain: software
-Focus: edge-cases
-Depth: deep
-Iterations: 30
-```
-
-The 12 exploration dimensions are particularly useful for adversarial task design:
-
-| Dimension | Adversarial Application |
-|-----------|----------------------|
-| **Happy path** | Baseline -- tasks where the obvious answer is correct |
-| **Error path** | Tasks where normal heuristics fail |
-| **Edge case** | Boundary between two labels |
-| **Abuse/misuse** | Inputs designed to trick the classifier |
-| **Scale** | Tasks with many behaviors (10+) that overwhelm attention |
-| **Concurrent** | Multiple valid labels for one behavior |
-| **Temporal** | Context that changes over time (deprecated API, migrated service) |
-| **Data variation** | Unusual formats, mixed languages, abbreviations |
-| **Permission** | Authority signals that bias classification |
-| **Integration** | Cross-cutting behaviors that span multiple labels |
-| **Recovery** | Tasks where initial classification is wrong and must be corrected |
-| **State transition** | Behaviors that change label depending on system state |
-
-### /autoresearch:predict --adversarial -- Red-Team Your Prompt
-
-The predict mode with `--adversarial` flag assembles a red-team panel:
-
-```bash
-/autoresearch:predict --adversarial
-Scope: experiments/<name>/prompts/treatment.md
-Goal: Find weaknesses in the classification prompt
-```
-
-The adversarial persona set:
-
-| Persona | Role | What They Look For |
-|---------|------|-------------------|
-| Red Team Attacker | Active exploitation | Inputs that reliably trigger misclassification |
-| Blue Team Defender | Detection gaps | Missing guardrails in the prompt |
-| Insider Threat | Subtle manipulation | Phrasing that appears helpful but biases toward wrong answers |
-| Supply Chain Analyst | Upstream risks | Dependencies on model behavior that could change between versions |
-| Judge | Arbitration | Evaluates exploitability, assigns realistic severity |
-
-### /autoresearch:security -- Audit the Eval Pipeline
-
-Use security mode to audit the evaluation pipeline itself -- are there ways the scoring could be gamed?
-
-```bash
-/autoresearch:security
-Scope: experiments/<name>/scripts/**
-Focus: Can the treatment prompt game the scoring without actually improving classification?
-Iterations: 10
-```
+- **`/autoresearch:scenario`** -- Systematically explore 12 edge-case dimensions to generate adversarial corpus items
+- **`/autoresearch:predict --adversarial`** -- Red-team your prompt with 5 adversarial personas (attacker, defender, insider, supply chain, judge)
+- **`/autoresearch:security`** -- Audit the eval pipeline itself for ways scoring could be gamed
 
 ## Adversarial Training Workflow
 
@@ -183,46 +128,16 @@ After the loop converges, run a final check:
 ./run-eval.sh --round 3  # must be >= 75% (or within 10% of round 1)
 ```
 
-## Using /autoresearch:scenario to Generate Adversarial Tasks
+## Generating Adversarial Tasks with /autoresearch:scenario
 
-Rather than hand-crafting all adversarial corpus items, use the scenario mode to systematically discover edge cases and convert them into tasks.
+Use scenario mode to systematically generate adversarial corpus items. The workflow:
 
-### Step 1: Seed the Scenario Generator
+1. **Seed**: Run `/autoresearch:scenario` with your classification confusion pairs as the scenario
+2. **Review**: Check generated situations across the 12 exploration dimensions
+3. **Convert**: Turn promising scenarios into corpus `.md` + ground-truth `.json` + `catalog.json` entry
+4. **Validate**: Run `/autoresearch:predict --adversarial` on new tasks — if the model gets everything right, it's not adversarial enough
 
-```bash
-/autoresearch:scenario
-Scenario: A model must classify software behaviors by minimum test level (Unit, Integration, System, Agentic, Workflow). The key confusion pairs are System-vs-Agentic and Agentic-vs-Workflow.
-Domain: software
-Focus: edge-cases
-Depth: deep
-Iterations: 30
-```
-
-### Step 2: Review Generated Scenarios
-
-The scenario output (`scenario/*/scenarios.md`) will contain situations organized by the 12 exploration dimensions. Look for:
-- **Abuse/misuse**: Inputs designed to trick the classifier
-- **Edge case**: Boundary conditions between two labels
-- **Data variation**: Unusual phrasings that break heuristics
-- **Concurrent**: Multiple valid labels for one behavior
-
-### Step 3: Convert to Corpus Items
-
-For each promising scenario:
-1. Write a corpus `.md` file following the existing format (intro paragraph + 5 behaviors)
-2. Assign expert ground-truth labels in a `.json` file
-3. Add metadata to `corpus/catalog.json`
-4. The eval script auto-discovers new files
-
-### Step 4: Validate with /autoresearch:predict
-
-```bash
-/autoresearch:predict --adversarial
-Scope: experiments/<name>/corpus/ec-NEW.md
-Goal: Does this task reliably cause misclassification?
-```
-
-If the predict personas can all correctly classify the task, it's too easy -- redesign it.
+For mode usage details and flags, see [autoresearch-modes.md](autoresearch-modes.md). For corpus file formats, see [creating-experiments.md](creating-experiments.md#2-create-the-corpus). For realism constraints when generating tasks, see [generating-realistic-adversarial-examples.md](generating-realistic-adversarial-examples.md).
 
 ## Task Organization and Catalog
 
