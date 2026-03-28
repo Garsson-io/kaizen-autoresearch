@@ -65,40 +65,37 @@ Report all three scores in `leaderboard.md`.
 
 ---
 
-## Diagnostic guidance (supplements the autoresearch loop protocol)
+## The iteration loop (follow this exactly)
 
-The autoresearch loop handles measure → modify → verify → keep/revert → commit automatically.
-Use this section for **what to look at** when deciding your next change.
+```
+LOOP:
+  1. MINE — extract justifications from runs/latest/, append [runN] to taxonomy/, note what changed
+  2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
+  3. PICK — choose one idea (low effort + high impact + targets top pattern)
+  4. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
+  5. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
+  6. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
+  7. SCORE — compare to baseline. If improved > 1.5 noise threshold → keep. Else → git revert.
+  8. LOG — append to autoresearch-results.tsv. Update idea status (kept/rejected).
+  9. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
+  10. GOTO 1
+```
 
-### How to diagnose
-After each verify run, read `runs/latest/` output files + the scoring breakdown:
-- Which tasks score lowest?
-- Which behaviors are `direction: under`? (predicted too low)
-- Which GT levels are systematically missed? (Agentic? Workflow? System?)
-- Is `plan_consistent` failing often? Are notes present?
+**Steps 1–2 are MANDATORY.** You must mine the prose and read the taxonomy BEFORE picking the next idea. Without updated data, you're guessing.
 
-The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
+### How to diagnose (step 2)
+- Which tasks score lowest? Which behaviors are `direction: under`?
+- Which GT levels are systematically missed?
+- Most impactful targets: behaviors with **high weight (4) that score < 40% sufficiency**.
+- Read `taxonomy/` files — which patterns have the most lines? Which grew since last run?
 
-### MANDATORY after EVERY run — mine the prose reasoning
-**You MUST extract and classify justifications after every run, before choosing the next idea.** This is not optional. Without updated taxonomy data, you're guessing instead of using evidence.
-
-Run `/mine-ideas write-test-plan` or do it manually:
-1. Extract justifications from `runs/latest/` with predicted vs GT verdicts
-2. Append `[runN]` lines to `taxonomy/` files
-3. Check what changed — which patterns grew, shrank, or are new?
-4. Only THEN pick the next idea based on current data
-
-### Read ideas/ and taxonomy/ before iterating
-- **`ideas/`** — hypotheses with steelman/critique. See `ideas/README.md` for schema.
-- **`taxonomy/`** — failure patterns from past runs. Source of truth for what the model gets wrong and why.
-
-### What makes a good edit to `prompts/treatment.md`
+### Edit rules (step 4)
 - ✓ Add a concrete positive example for the level the model misses
 - ✓ Add a "NOT this" example that disambiguates two adjacent levels
 - ✓ Reorder key questions to promote Agentic/Workflow checks
 - ✗ Rewrite the whole prompt — too many variables, can't diagnose
 - ✗ Add generic "think carefully" language — no signal value
-- **✗ Be explicit about add vs replace.** "Replace A with B" is a valid hypothesis, but say so clearly. Don't accidentally remove a working section while adding something new. Each iteration's commit message must state: adding X, removing X, or replacing X with Y.
+- **Be explicit about add vs replace.** "Replace A with B" is a valid hypothesis, but say so clearly. Each commit message must state: adding X, removing X, or replacing X with Y.
 - Each section/bullet in treatment.md has a **name** (e.g. `**LEVEL-DEFS**`, `**MOCK-CHECK**`). Reference sections by name in commit messages, ideas, and taxonomy.
 
 ### After achieving ≥75% on round 1
