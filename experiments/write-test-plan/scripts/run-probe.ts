@@ -133,13 +133,15 @@ function runProbe(opts: {
   prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
 
   // Run claude -p with stdin piped from prompt string
+  // --tools "": disable all tools — probe should only produce structured output, no file reads or searches
+  // --max-turns 1: one response only (structured output)
   const result = spawnSync("claude", [
     "-p",
     "--json-schema", PROBE_SCHEMA,
     "--output-format", "stream-json",
     "--verbose",
-    "--dangerously-skip-permissions",
-    "--max-turns", "3",
+    "--tools", "",
+    "--max-turns", "1",
     "--model", opts.model,
   ], {
     input: prompt,
