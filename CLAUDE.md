@@ -25,8 +25,8 @@ This is the map. Each topic has exactly one canonical file — read it there, ed
 | **Agent config** | `experiments/<name>/program.md` | Goal, Scope, Metric, Verify, iteration loop, IDEATE subagent template |
 | **Corpus metadata** | `experiments/<name>/corpus/catalog.json` | Task titles, domains, difficulty, adversarial techniques, labels |
 | **GT correctness** | `experiments/<name>/taxonomy/gt-review.md` | Per-behavior audit: GT_CORRECT, GT_WRONG, DEBATABLE |
-| **Ideas index** | `npx tsx scripts/ideas-index.ts` | Views: `--table`, `--by-status`, `--by-target`, `--json` |
-| **Results viewer** | `npx tsx scripts/results.ts` | Views: `--table`, `--summary`, `--keeps`, `--last N`, `--json` |
+| **Ideas index** | `npx tsx experiments/<name>/scripts/ideas-index.ts` | Views: `--table`, `--by-status`, `--by-target`, `--json` |
+| **Results viewer** | `npx tsx experiments/<name>/scripts/results.ts` | Views: `--table`, `--summary`, `--keeps`, `--last N`, `--json` |
 
 ---
 

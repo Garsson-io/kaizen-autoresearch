@@ -6,7 +6,7 @@ Metric: Weighted cross-entropy loss (lower is better) — see discussion #3
 Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.loss'
 Legacy metric: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' (0–100, higher is better)
 
-**Working directory**: All commands in this file assume `cd experiments/write-test-plan` first.
+**Working directory**: Repo root. All paths are relative to the repo root (e.g. `experiments/write-test-plan/scripts/results.ts`).
 
 ---
 
@@ -14,7 +14,7 @@ You are an autonomous research agent improving a prompt that classifies
 software behaviors by minimum test level (Unit / Integration / System /
 Agentic / Workflow).
 
-**Your objective**: maximize the score printed by `./run-eval.sh`.
+**Your objective**: maximize the score printed by `experiments/write-test-plan/run-eval.sh`.
 The score is a weighted average over the 10-task corpus (0–100%). Higher is better.
 This is your **val_bpb** — the only number that matters for the iteration loop.
 
@@ -58,9 +58,9 @@ Three rounds test robustness:
 
 Run all three rounds before declaring success:
 ```bash
-./run-eval.sh --round 1  # clean score
-./run-eval.sh --round 2  # anchoring noise
-./run-eval.sh --round 3  # pressure noise
+experiments/write-test-plan/run-eval.sh --round 1  # clean score
+experiments/write-test-plan/run-eval.sh --round 2  # anchoring noise
+experiments/write-test-plan/run-eval.sh --round 3  # pressure noise
 ```
 
 A condition that passes round 1 but drops ≥10% on rounds 2/3 is not robust.
@@ -72,7 +72,7 @@ Report all three scores in `leaderboard.md`.
 
 ```
 LOOP:
-  1. MINE — extract justifications from runs/latest/, append [runN] to taxonomy/, note what changed
+  1. MINE — extract justifications from experiments/write-test-plan/runs/latest/, append [runN] to taxonomy/, note what changed
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
@@ -80,19 +80,19 @@ LOOP:
      Also: if the previous IDEATE subagent returned a META_NOTE, evaluate it here and update
      meta-failures.md if the observation is warranted.
   4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
-     Give it the latest score summary and results log (from `npx tsx scripts/results.ts --last 10`).
+     Give it the latest score summary and results log (from `npx tsx experiments/write-test-plan/scripts/results.ts --last 10`).
      It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
      It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
-  7. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
+  7. RUN — experiments/write-test-plan/run-eval.sh (or verify.ts). Monitor progress.
   8. SCORE — compare loss to baseline. Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
-  9. LOG — append one JSON line to autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
-     Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx scripts/results.ts`
-  10. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
+  9. LOG — append one JSON line to experiments/write-test-plan/autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
+     Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
+  10. COMMIT RUNS — git add experiments/write-test-plan/runs/<timestamp>/ and commit the output JSONs.
   11. GOTO 1
 ```
 
@@ -119,14 +119,14 @@ Latest run per-task totals (paste the TOTAL lines):
 {PER_TASK_TOTALS}
 
 Results log (last 10 iterations):
-{RESULTS_LOG — from `npx tsx scripts/results.ts --last 10`}
+{RESULTS_LOG — from `npx tsx experiments/write-test-plan/scripts/results.ts --last 10`}
 
 Top taxonomy patterns (from DIAGNOSE):
 {TOP_PATTERNS — e.g. "U1: can mock the API — 10 occurrences, impact 40"}
 
 ## What to do
 
-1. Run `npx tsx scripts/ideas-index.ts --table` to see all ideas with status/effort/impact
+1. Run `npx tsx experiments/write-test-plan/scripts/ideas-index.ts --table` to see all ideas with status/effort/impact
 2. Read `experiments/write-test-plan/prompts/treatment.md` (the current prompt)
 3. Read `experiments/write-test-plan/justification-taxonomy.md` (failure pattern summary)
 4. Read `experiments/write-test-plan/meta-failures.md` (process pitfalls)
@@ -171,8 +171,8 @@ The subagent runs the index script, reads 3-5 files, thinks, possibly writes new
 ### After achieving ≥75% on round 1
 Run adversarial rounds and update `leaderboard.md`:
 ```bash
-./run-eval.sh --round 2  # anchoring noise
-./run-eval.sh --round 3  # pressure noise
+experiments/write-test-plan/run-eval.sh --round 2  # anchoring noise
+experiments/write-test-plan/run-eval.sh --round 3  # pressure noise
 ```
 
 ---
@@ -183,7 +183,7 @@ Run adversarial rounds and update `leaderboard.md`:
 - **Never edit `leaderboard.md` without a score change**.
 - `runs/` is gitignored. Use GitHub Releases to archive a full run if needed.
 - One hypothesis per iteration.
-- **Before each iteration, read `leaderboard.md`** — it has the full score history. Use alongside `npx tsx scripts/results.ts` and git log to avoid repeating failed approaches.
+- **Before each iteration, read `leaderboard.md`** — it has the full score history. Use alongside `npx tsx experiments/write-test-plan/scripts/results.ts` and git log to avoid repeating failed approaches.
 
 ---
 
@@ -232,29 +232,29 @@ All tasks run in parallel. `--single ec-09` for fast single-task debug.
 
 ```bash
 # Run full eval (10 tasks in parallel, treatment prompt)
-./run-eval.sh
+experiments/write-test-plan/run-eval.sh
 
 # Run a specific condition
-./run-eval.sh --condition baseline
-./run-eval.sh --prompt prompts/treatment-l12.md
+experiments/write-test-plan/run-eval.sh --condition baseline
+experiments/write-test-plan/run-eval.sh --prompt experiments/write-test-plan/prompts/treatment-l12.md
 
 # Adversarial rounds
-./run-eval.sh --round 2
-./run-eval.sh --round 3
+experiments/write-test-plan/run-eval.sh --round 2
+experiments/write-test-plan/run-eval.sh --round 3
 
 # Score existing outputs
-npx tsx scripts/score.ts --output-dir runs/latest/ --gt-dir ground-truth/
+npx tsx experiments/write-test-plan/scripts/score.ts --output-dir runs/latest/ --gt-dir ground-truth/
 
 # Single task debug
-npx tsx scripts/run-probe.ts \
+npx tsx experiments/write-test-plan/scripts/run-probe.ts \
   --task EC-04 --condition treatment \
-  --issue-file corpus/ec-04.md \
-  --prompt-file prompts/treatment.md \
-  --out runs/debug/out.json
+  --issue-file experiments/write-test-plan/corpus/ec-04.md \
+  --prompt-file experiments/write-test-plan/prompts/treatment.md \
+  --out experiments/write-test-plan/runs/debug/out.json
 
-npx tsx scripts/score.ts \
-  --output runs/debug/out.json \
-  --gt ground-truth/ec-04.json
+npx tsx experiments/write-test-plan/scripts/score.ts \
+  --output experiments/write-test-plan/runs/debug/out.json \
+  --gt experiments/write-test-plan/ground-truth/ec-04.json
 ```
 
 ---

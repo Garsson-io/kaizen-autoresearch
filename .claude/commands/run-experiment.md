@@ -8,7 +8,7 @@ argument-hint: "<experiment-name> [--iterations N]"
 
 Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional `--iterations N` (default: unbounded).
 
-**First**: `cd experiments/<name>`. All scripts and paths in program.md are relative to the experiment directory.
+**Working directory**: Stay at repo root. All paths in program.md are relative to the repo root.
 
 ## You MUST read these files and follow their instructions
 
