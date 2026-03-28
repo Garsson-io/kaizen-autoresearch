@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Backoff computation is deterministic, pure logic. A unit test mocking the sleep timer and HTTP client can verify that sleep is called with exponentially increasing delays. A mock cannot miss the failure if the backoff formula is wrong (e.g., multiplies by 1.5 instead of 2) or if sleep is not called. All code paths are exercisable and observable in a single function boundary.",
+      "test_description": "Unit test mocking sleep timer and HTTP client: configure initial backoff of 100ms and maximum backoff of 5s, issue a request that fails with 429 responses, verify that sleep is called with delays of 100ms, 200ms, 400ms, 800ms, 1600ms, then 5000ms (capped), in sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection is parsing and extraction logic that examines HTTP response status and headers. Unit testing with mocked HTTP response objects (429, Retry-After header) can verify all detection paths. Mocks cannot miss failures in the parsing logic—wrong status code checks or incorrect header extraction are observable. The logic is deterministic and confined to a single function boundary.",
+      "test_description": "Unit test with mocked HTTP responses: provide responses with status code 429, with Retry-After header, and without rate-limit indicators, verify the library correctly identifies rate-limit errors and extracts the wait time from headers or computes default delays correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "Resend logic can be tested with a mocked HTTP client configured to return 429 on first call, then 200 on second call. Unit testing can verify that the original request is preserved and resent, and the final result is returned. Observable failures (request not resent, result not returned) are caught at unit level. However, if request preservation spans multiple modules, integration testing may provide additional confidence.",
+      "test_description": "Unit test with mocked HTTP client: configure mock to return 429 on first call, then 200 with specific result on second call, verify the library transparently returns the successful result without requiring the caller to implement retry logic.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "Error type handling is deterministic: configure max retries to N, mock HTTP client to always return 429, verify that QuotaExhaustedError (not Error or generic exception) is thrown after N attempts. Error type is directly observable; all code paths are exercisable. Mocks cannot miss this failure because instanceof checks and error type comparisons are deterministic.",
+      "test_description": "Unit test with mocked HTTP client: configure mock to always return 429, set maximum retries to 3, issue a request, verify that after 3 failed attempts, a QuotaExhaustedError is thrown (verify instanceof QuotaExhaustedError, not generic Error).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "The retry loop termination can be verified by confirming the HTTP client is called a finite number of times and a final result or error is returned. Unit testing with a mocked HTTP client and timer can catch off-by-one errors and loop control flow bugs. However, if quota tracking involves shared state across concurrent requests, integration testing may be needed to catch deadlock or state corruption bugs.",
+      "test_description": "Unit test with mocked HTTP client and timer: issue a request that triggers the full retry chain with quota tracking, verify that the request completes in finite time and returns either a result or QuotaExhaustedError, not an infinite hang.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.35,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that multiple concurrent async requests within the same process coordinate and share the same quota state. Unit testing with mocks might pass while missing concurrency failures (race conditions, incorrect state synchronization) because mocks do not expose timing-dependent bugs or task-scheduling issues inherent to real async/await. Integration testing that wires together the quota tracking module and request dispatch logic is necessary to catch real concurrency failures.",
+      "test_description": "Integration test: instantiate a single shared rate-limited client, issue 3–5 concurrent async requests that collectively exceed the available quota, verify that all requests correctly count against the same shared quota bucket by checking total consumption matches the sum of all request quotas, and quota exhaustion is enforced consistently across concurrent callers.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "FIFO dispatch order requires verifying that the request queue and dispatch logic correctly interact to preserve submission order under quota exhaustion. Unit testing with mocks might pass while missing bugs where requests are dispatched out of order due to incorrect queue management or dispatch timing. Integration testing is necessary to verify that the real queue data structure and dispatch logic correctly preserve submission order across multiple concurrent requests.",
+      "test_description": "Integration test: issue 5 concurrent requests while quota is exhausted (quota limited to accept only 2 requests per time window), mock the HTTP client to track the order of requests it receives, verify that requests are received by the HTTP client in the same order they were originally submitted, not in LIFO or random order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

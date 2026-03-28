@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Pure exponential backoff logic with no shared state or I/O. Mock the HTTP client to return persistent rate-limit errors and mock the timer/clock. Verify wait intervals follow the pattern [w, 2w, 4w, ...] up to max. No real infrastructure needed.",
+      "test_description": "Mock the HTTP client to return 429 errors repeatedly. Mock the timer (e.g., with sinon.useFakeTimers or a fake clock library). Call the retry handler multiple times consecutively. Assert that the computed wait times are [1000ms, 2000ms, 4000ms, ...] up to the configured maximum (e.g., 32000ms). Verify each wait is exactly double the previous, not more.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "Response parsing logic that can be tested with mocked HTTP responses. MOCK-MISS: No, a well-constructed mock of different rate-limit response formats (Retry-After header, x-ratelimit-reset-after, etc.) will catch parsing bugs. No real I/O needed.",
+      "test_description": "Mock the HTTP client library (axios.get, fetch, etc.) to return responses with different rate-limit header formats: (1) Retry-After: 60, (2) x-ratelimit-reset-after: 120, (3) custom header. For each response type, call the handler and assert it computes the correct wait time (60s, 120s, etc.). Verify ambiguous or missing headers are handled per specification.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.12,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "Single-call request/response flow logic. Mock the HTTP client to fail once (429) then succeed (200). Verify the original request parameters are resent and the successful response is returned unchanged. No real network or shared state required.",
+      "test_description": "Mock HTTP client: first call returns { status: 429, headers: { 'retry-after': 0.1 } }, second call returns { status: 200, body: { result: 'data' } }. Call library.call(originalRequest). Assert: (1) the method waits ~0.1s, (2) the original request is resent identically, (3) the return value equals the second response body. Verify caller receives the data transparently without knowing about the retry.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "Error handling boundary logic. Mock the HTTP client to always return 429. Verify that after exactly MAX_RETRIES+1 total attempts, it throws QuotaExhaustedError (not HTTPError or generic Error). This is deterministic and needs no real infrastructure.",
+      "test_description": "Mock HTTP client to always return { status: 429 }. Set MAX_RETRIES=3. Call library.call(req). Assert: (1) HTTP client is called exactly 4 times (1 initial + 3 retries), (2) the promise rejects with an error whose type/constructor is QuotaExhaustedError, (3) error message indicates quota exhaustion, not a generic timeout.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "Single call's retry orchestration logic. MOCK-MISS: No, a unit test with mocked HTTP and timer can verify the loop terminates. The behavior is about a single call's exit condition, not multi-caller interaction. Mock to create the failure scenario and assert the loop doesn't hang or deadlock.",
+      "test_description": "Mock HTTP client to persistently return 429. Mock the timer (fake clock). Call library.call(req) within a 5-second timeout assertion (e.g., expect(promise).resolves.or.rejects within 5s). Assert: (1) the method exits (throws or resolves) within timeout, (2) no infinite retry loop, (3) no deadlock or busy-wait. Verify clean termination after MAX_RETRIES exhaustion.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Requires actual concurrent async execution with shared mutable state. MOCK-MISS: Yes, a unit test with isolated request mocks would miss race conditions and synchronization bugs in the quota bucket. MOCK-HIDE: Yes, mocking individual requests hides the real quota-sharing mechanism. Must run multiple real async calls that compete for genuinely shared quota to verify no isolation bugs.",
+      "test_description": "Issue 5 concurrent async calls to library.call() in rapid succession (all initiated at roughly the same time). Mock the HTTP client to accept exactly 2 requests, then return 429 for the rest. Verify: (1) all 5 calls collectively draw from ONE quota bucket (not per-caller buckets), (2) the first 2 calls succeed, the next 3 are rate-limited and queued, (3) the quota count is consistent and synchronized across all concurrent callers, (4) no race conditions in quota decrement/increment.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Queue ordering under concurrent access. MOCK-MISS: Yes, a unit test cannot verify queue ordering if requests are not actually queued and dispatched concurrently. MOCK-HIDE: Yes, mocking individual requests hides the real queuing mechanism. Must run multiple concurrent calls that get queued (due to rate-limiting) and verify FIFO dispatch order.",
+      "test_description": "Issue 5 async calls in rapid succession at times t0, t0+1ms, t0+2ms, t0+3ms, t0+4ms. Record each call's request ID or submission timestamp. Mock the HTTP client to accept 1 request, then rate-limit the rest. Verify: (1) requests are queued, (2) when quota allows, requests are dispatched in submission order (not retry order or random order), (3) assert dispatched request IDs match [req0, req1, req2, req3, req4], not [req0, req3, req1, req4, req2] or any permutation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Signature validation: Reject requests with invalid HMAC-SHA256 signature, return 401, do not enqueue",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is deterministic cryptographic logic operating on the request in isolation. The failure case (invalid signature accepted, or enqueue despite invalid sig) can be caught with unit-testable code: real crypto + mocked queue. No integration infrastructure needed — we verify the decision logic, not the crypto library itself.",
+      "test_description": "Unit test using deterministic HMAC-SHA256 test vectors: (1) make request with body and valid signature, verify 200 + enqueue called; (2) make request with same body but altered signature, verify 401 + enqueue NOT called. This catches the real failure: signature comparison logic broken, validation skipped, or enqueue happens on invalid sig.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Ordering: Event enqueued before HTTP 200 response is returned",
+      "minimum_level": "Unit",
+      "justification": "This tests call ordering within the handler's request/response cycle — purely local async flow. The failure case (respond before enqueue, or enqueue not awaited) is caught by mocking the queue and verifying enqueue() occurs before response send. No I/O or integration needed.",
+      "test_description": "Unit test with spy/mock on queue.enqueue(): (1) attach timestamp recorder to queue.enqueue() and response.send(); (2) make valid request; (3) verify queue.enqueue() was called AND its call occurred before response.send(). This catches the real failure: handler responds without awaiting enqueue, or enqueue is called but not awaited.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Async response: Handler returns 200 without waiting for downstream processing to complete",
+      "minimum_level": "Unit",
+      "justification": "Tests control flow of handler: initiate downstream asynchronously, respond immediately. The failure case (handler awaits downstream before returning) is caught by mocking the downstream processor as slow and verifying response returns before processor completes. This is handler control flow, not integration behavior.",
+      "test_description": "Unit test with mocked slow downstream: (1) mock queue listener/processor with 500ms delay; (2) make request and measure time-to-response; (3) verify response arrives in <100ms (before mocked downstream finishes); (4) verify downstream was actually invoked (listener called), confirming async initiation. This catches the real failure: handler awaits downstream completion before responding.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Latency under load: Response arrives <3 seconds even when downstream processing of earlier events is slow and concurrent",
+      "minimum_level": "Integration",
+      "justification": "Latency SLA under concurrent load cannot be tested with mocked queue (always instant). The real failure sources are queue write contention, event loop saturation, database locks, or blocking operations in handler. A unit test with instant mocks will always pass, hiding slow serialization, global locks, or synchronous persistence. We need a realistic queue + concurrent load simulation + wall-clock measurement.",
+      "test_description": "Integration test with real/in-memory queue and concurrent load: (1) set up persistent queue with realistic latency; (2) configure downstream processor to be slow (e.g., 2s per event); (3) send 10+ concurrent webhook requests; (4) measure wall-clock response time for each request; (5) verify all responses arrive within 3 seconds, even while earlier events are still processing. This catches real failures: handler blocks on queue writes, handler has synchronous persistence, global locks serialize requests, or event loop gets saturated.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Idempotency: Event with same ID not enqueued twice",
+      "minimum_level": "Integration",
+      "justification": "Idempotency requires a persistent ID store. The failure case (duplicate enqueue despite ID check) is hidden by unit mocks that always return 'not seen'. Real failures include: ID store not persisting across requests, race conditions in ID lookup/insert, missing upsert logic, or silent duplicates. We need a real persistent store (database, Redis) to verify the second request with same ID does not enqueue.",
+      "test_description": "Integration test with real persistent ID store: (1) make first request with event ID='X', verify 200 + enqueue called + ID stored; (2) make second request with same ID='X', verify 200 returned BUT enqueue NOT called; (3) query queue directly to confirm exactly one copy of event exists; (4) optionally test concurrent requests with same ID to catch race conditions in lookup/insert logic. This catches real failures: ID store not persisting, missing deduplication, or duplicate enqueue despite ID check.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.72,
+        "System": 0.09,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Queue full response: Return 503 with Retry-After when queue reports it is full",
+      "minimum_level": "Unit",
+      "justification": "Tests handler's decision logic when queue.isFull() returns true. The failure case (wrong status code, missing header, enqueue anyway) is caught by mocking queue.isFull() = true and verifying response. The actual queue capacity enforcement (Behavior 7) is tested separately. This test is purely about handler's branching logic.",
+      "test_description": "Unit test with mocked queue.isFull(): (1) mock queue.isFull() to return true; (2) make request; (3) verify response is 503 Service Unavailable; (4) verify Retry-After header is present with reasonable value (e.g., 60 seconds); (5) verify queue.enqueue() is NOT called. This catches real failures: handler ignores queue.isFull(), returns 200 instead of 503, omits Retry-After, or enqueues despite full queue.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.09,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Queue capacity enforcement: Persistent queue enforces configured capacity limit and rejects over-capacity events",
+      "minimum_level": "Integration",
+      "justification": "Tests queue implementation's actual capacity enforcement, not handler logic. A unit mock will never fail — it would always succeed enqueues. The real failure cases are: capacity limit not enforced, silent truncation, off-by-one errors, or misconfigured backend constraints. We must test against a real queue backend (database table with row limit, in-memory bounded buffer, message broker queue size) to verify the enforcement.",
+      "test_description": "Integration test with real queue backend: (1) configure queue with capacity limit (e.g., 100 events); (2) enqueue 100 events, verify all succeed; (3) attempt to enqueue event #101; (4) verify enqueue #101 fails (throws error or returns failure status); (5) query queue backing store directly (database, buffer, broker) to confirm size is exactly 100; (6) verify no events were silently dropped or truncated. This catches real failures: capacity limit not enforced, silent queue overflow, off-by-one in capacity check, or misconfigured database/broker constraints.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

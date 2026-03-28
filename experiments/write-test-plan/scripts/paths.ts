@@ -5,7 +5,8 @@
  */
 
 import { execSync } from "child_process";
-import { join } from "path";
+import { join, resolve } from "path";
+import { existsSync, readdirSync } from "fs";
 
 /** Git repo root (absolute path) */
 export const REPO_ROOT = execSync("git rev-parse --show-toplevel", { encoding: "utf-8" }).trim();
@@ -30,3 +31,17 @@ export const PATHS = {
   treatment: join(EXP_DIR, "prompts", "treatment.md"),
   runEval: join(EXP_DIR, "run-eval.sh"),
 } as const;
+
+/**
+ * Resolve a run directory from a name/timestamp or absolute path.
+ * Falls back to `latest` symlink, then most-recent timestamped dir.
+ */
+export function getRunDir(runName?: string): string {
+  const runsBase = PATHS.runs;
+  if (runName) return resolve(runsBase, runName);
+  const latest = join(runsBase, "latest");
+  if (existsSync(latest)) return latest;
+  const dirs = readdirSync(runsBase).filter((d) => /^\d{8}-\d{6}$/.test(d)).sort();
+  if (dirs.length === 0) throw new Error(`No run directories found in ${runsBase}`);
+  return join(runsBase, dirs[dirs.length - 1]);
+}

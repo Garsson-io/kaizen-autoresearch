@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The cron parser rejects invalid expressions (e.g., month 13, day 32, malformed syntax) with a descriptive error message.",
+      "minimum_level": "Unit",
+      "justification": "This is pure input validation logic with no inter-module coordination or external dependencies. A single parser function takes a string and either returns a valid schedule object or throws an exception with an error message. There is no coordination between modules, no I/O, and no state shared across calls. A comprehensive unit test with invalid inputs (month=13, day=32, missing fields, malformed syntax) will catch all realistic bugs. Mocks are not needed and would not hide any failures.",
+      "test_description": "Feed the parser with a comprehensive set of invalid cron expressions: month 13, day 32, missing fields, extra fields, malformed syntax (no spaces, invalid characters), and out-of-range values for each field. Verify that each input is rejected with an exception containing a descriptive error message that identifies the specific problem (e.g., 'invalid month: 13' or 'day 32 exceeds maximum for February').",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test is isolated to the parser function; no coordination or mocking needed. Error messages are testable outputs of the parser.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The next-run-time calculator returns correct timestamps for standard cron expressions, including edge cases like 'last day of month' and 'nearest weekday.'",
+      "minimum_level": "Unit",
+      "justification": "This is pure deterministic computation: given a schedule object and start time, compute the next run time. The logic is contained within the calculator module with no inter-module coordination. Testing with real calendar libraries (not mocks) and comprehensive edge-case inputs (Feb 28/29, 31-day vs 30-day months, last-day-of-month, nearest-weekday logic) will catch off-by-one errors, month-end bugs, and weekday-adjacency failures. Mocks do not hide failures here; the algorithm must be tested with real calendar behavior.",
+      "test_description": "Test the calculator with diverse cron expressions and start dates covering: standard intervals (*/5, 0 8 * * *, etc.), 'last day of month' (L in cron syntax) for months with 28, 29, 30, and 31 days, 'nearest weekday' logic when the computed day falls on a weekend, Feb 29 in leap years and Feb 28 in non-leap years, 31st of months that have 31 days, and the rollover from December to January. For each case, verify the exact expected next-run timestamp using real date/time libraries (not mocked time).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test exercises a single calculator function in isolation. Edge cases are all within the calculator's responsibility. Real calendar libraries ensure the algorithm is tested against actual calendar rules.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The overlap detector identifies when two schedules would fire within the configured minimum gap (e.g., 5 minutes) and reports the conflicting time windows.",
+      "minimum_level": "Integration",
+      "justification": "The overlap detector depends on the calculator to produce correct run times for both schedules. To catch real failures, the detector must work with actual computed run times from the calculator. A unit test that mocks the calculator could pass even if the detector mishandles the calculator's output or compares times incorrectly when they are actual computed values (e.g., off-by-one in gap calculation, or failing to recognize times at boundary conditions). Testing at the integration level—wiring the parser, calculator, and detector together—catches bugs where the detector fails to coordinate with the calculator's actual output.",
+      "test_description": "Create two schedule objects through the parser with different frequencies (e.g., one fires every 5 minutes, another at specific times daily). Call the calculator to compute their run times over a time range. Pass both schedules and a configured gap threshold (e.g., 5 minutes) to the overlap detector. Verify it correctly identifies overlap windows, including edge cases: schedules that fire at the exact same time, schedules that fire exactly at the gap boundary (within 5 minutes), schedules that just miss the gap, and schedules with no overlap. Assert the detector reports the conflicting time windows or absence thereof.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test wires parser → calculator → detector to catch integration failures (detector misusing calculator output). Edge-case results (exact same time, boundary conditions) are meaningful only when the calculator runs on real cron logic.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across a DST transition — a job scheduled for 2:30 AM handles the spring-forward gap and fall-back ambiguity correctly.",
+      "minimum_level": "Integration",
+      "justification": "DST handling requires the calculator to correctly coordinate with a real timezone library to produce the right times across DST boundaries. Mocking system time or timezone functions could hide failures where the engine doesn't properly account for the DST spring-forward gap (2:00 AM → 3:00 AM) or fall-back ambiguity (1:30 AM occurs twice). The complexity of DST rules—different by country, different rules per year—cannot be captured by unit-level logic. Integration testing with a real timezone library (pytz, moment-timezone, java.time) and actual DST transition dates is necessary to catch this class of bug.",
+      "test_description": "Schedule a job with a cron expression, timezone, and policy for handling ambiguous times. Test across known DST transitions: US spring-forward (2026-03-08 at 2:00 AM → 3:00 AM) and fall-back (2026-11-01 at 2:00 AM occurs twice). For a job scheduled for 2:30 AM, verify: (1) during spring-forward, the engine either skips the gap or correctly adjusts to the first available time after the jump, (2) during fall-back, the engine resolves the ambiguous 1:30 AM time consistently (picks first or second occurrence per the engine's policy), and (3) subsequent runs are computed correctly post-transition. Use a real timezone library, not mocked time.",
+      "plan_consistent": true,
+      "plan_consistent_note": "DST transitions are inherently about module interaction (calculator + timezone awareness). Real timezone library and real DST dates are required to verify correctness. Mocking would oversimplify the complexity.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a scheduled job's computed next run time has already passed (e.g., system was down), the engine determines whether to skip or backfill based on the job's configured missed-run policy.",
+      "minimum_level": "Integration",
+      "justification": "Detecting and handling missed runs requires the calculator, policy-decision logic, and job queue to coordinate. A unit test of the policy logic in isolation (with mocked run times) could pass even if the calculator returns incorrect times or the queue doesn't backfill correctly. A real failure occurs when: system is down, current time is 3:00 PM, job should have run at 2:00 PM and 2:30 PM, policy is backfill—does the engine detect both missed runs, create both backfill jobs in the right order, and schedule the next run correctly? This requires the calculator to compute past run times, the policy logic to decide skip vs backfill, and the queue to accept the backfilled jobs. Integration testing wires these together to catch coordination failures.",
+      "test_description": "Set up a job with a cron expression (e.g., every 30 minutes), a timezone, and a missed-run policy (skip or backfill). Simulate the system being down by setting the current time to a time past multiple scheduled run times. Call the engine to determine the next runs and verify: (1) the engine detects the missed runs, (2) applies the policy correctly (skip: next run is the next future scheduled time; backfill: create jobs for all missed intervals), (3) backfilled jobs are created in order (oldest first), (4) the next run after backfill is correct. Test with different policies (skip vs backfill), different current times (1 hour vs 24 hours past), and different cron frequencies.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test wires the calculator (to compute run times), policy logic (to decide skip/backfill), and queue coordination (to create backfilled jobs). The full flow is needed to catch bugs where one component produces output that another mishandles.",
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

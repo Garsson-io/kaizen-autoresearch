@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description",
+      "minimum_level": "Integration",
+      "justification": "The core risk is that the LLM generates code with a mismatched signature, OR the service fails to validate/extract the signature correctly. Testing at Integration level catches both: mock the LLM to return code with various signature formats, wire it with the signature extraction and validation logic, and verify correct signatures pass while incorrect ones fail or are flagged. A pure in-process mock won't miss the extraction-and-comparison logic. We don't need real LLM output (Agentic) to test the validation logic, though that would be valuable for production robustness.",
+      "test_description": "Mock LLM to return function code with various signature formats: correct signatures (matching spec), wrong param names, wrong types, missing params, wrong return type, extra params. Extract signature from each and compare against the specification. Verify correct signatures are accepted and incorrect ones are rejected/logged. Test edge cases: optional params, *args/**kwargs, type hints vs. no hints.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires signature extraction logic + comparison logic wired together with mocked LLM input. This is Integration: multiple modules (LLM mock, parser, validator) working together.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.2,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt",
+      "minimum_level": "Workflow",
+      "justification": "The phrase 'first or subsequent attempt' signals the iterative refinement loop: generate → test → fail → refine → test again. To catch real failures in this pipeline, we must verify that (a) code execution and test results are correctly evaluated, AND (b) the refinement loop actually improves outcomes across multiple attempts. System level (mocked LLM, real test execution) only covers the 'first attempt' part. Workflow—multiple real LLM calls in sequence, each conditioned on previous failures—is needed to validate that refinement works. Real LLM non-determinism is essential: mocking the LLM to always improve is not testing, it's wishful thinking.",
+      "test_description": "Run the full generation-test-refine-test-refine loop with real LLM calls. Prepare test cases where a single call typically fails (complex algorithms, edge cases). For each test case, run the service and verify outcomes: code passes on attempt 1 (rare), fails then passes on attempt 2–3 (common), or fails all 3 times. Capture generated code and test results for all 3 attempts. Run multiple times to account for LLM variance. Verify that final passing code actually executes correctly against the test suite.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test inherently requires multiple real LLM calls in sequence, each receiving failure feedback from previous attempt. This is Workflow: multiple agentic steps in a pipeline.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.2,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: tests fail but the service doesn't capture/include the error messages in the next prompt. This is a message-flow and prompt-construction bug, not a code-execution bug. We can mock the test runner to return known failure outputs, mock the second LLM call, and inspect the prompt it receives to verify failure messages were captured and included. Mocking both ends (test runner input, LLM prompt output) lets us reliably catch message-capture and prompt-construction bugs without needing real test execution (System) or real LLM behavior (Agentic). The risk of mock-hiding is low: if a message is missing from the mocked test runner output, we'll see it absent from the prompt.",
+      "test_description": "Mock test runner to return specific failure messages (e.g., 'AssertionError: expected 42 got 41', 'IndexError: list index out of range'). Run a generation-test cycle that triggers the mocked failures. Capture the prompt sent to the second LLM call. Verify the prompt includes the original failure message(s). Test multi-line errors, error truncation (if service limits size), special characters, multiple test failures in one run. Verify that attempt number and previous code are also included in the refined prompt.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration: test runner mock + message capture + prompt construction wired together. No real test execution or LLM calls needed to verify prompt content.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results",
+      "minimum_level": "Integration",
+      "justification": "This tests loop control (stop after 3, not 2 or 4) and result collection (gather all attempts and results into a structured error). Both are pure logic bugs, not code-execution bugs. Mock the LLM to always generate failing code, mock the test runner to always report failures, and verify the service terminates after exactly 3 iterations and returns a structured error object containing all 3 attempts with their generated code and test results. No real infrastructure (subprocess, network) or non-determinism (real LLM) is needed to catch off-by-one errors, missing results, or malformed error structures.",
+      "test_description": "Mock LLM to always return code that fails tests. Mock test runner to always return failure status. Run the service and verify it stops after exactly 3 attempts (counter == 3, loop exits, does not attempt 4). Verify returned error structure includes: all 3 generated code snippets, all 3 test results/messages, correct attempt numbers (1, 2, 3), and metadata (spec, description). Test edge case: what happens if attempt 3 passes? (Should return success, not error). Test concurrency: run multiple service invocations in parallel and verify counters don't interfere.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration: LLM mock + test runner mock + loop control + result collection wired together. Pure logic testing, no real execution.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop—generate, test, refine, test again—produces a working implementation for a function that a single LLM call typically gets wrong",
+      "minimum_level": "Workflow",
+      "justification": "This behavior directly tests the *effectiveness* of iterative refinement with real LLM feedback. It requires multiple real LLM calls in sequence, where each call's output depends on the previous attempt's test failures. The success of refinement depends on the LLM's actual ability to improve given error feedback—a non-deterministic property that only real LLM calls can validate. Mocking the LLM (even with improved-on-each-call logic) doesn't test whether refinement actually works in production. This is a full agent pipeline: analyze spec → LLM generates code → run tests → feed failures to LLM → LLM refines → run tests → verify passing. That's Workflow.",
+      "test_description": "Select a function specification known to be difficult for single LLM calls (e.g., complex recursion, off-by-one in array iteration, corner cases in parsing). Run the full service pipeline with real LLM calls. For each test case, run 5–10 trials to account for LLM variance. For each trial, capture all 3 attempts (generated code, test results, pass/fail). Verify outcome: code passes on attempt 1 (rare) or within 3 attempts (desired) or fails all 3 (acceptable). Calculate success rate. Compare against baseline success rate of single LLM call (without refinement) to validate that refinement actually improves results. Verify final passing code is correct (not just 'passes tests' but 'passes tests correctly').",
+      "plan_consistent": true,
+      "plan_consistent_note": "Workflow: multiple real LLM calls (each conditioning on previous failure), running a full agent pipeline. Non-determinism is essential—without it, you're not testing the real service behavior.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.2,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

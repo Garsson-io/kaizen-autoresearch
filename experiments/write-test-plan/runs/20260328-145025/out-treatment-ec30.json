@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Products marked as out-of-stock are excluded from recommendation results regardless of relevance score.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic filtering logic with no dependencies on external state. A test that mocks a product catalog with available=false and verifies those products don't appear in results catches the failure at the function boundary. No I/O, no real infrastructure needed.",
+      "test_description": "Create a mock product catalog with a mix of available and out-of-stock products with identical relevance scores. Call the filter, assert all returned products have available=true and no unavailable products appear regardless of their ranking.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The user preference filter correctly excludes product categories the user has explicitly blocked in their settings.",
+      "minimum_level": "Unit",
+      "justification": "Pure filtering logic applied to in-memory objects. Mock user preferences with blocked categories and products in those categories; verify none appear in output. No persistence, no data staleness concerns — the test controls the input state completely.",
+      "test_description": "Create a mock user with blocked_categories=['electronics', 'furniture'] and a mock catalog with products spanning multiple categories. Run the category filter, assert no products from blocked categories appear in results.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The recommendation algorithm ranks products that match the user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is algorithmic: does the scoring function weight browsing-matched products higher? That's testable in isolation with mocked browsing history and products. However, 'recent' introduces temporal freshness concerns that might require Integration-level data consistency checks. Unit catches the algorithm bug; Integration catches stale-data bugs.",
+      "test_description": "Create mock products: group A matches user's recent browsing history (viewed similar items), group B has no browsing signal. Run the ranking algorithm, assert mean score of group A > mean score of group B.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.3,
+        "System": 0.04,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns the correct page of results, with stable ordering — requesting page 2 twice returns identical results if the underlying data hasn't changed.",
+      "minimum_level": "Integration",
+      "justification": "Pagination offset/limit logic is trivial to test at Unit level. BUT stable ordering is not — it requires that the underlying sort is truly deterministic across multiple queries. A mock that returns the same list twice will always pass; a real database might return different orders if indexes aren't stable or if sorting depends on cache state. You must test with actual data persistence to catch ordering stability bugs.",
+      "test_description": "Insert 50 test products into a test database. Call paginate(page=2, page_size=10) twice with identical user state and no intervening writes. Assert both calls return product IDs in identical order (positions 10–20).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.72,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The recommendation algorithm surfaces at least one product from a category the user hasn't browsed before (serendipity requirement), avoiding a filter bubble.",
+      "minimum_level": "Unit",
+      "justification": "If the exploration logic uses a seeded random generator or deterministic category selection, Unit-level testing with controlled inputs catches the bug. You seed randomness, mock categories and user history, verify an unseen category is returned. However, if the 'serendipity' logic involves ML-based embedding similarity or clustering, it becomes Agentic. Unit assumes seeded determinism.",
+      "test_description": "Mock a user with browsing history in categories A and B (only). Seed the randomness. Call the recommendation algorithm multiple times, assert at least one product from category C (unseen) or other is in the results.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.5,
+        "Integration": 0.28,
+        "System": 0.03,
+        "Agentic": 0.16,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A new user with no purchase or browsing history receives recommendations based on overall popularity rather than an empty result set.",
+      "minimum_level": "Unit",
+      "justification": "This is a fallback code path: if user_history is empty, use popularity ranking instead. Mock a user with empty history and mock product popularity scores; run the engine and verify returned products are the top-N most popular. No I/O, deterministic logic.",
+      "test_description": "Create a new user with no browsing or purchase history. Mock a product catalog with popularity scores. Call recommendation engine, assert returned products match the top 10 most-popular products list.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records the correct product ID, position in the list, and timestamp for each recommendation the user interacts with.",
+      "minimum_level": "Integration",
+      "justification": "Testing click event *structure* (correct field names) is Unit-level. But the behavior is about actual recording and persistence. A Unit test that mocks the write always passes, hiding real failures: dropped messages, DB write errors, timezone issues, off-by-one position bugs. You must actually write to a test database or message queue and read back to catch real failures.",
+      "test_description": "Call the tracking endpoint to record a click for product_id=42 at position=3. Query the tracking database, assert exactly one record exists with product_id=42, position=3, and a valid ISO timestamp.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "Integration",
+      "justification": "A Unit test with 10–100 mocked items won't catch real performance degradation at scale. Real failure manifests only when the engine processes 100,000 products with real database queries, real memory usage, and real I/O. You must test with actual scale to catch this boundary.",
+      "test_description": "Load a test database with 100,000 real products (with indexes). Call the recommendation endpoint for a typical user (100 browse events, 10 purchases). Measure end-to-end response time, assert it completes in < 200ms.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased by the user, the recommendation algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Integration",
+      "justification": "Testing that the algorithm *logic* deprioritizes a product given purchase history is Unit-testable. But the real failure is: purchase isn't recorded to the database, or the algorithm doesn't read the recorded purchase. A Unit mock of purchase history will always pass. You must actually record a purchase in the database and then call the algorithm again to verify it reads the updated state.",
+      "test_description": "Record a purchase of product_id=99 for a user. Generate recommendations for that user immediately after. Assert product_id=99 either doesn't appear in results or appears with significantly lower rank than its previous position (record before purchase for comparison).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.68,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The recommendation results are deterministic for the same user state — requesting recommendations twice with no intervening user activity returns the same ranked list.",
+      "minimum_level": "Unit",
+      "justification": "If the algorithm is purely deterministic (no randomness, no LLM calls), Unit test with controlled/mocked inputs catches non-determinism bugs. Call the algorithm twice with identical frozen user state, assert identical output. However, if real data ordering varies or if ML inference adds randomness, Integration/Agentic is needed. Assuming deterministic scoring, Unit is sufficient.",
+      "test_description": "Freeze a user's state (browsing history, purchases, preferences). Call the recommendation engine twice with identical inputs, assert returned product IDs and their order are identical both times.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.24,
+        "System": 0.02,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

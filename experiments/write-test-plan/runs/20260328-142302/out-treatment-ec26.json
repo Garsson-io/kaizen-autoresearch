@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cron parser rejects invalid expressions (month 13, day 32, malformed syntax) with descriptive error message",
+      "minimum_level": "Unit",
+      "justification": "This is pure parsing logic with no I/O or external dependencies. Failures are caught by calling the parser function with invalid strings and asserting the correct error type and message content. Mocking would not hide the bug; the parsing logic runs entirely in-process.",
+      "test_description": "Test parser with invalid inputs: parse('13 * * * *') → assert ParsingError mentions 'invalid month'; parse('* * 32 * *') → assert error mentions 'invalid day'; parse('* *') → assert error mentions 'malformed syntax'. Verify error messages are descriptive enough to guide users.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Next-run-time calculator returns correct timestamps for standard cron expressions, including edge cases like 'last day of month' and 'nearest weekday'",
+      "minimum_level": "Unit",
+      "justification": "Timestamp calculation is deterministic given fixed inputs (cron expression + start time). Can be tested with frozen time to control the calendar, no I/O needed. Pure computation against precomputed reference values. Mocking datetime would not hide the algorithm bug; using real frozen time surfaces calculation errors.",
+      "test_description": "Use freezegun to freeze time. Test standard case: cron '0 2 * * *' from 2024-03-01 09:00 yields 2024-03-01 14:00 UTC. Test edge case: '0 2 L * *' (last day of month) from 2024-02-15 yields 2024-02-29 02:00 (leap year). Test 'nearest weekday': '0 2 ? * 5L' (last Friday) from 2024-01-01 yields 2024-01-26 02:00. Assert exact timestamps.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Overlap detector identifies when two schedules fire within configured minimum gap (e.g., 5 minutes) and reports conflicting time windows",
+      "minimum_level": "Unit",
+      "justification": "Core logic is comparing computed run timestamps of two schedules against a threshold. Can test by constructing Schedule objects with known next-run times and asserting overlap detection and conflict report format. No persistence, no external systems. A mock of the next-run-time calculator could hide bugs only if the mock is incorrect; testing with real calculated times avoids this.",
+      "test_description": "Create two schedules: sched1 fires at {10:00, 10:05, 10:10, ...}, sched2 fires at {10:02, 10:07, 10:12, ...} with min_gap=5 minutes. Call detector with both schedules. Assert it returns a conflict object identifying the window 10:00–10:05 as conflicting (sched2's 10:02 is within 5 min of sched1's 10:00). Test non-conflicting schedules (gap > 5 min) return no conflicts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across DST transitions—job scheduled for 2:30 AM handles spring-forward gap and fall-back ambiguity correctly",
+      "minimum_level": "Unit",
+      "justification": "While DST rules depend on the system's timezone database (zoneinfo), behavior is testable at Unit level using real ZoneInfo objects from Python's stdlib. No external API calls or subprocess needed; the timezone database is static and locally available. The challenge is that DST edge cases (non-existent times, ambiguous times) are subtle, so tests must be thorough. Mocking timezone behavior would absolutely hide real bugs; real zoneinfo objects are essential.",
+      "test_description": "Use ZoneInfo('America/New_York'). Test cron '30 2 * * *' (daily at 2:30 AM) across DST boundaries: \n  - Spring forward (2024-03-10): 2:30 AM doesn't exist (gap 2:00–3:00). Assert scheduler either skips this day or rounds forward to 3:30 AM, applied consistently. \n  - Fall back (2024-11-03): 2:30 AM is ambiguous. Assert scheduler picks the same interpretation (e.g., always first 2:30, or always second 2:30) deterministically.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a scheduled job's next run time has passed (system was down), engine determines whether to skip or backfill based on configured missed-run policy",
+      "minimum_level": "Integration",
+      "justification": "Behavior requires interaction between engine and job state (last run time, policy config) and state mutation (creating backfill tasks or marking as skipped). While the *policy logic* ('if time is past AND policy==SKIP then skip') could be unit-tested in isolation, testing the full engine behavior requires a real or in-memory job store. Mocking the persistence layer would hide race conditions, transaction issues, or incorrect cascading updates. Integration test with a real (in-memory or ephemeral) job store is needed.",
+      "test_description": "Set up a job with missed_run_policy=SKIP, next_run_time=2 days ago, last_run_time=4 days ago. Advance engine's clock to 'today' and trigger missed-run detection. Assert: (1) no backfill tasks were created, (2) job state marked as either skipped or next_run_time jumped forward. Repeat with missed_run_policy=BACKFILL and assert backfill tasks exist for each missed interval (e.g., two tasks for two missed 24-hour windows).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

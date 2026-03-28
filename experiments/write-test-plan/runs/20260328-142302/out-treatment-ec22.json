@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "Cache key generation is pure deterministic logic with no I/O or external dependencies. A real failure is either a hash collision or non-deterministic output. These are logic bugs that surface at the function level: same input must always produce same output, different inputs must produce different outputs. No mocking can hide or create these failures—you're testing the algorithm directly.",
+      "test_description": "Create a unit test that exercises the key generation function with a variety of parameter combinations (empty params, special characters, long strings, numeric values, nested structures if applicable). Verify determinism by calling the function multiple times with identical inputs and comparing outputs. Verify no collisions by generating keys from a diverse set of different parameter sets and checking for uniqueness. Use a large parameter space to give collisions a reasonable chance of appearing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "TTL computation depends on both configuration loading (freshness rules per category) and timestamp-based calculation (now + delta). A real failure could be: config parsing error (YAML/JSON corruption), category lookup bug, timezone/precision issues in TTL math, or stale config being used. Unit tests with injected dicts miss config parsing; you need the real config loading path and actual timestamp behavior. Integration level includes loading a test config file, looking up a category, computing the TTL, and verifying it matches the rule.",
+      "test_description": "Set up a test configuration file with multiple data categories and their freshness rules (e.g., 'user_profiles: 5m', 'product_catalog: 1h'). Use mock time or freeze_time to set a known 'now' value. For each category, compute its TTL and verify it equals now + configured_delta. Test edge cases: missing categories (should raise or default?), rule parsing edge cases (decimal seconds, timezone-aware timestamps), and boundary conditions (0 TTL, very large TTL). Verify that the same category always gets the same TTL computation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that the strategy switch actually takes effect in the cache's behavior. A real failure is: the switch logic is correct (Unit level) but the eviction strategy doesn't change the actual cache behavior, or the memory measurement itself is wrong. To catch both, you need a real cache instance (not mocked) that exhibits different eviction behavior under each strategy. Mocking the memory value and only testing the switch-decision logic would miss failures where the strategy choice doesn't propagate to actual evictions.",
+      "test_description": "Create a real cache instance with configurable memory threshold. Fill the cache with entries that have different access patterns (some frequently accessed, some rarely). Use a deterministic way to track/mock memory usage (e.g., a memory_monitor that can be injected or a real memory measurement). When the cache detects it has exceeded the threshold, verify that the eviction strategy changes from LRU to LFU. Then add more entries and verify that evictions follow LFU (least-frequently-used) order rather than LRU order. Test the reverse: once memory is below threshold, verify it switches back to LRU.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "This requires three components to work together: a real cache, a real database, and the invalidation trigger/mechanism. A mock database hides failures where: the write doesn't actually trigger an invalidation event, the query-to-key mapping is wrong, invalidation is partial (only some matching entries removed), or cache consistency is lost. Only an Integration test with real cache + real DB (even a test instance) can verify the end-to-end behavior. Unit tests testing 'the query parser' or 'the invalidation logic' independently miss failures at the integration boundary.",
+      "test_description": "Use a test PostgreSQL instance (or SQLite/in-memory alternative) and real cache. Write test data to the database, query it to populate cache entries. Verify entries are in the cache. Then perform a write/update to the database (affecting specific rows). Verify that all cache entries whose keys correspond to those affected rows are invalidated (removed or marked stale). Verify that unaffected cache entries remain. Test edge cases: write affecting zero rows, write affecting multiple rows with multiple cache entries per row, concurrent cache reads and DB writes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.8,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "The eviction policy is an algorithm that can be tested in isolation. A real failure is the eviction logic picking the wrong entry to remove. This surfaces at the algorithm level: given a set of cached entries with known access times (LRU) or access frequencies (LFU), does the eviction choose the right victim? You don't need a database or external system to test this; you need a real cache (not mocked) with entries you can inspect, but no other infrastructure. Unit tests should fail if the eviction order is wrong.",
+      "test_description": "Create a cache with a fixed size that will trigger eviction. Add entries with known and distinguishable access patterns. For LRU: add entries A, B, C; access A and B; add D (triggering eviction); verify C was evicted (least recently used). For LFU: add entries A (accessed 5 times), B (accessed 2 times), C (accessed 1 time); add D (triggering eviction); verify C was evicted. Test tie-breaking (what happens if two entries have identical recency or frequency?). Test with various cache sizes and entry counts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A unit test with a mocked DLQ would verify that validation logic correctly identifies missing fields and the code calls DLQ write, but wouldn't catch failures in the actual DLQ write, message formatting, or row number preservation through the pipeline. REAL-INFRA: The DLQ (Kafka, SQS, or similar) must be real or realistic to verify the write succeeds and the message format is correct. A pure in-process mock hides failures in: (1) DLQ connectivity/authentication, (2) message serialization format, (3) row number tracking through multiple pipeline stages, (4) DLQ capacity/backpressure handling. The word 'appear' in the behavior description demands the row actually reaches the DLQ, not just that code attempts to write.",
+      "test_description": "Test pipeline with a CSV containing rows with missing required fields (e.g., missing customer_id). Verify: (a) rows are rejected by validation, (b) rejected rows are written to a real/testcontainer DLQ (e.g., SQS queue or Kafka topic), (c) each message in DLQ contains the original row data and the correct source row number. Validate message format matches expected schema. Run with multiple invalid rows to verify volume handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real DLQ infrastructure to catch write failures, not just validation logic.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Not applicable—this is a pure transformation function with no I/O, external services, or side effects. REAL-INFRA: No external infrastructure required. The transformation logic is self-contained: parse input date strings, output canonical format. All failure modes (incorrect parsing, wrong output format, edge cases like leap years) can be caught by testing the function directly with various input strings. No coordination with other modules, no database, no retry logic, no timing constraints.",
+      "test_description": "Unit test the date transformation function with parametrized inputs covering: ISO 8601 (2026-03-28T14:30:00Z), US format (03/28/2026), European format (28/03/2026), edge cases (Feb 29 in leap year, Dec 31), and invalid formats (partial dates, corrupted strings). Assert all valid formats produce identical canonical output (e.g., 2026-03-28). Assert invalid formats raise appropriate exceptions.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure function; no infrastructure needed beyond the function itself.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Yes. A unit test with mocked S3 reads and database writes would not reveal real memory behavior because mocks often execute instantly without blocking, buffer accumulation, or realistic I/O patterns. The test would not exercise actual memory allocation, garbage collection pressure, or CPU cache behavior. REAL-INFRA: Yes. The test must involve real I/O operations (S3 reads, PostgreSQL writes) with realistic latency and buffering. Memory exhaustion and timeout failures depend on: (1) streaming vs. batch buffering, (2) garbage collection under sustained load, (3) connection pool behavior, (4) actual wall-clock time for 500k row processing. These cannot be reliably simulated with mocks. MOCK-HIDE: Mocking S3 and the database would hide memory leaks in I/O buffer management, inefficient batching logic, and thread pool saturation. These are the most likely causes of OOM or timeout failures.",
+      "test_description": "Create a 500k-row test CSV file (or stream from S3 test bucket). Run the pipeline against a real PostgreSQL test instance (testcontainer or dev instance) configured with the specified timeout and memory constraints. Monitor: (a) peak memory usage (should not exceed configured limit), (b) execution time (should complete before timeout), (c) CPU usage (should not spike unreasonably). Log memory snapshots at 100k, 200k, 300k, 400k, 500k rows to detect linear vs. polynomial growth. Assert no OOM exceptions and no timeout errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Memory and timeout failures are OS and I/O phenomena; mocks would not expose them.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: No, if mocking is done carefully. The core retry logic (detecting 503, implementing exponential backoff, retrying until success) can be tested with a mocked S3 client configured to return 503 multiple times then succeed. However, mocking has blind spots: actual AWS SDK retry behavior, connection pooling across retries, and real network timing may differ. REAL-INFRA: Real S3 is not strictly necessary; a mock like moto (AWS service mock) can reliably simulate S3 returning 503 and allow us to sequence responses (fail, fail, succeed). The pipeline's retry logic doesn't depend on real S3—it depends on receiving a 503 response and handling it correctly. MOCK-HIDE: Moto could miss subtle failures in: (a) AWS SDK's built-in retry logic interfering with our code, (b) credentials or region configurations causing different error handling, (c) request timeout vs. 503 response behavior. However, these are secondary concerns. The primary failure we're catching (not implementing exponential backoff) is detectable at Integration level.",
+      "test_description": "Use moto (AWS mock library) or similar to create a mock S3 bucket. Configure the mock to return ClientError(503 Service Unavailable) on first two calls to get_object(), then return valid CSV content on third call. Run pipeline against this mock S3 endpoint. Verify: (a) pipeline retries at least twice, (b) retry delays follow exponential backoff (e.g., 1s, 2s, 4s), (c) pipeline eventually succeeds and processes the CSV after retries. Measure time between retries to confirm exponential backoff. Assert no exception is raised after retries succeed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Moto/mocked S3 is sufficient to test the pipeline's retry logic; real S3 would add limited value for this specific behavior.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.5,
+        "System": 0.4,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Yes. An Integration test with real PostgreSQL but without an actual process restart would miss in-memory state bugs. If the pipeline caches row IDs or checkpoints in memory, a mock restart (calling the function again) might not clear this state, hiding the failure. REAL-INFRA: Yes. The test must include: (1) real PostgreSQL with unique constraints or idempotency keys, (2) actual process restart (kill, system crash, container restart), (3) real filesystem for checkpoint files (if used). Integration-level testing with a testcontainer PostgreSQL and function-level restart simulation can catch duplicate-write bugs but misses process-level state bugs (in-memory caches, file handle states, connection pooling). MOCK-HIDE: A mock restart that simply calls the function again would hide: (a) in-memory accumulator state not being cleared, (b) open file handles not being released, (c) database connection pools not being reset, (d) transaction state not being properly rolled back. These are realistic failure modes in production restarts.",
+      "test_description": "Test with real PostgreSQL (testcontainer) and real checkpoint file storage (filesystem or S3). Run pipeline on a multi-partition CSV (e.g., 100k rows). After processing 50k rows, forcibly terminate the pipeline process (kill -9 or similar). Verify checkpoint file correctly records the last successfully-processed row. Restart pipeline on the same CSV. Verify: (a) pipeline reads checkpoint and skips rows 1–50k, (b) only rows 50k–100k are processed, (c) database contains exactly 100k rows (no duplicates), (d) unique constraint violations do not occur. Repeat test 3+ times to ensure idempotency is reliable.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Process restart is a System-level phenomenon; in-memory state and file handle behavior can only be tested with actual restart.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

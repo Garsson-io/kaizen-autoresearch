@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when it exceeds the context window",
+      "minimum_level": "Unit",
+      "justification": "This is a deterministic data-transformation function with no external dependencies or coordination between modules. The failure boundary is purely algorithmic: does the trimming logic select the correct 10 messages? A unit test can mock the downstream LLM call and assert that exactly 10 (not all N) messages reach it. No multi-module coordination or real I/O is required to catch the bug.",
+      "test_description": "Create a conversation history with 15+ messages, pass it to the history-trimming function with context_window=10, verify that exactly 10 most-recent messages are returned in the correct order, verify oldest messages are excluded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests whether the LLM actually produces question-relevant content in real use. A mock LLM would always pass (because we control the mock output), hiding the real failure: the actual LLM generating off-topic or generic responses. The correctness depends on non-deterministic LLM output. Mocking would create a false sense of security; only a real LLM call exposes this failure mode.",
+      "test_description": "Send 5+ distinct customer questions to the full system with the real LLM and system prompt, verify each response directly addresses the specific question (not generic boilerplate), run multiple times to detect variability in LLM output quality.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the orchestration logic: does the system correctly invoke regeneration when the tone-checker flags a response? This requires multiple modules coordinating (response generation → tone evaluation → decision → second LLM call). We can mock both the initial response (inject a formal response) and the tone-checker (return 'too formal') to verify the orchestration without needing real LLM calls. The real failure is broken coordination, not tone-detection accuracy.",
+      "test_description": "Mock the first LLM response to return an overly formal response, mock the tone-checker to return 'too_formal' for a casual-tier customer, assert that the system invokes the LLM a second time with the same question, assert the second response is returned to the caller (not the first).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.15,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "This requires multiple modules working together (message intake → LLM response generation → persistence) plus a real (test) database to verify the full flow. A unit test of just the persistence layer would miss failures in the generation→persistence handoff (e.g., data loss between components, timestamp corruption during serialization). The failure boundary spans module boundaries, requiring integration-level testing with a test database.",
+      "test_description": "Call the full system with a user message and conversation history, mock the LLM response, verify that both the message and response are written to a test database with timestamps within 1 second of the function calls, run with and without regeneration to verify both cases persist correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "This tests orchestration across multiple components: response generation → tone check → conditional regeneration → response selection → API return. The failure modes are coordination bugs (wrong response returned, both returned instead of one, regeneration metadata lost). These can be caught by mocking the LLM calls and verifying the orchestration logic with a test database. Real LLM calls are not required; the bug is in module coordination, not LLM accuracy.",
+      "test_description": "Mock the first LLM response as overly formal, mock tone-checker to flag as 'too_formal', mock second response as acceptable, verify the API response body contains only the final response (not both), verify database stores regeneration event with metadata (original rejected, final accepted), verify customer-facing timestamp reflects the final response.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.05,
+        "Workflow": 0.07
+      }
+    }
+  ]
+}

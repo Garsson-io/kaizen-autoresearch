@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Speech-to-text output preserves speaker labels for attendee attribution in the summary",
+      "minimum_level": "Agentic",
+      "justification": "The behavior requires verifying not just that labels exist in the transcript, but that they enable real attribution in the LLM-generated summary. A System-level test (real STT API + mock LLM) would catch label loss during transmission, but would miss the core failure: the LLM not producing attributions despite having labeled input. The real failure is when a user reads the summary and sees 'We should launch Tuesday' without knowing who said it. This depends on LLM non-determinism and real model behavior—the LLM might attend to labels differently across runs. Only an Agentic test (real STT + real LLM + verification of attribution in output) catches this.",
+      "test_description": "End-to-end test: Pass a realistic meeting recording with multiple speakers to the service. Verify the structured summary includes speaker attribution for key statements (e.g., 'Alice proposed Q2 launch' rather than just 'Q2 launch was proposed'). Run multiple times to account for LLM variance. Assert that every attributed statement correctly maps to a speaker from the transcript.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.2,
+        "Agentic": 0.6,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Structured summary contains at least one action item for every attendee assigned a task",
+      "minimum_level": "Agentic",
+      "justification": "This is a semantic constraint on the LLM output. The service code cannot enforce this with deterministic logic—it depends entirely on whether the LLM correctly (1) identifies all attendees, (2) recognizes task assignments, and (3) includes them in the action items section. A mock LLM would trivially pass. The real failure occurs when the LLM misses an attendee's task (e.g., Bob was asked to 'send the deck by Friday' but Bob doesn't appear in action items). This is non-deterministic: the LLM might capture it one run and miss it the next. Only an Agentic test with real LLM calls and statistical verification across multiple runs catches this.",
+      "test_description": "Provide meeting transcripts with clear task assignments to multiple attendees (e.g., 'Alice, can you schedule the follow-up?' 'Bob, please send the budget analysis'). Call real LLM to generate summary. For each attendee identified in the transcript, verify the 'action_items' section includes at least one item assigned to them. Run 10+ times and verify consistency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.12,
+        "System": 0.03,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of structured summary, not buried in narrative",
+      "minimum_level": "Agentic",
+      "justification": "This tests the LLM's ability to correctly structure output. The output format (whether decisions are in a dedicated section vs. scattered in narrative) is entirely determined by the LLM's interpretation of the prompt and its reasoning. A mock could always place decisions correctly. The real failure is an LLM that merges decisions into the narrative or loses them in extraction. This is non-deterministic—the LLM's reasoning and output structure can vary across runs. You cannot test this without a real LLM call verifying the actual JSON/structured output.",
+      "test_description": "Provide meeting transcripts with explicit decisions ('We decided to postpone the launch', 'Decision: all code reviews require 2 approvals'). Call real LLM with structured output requirements. Parse the response and verify the 'decisions' field is present, populated, and distinct from other sections (narrative, action items, etc.). Verify no decisions are accidentally truncated or merged into narrative.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Audio longer than 60 minutes is split into segments, processed sequentially, and results are merged into a single coherent summary",
+      "minimum_level": "Workflow",
+      "justification": "This behavior spans multiple agentic steps in sequence: (1) Split audio into segments (deterministic, testable at Integration), (2) Transcribe each segment (System/Agentic depending on whether you mock STT), (3) Summarize each segment (Agentic), (4) Merge segment summaries coherently (Agentic—likely requires another LLM call for coherent synthesis). The real failure is when the merged summary is incoherent, loses context across segments, or has duplicated content. Testing segmentation logic alone (Integration) or individual segment summarization (Agentic) is insufficient—you must verify the final merged summary is contextually coherent, which requires running the LLM multiple times and evaluating semantic coherence. This is Workflow-level: multiple agentic steps with dependencies.",
+      "test_description": "Create or obtain a >90 minute meeting recording. Run through the service. Verify: (1) the service detects length and segments it (e.g., into 30-min chunks), (2) each segment is processed independently, (3) the final summary mentions key points from all segments without duplication, (4) transitions between segments are coherent (no abrupt context switches). Verify that someone reading the merged summary cannot tell it came from segments. Use real LLM calls for all summarization and merging.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.12,
+        "System": 0.05,
+        "Agentic": 0.18,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full pipeline (upload audio → transcribe → summarize → deliver structured output) completes without manual intervention for a real meeting recording",
+      "minimum_level": "Workflow",
+      "justification": "This is the entire production-like workflow end-to-end. The real failure is the system failing in production: a user uploads a meeting, something breaks (API timeout, LLM refusal, malformed output, unexpected field missing), and manual intervention is required. To catch this, you must test the full sequence: (1) real audio file upload, (2) real STT API call, (3) real LLM call(s), (4) output validation, (5) delivery. This requires multiple external dependencies (real HTTP calls to STT and LLM APIs) and multiple agentic steps. A System-level test of the STT integration alone or an Agentic test of single summarization call would miss orchestration failures, timeout handling, retry logic, and end-to-end validation. Only a full Workflow test catches 'the system fails in production'.",
+      "test_description": "Use a real meeting recording (30+ minutes, multiple speakers, complex content). Run the entire pipeline without any manual steps. Verify the output is valid structured JSON with all expected fields (transcript, summary, action_items, decisions, attendees). Verify no errors, timeouts, or warnings that would require human intervention. Verify the pipeline completes in reasonable time. Run with multiple diverse recordings to catch edge cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.08,
+        "Agentic": 0.07,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

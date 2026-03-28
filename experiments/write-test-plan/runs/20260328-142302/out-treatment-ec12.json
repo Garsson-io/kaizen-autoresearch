@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "A Unit test can verify validation logic in isolation, but the full behavior requires wiring together CSV reading, validation, and DLQ writing. Mocking the DLQ could hide real failures: row number tracking loss, serialization issues, schema mismatches, or missing data in the actual queue system. The DLQ must be a real or realistic test double (e.g., Docker-based SQS/Kafka) to ensure the row number is preserved end-to-end through the actual infrastructure.",
+      "test_description": "Set up a test queue system (e.g., localstack SQS or test Kafka topic). Process a CSV with rows: one complete, one missing a required field. Verify the invalid row appears in the DLQ with the correct row number and original data intact. Verify the complete row is processed normally.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is pure transformation logic with no I/O, external dependencies, or LLM involvement. Mocking cannot hide failures because there is nothing to mock—the input and output are both data structures. The behavior can be fully tested with parameterized unit tests covering all three date formats plus edge cases (leap years, boundary dates, malformed inputs). No schema validation, database, or file I/O is needed.",
+      "test_description": "Parameterized unit test with inputs: ('2024-01-15', '01/15/2024', '15/01/2024', '2024-13-01', null). Verify all valid formats convert to a canonical form (e.g., ISO 8601). Verify invalid/edge cases are rejected or raise the expected exception.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "A mock or small-scale Integration test would always pass and hide the real failure. Memory exhaustion and timeout enforcement are OS-dependent behaviors that only manifest at scale. Unit/Integration tests with 100-row samples cannot reveal: memory leaks in the streaming parser, unbounded buffer growth, GC pauses, or timeout enforcement. The test must run against a real 500K-row file with real memory monitoring and actual timeout enforcement, requiring process-level system resources.",
+      "test_description": "Create a real 500K-row CSV file with typical row structure. Run the pipeline with memory limits enforced (e.g., via ulimit or cgroups in Docker). Monitor peak memory usage and elapsed time. Verify memory stays below 80% of limit and processing completes before configured timeout. Instrument the pipeline to emit memory checkpoints at 10%, 25%, 50%, 75%, 100% row completion.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The retry logic itself can be Unit tested, but the full behavior requires wiring together the S3 client, error handling, and retry orchestration. A mock S3 that simply returns 503 then succeeds could pass even if real failures occur: incorrect backoff intervals, exhausted retries, missing circuit breaker state, or AWS SDK-specific error handling. An Integration test must use a realistic S3 mock (e.g., Moto) that accurately simulates AWS error responses, headers, and timing constraints. Exponential backoff timing can be mocked with a fake timer, keeping this at Integration level rather than System (no need for actual S3 or real network delays).",
+      "test_description": "Use Moto to mock S3. Configure the mock to return 503 for the first 2 read attempts, then succeed. Mock the time.sleep() function to track backoff intervals. Process a CSV from S3. Verify: (1) the pipeline retried twice, (2) backoff intervals followed exponential pattern (e.g., 1s, 2s, 4s), (3) batch completed successfully, (4) no duplicate rows written. Also test that retries exhaust after max attempts and fail gracefully.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "Mocking the database would hide real failures: missing unique constraints, transaction isolation issues, or idempotent write logic bugs. The real failure surface is the database itself—whether duplicate inserts fail safely or are prevented. An Integration test requires a real PostgreSQL instance (test container) to verify constraint enforcement and idempotent behavior. The test simulates 'mid-batch restart' by calling the pipeline function twice with the same input file, which exercises idempotency without requiring actual OS-level process restart. If the pipeline uses a progress file or database checkpoint, the test must verify it persists and is read correctly on the second call.",
+      "test_description": "Use a PostgreSQL test container. Process a CSV with 1000 rows, stopping mid-way (after 500 rows). Verify 500 rows are written. Call the pipeline again with the same CSV. Verify: (1) no duplicate rows are written, (2) total row count remains 1000, (3) either the pipeline detects previously written rows and skips them, or database constraints prevent duplicates. Test both success and rollback scenarios (e.g., one row fails constraint during restart).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Daemon recursively watches subdirectories of the configured root and processes files placed in them, not only files in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "This tests whether the file watcher (chokidar, fs.watch, etc.) is configured for recursive watching and whether the daemon's event handlers correctly receive and process events from nested paths. A unit test mocking file events would bypass actual watcher configuration and miss failures where recursive watching isn't enabled. Different OSes may have edge cases (symlinks, permission denied on subdirs) that only appear with a real filesystem.",
+      "test_description": "Create a temporary directory structure with nested subdirectories, configure the daemon to watch the root, place a file in a subdirectory (e.g., subdir/file.txt), verify the daemon detects, processes, and outputs the result for that nested file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.9,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly rejects a second processing request for the same file path if it arrives within the configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This tests the dedup cache/store's logic in isolation. Failure modes are logical: wrong key comparison, off-by-one in window boundary, incorrect time arithmetic. These can be caught by a unit test with mocked time (using sinon.useFakeTimers or jest.useFakeTimers). No module coordination or real filesystem events needed.",
+      "test_description": "Create a deduplication service with a configurable window (e.g., 5 seconds). Mock the system clock. Call isDuplicate('file.txt') twice within 5 seconds—second call should return true. Advance clock past 5 seconds, call again—should return false. Verify window expiration logic.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write (e.g., 'add', 'modify', 'close'), the daemon processes the file exactly once, not once per event.",
+      "minimum_level": "Integration",
+      "justification": "Different OSes and filesystems emit different event sequences. Linux may emit 'add' then 'change' then 'unlink' (temp); Windows may emit multiple 'change' events while the file is open. A unit test mocking 'three events arrived' bypasses real OS behavior. Integration testing with a real filesystem (temp directory) triggers actual OS events, which the daemon must coalesce or deduplicate correctly.",
+      "test_description": "Create a temporary watched directory. Write a file with explicit flush/close operations or in chunks (to trigger multiple OS events). Monitor the daemon's processing queue or output; verify the file processed exactly once despite the OS emitting multiple events for that single write.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon detects the removal, handles the error gracefully, resumes watching the new directory, and continues processing without requiring a restart.",
+      "minimum_level": "Integration",
+      "justification": "This tests error recovery and retry logic in response to real filesystem state changes. Different file-watcher libraries handle missing directories differently (some throw, some emit 'all' events, some get stuck). A unit test mocking 'directory not found error' can't test how the real watcher library and OS respond. Real removal and recreation require filesystem integration.",
+      "test_description": "Create a temporary watched directory. Verify daemon is watching (e.g., place a file, confirm it's processed). Programmatically remove the directory. Verify daemon detects removal without crashing. Recreate the directory. Place a new file. Verify daemon resumes watching and processes the new file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files are created and arrive at the same time (within a single event batch), they are processed in the order determined by their file creation timestamps, not by event arrival order or random order.",
+      "minimum_level": "Integration",
+      "justification": "Testing file ordering in a concurrent scenario requires real filesystem timestamps and real watcher behavior. A unit test could mock 'three events with timestamps 1000, 2000, 3000' and test sorting logic, but would miss failures where: timestamps aren't read from the real filesystem, mtime granularity is coarse, or the watcher doesn't batch events as expected. Integration testing with real concurrent file creation and real timestamps is needed to catch these.",
+      "test_description": "Create a temporary watched directory. Write multiple files with slightly different mtimes (e.g., using fs.utimesSync or touch to set exact timestamps). Trigger them to arrive in the same watcher batch. Verify daemon processes them in timestamp order (earliest mtime first), not in the order events arrived.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.84,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to (file open, data pending) when the arrival event fires is not picked up for processing until writing is complete and the file has finished changing.",
+      "minimum_level": "Integration",
+      "justification": "Detecting file-write-in-progress depends on real filesystem state (file size, mtime stability, or file locks), which varies by platform (Linux, Windows, macOS handle open files differently). A unit test can't reliably mock these states. Integration testing with real file I/O (chunks written with delays, or file opened and held open) is needed to verify the daemon's wait-for-stability or file-lock detection mechanism works correctly.",
+      "test_description": "Create a temporary watched directory. Open a file for writing. Write some data, pause (without closing). Verify daemon does not start processing. Resume writing, write more data, close the file. Verify daemon now processes the complete file. Alternatively, open a file, write to it continuously, and verify daemon waits for mtime to stabilize before processing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.75,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

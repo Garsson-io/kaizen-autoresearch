@@ -95,15 +95,6 @@ function parseLog(logPath: string): ProbeStats | null {
   return stats as ProbeStats;
 }
 
-function getRunDir(runsBase: string, runName?: string): string {
-  if (runName) return join(runsBase, runName);
-  // Follow latest symlink
-  const latest = join(runsBase, "latest");
-  if (existsSync(latest)) return latest;
-  // Fall back to most recent timestamped dir
-  const dirs = readdirSync(runsBase).filter((d) => /^\d{8}-\d{6}$/.test(d)).sort();
-  return join(runsBase, dirs[dirs.length - 1]);
-}
 
 function printProbeTable(probes: ProbeStats[]) {
   console.log(
@@ -147,7 +138,7 @@ function printSummary(probes: ProbeStats[], runDir: string) {
 }
 
 // Main
-import { PATHS } from "./paths";
+import { PATHS, getRunDir } from "./paths";
 const runsBase = PATHS.runs;
 
 function buildSummary(probes: ProbeStats[], runDirName: string): RunSummary {
@@ -176,7 +167,7 @@ const appendLog = args.includes("--append-log");
 
 // --append-log: parse latest run, append one JSON line to run-stats.jsonl, print summary
 if (appendLog) {
-  const runDir = getRunDir(runsBase, runArg);
+  const runDir = getRunDir(runArg);
   const runDirName = basename(realpathSync(runDir));
   const logs = readdirSync(runDir).filter((f) => f.endsWith(".log")).sort();
 
@@ -219,7 +210,7 @@ if (showAll) {
 
   if (jsonOut) console.log(JSON.stringify(summaries, null, 2));
 } else {
-  const runDir = getRunDir(runsBase, runArg);
+  const runDir = getRunDir(runArg);
   const logs = readdirSync(runDir).filter((f) => f.endsWith(".log")).sort();
 
   if (logs.length === 0) {

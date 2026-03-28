@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Image with explicit content is flagged and held for review, not published",
+      "minimum_level": "System",
+      "justification": "A mocked vision model hides whether the real model actually detects explicit content—the core risk. The decision logic can be tested with mocks, but real model behavior is not. The vision model must be called with real/representative images to verify it classifies explicit content correctly. This is a real external service call that determines behavior.",
+      "test_description": "Call the moderation service with a real image containing explicit content. Verify the vision model is invoked, returns an 'explicit' classification, the post is moved to the review queue, and is not present in the published posts. Test with images of varying explicitness (edge cases).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test description directly requires calling the real vision model to verify correct classification, which mandates System level.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.12,
+        "System": 0.65,
+        "Agentic": 0.1,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Text post containing hate speech is flagged regardless of obfuscation (letter substitution, unicode lookalikes)",
+      "minimum_level": "System",
+      "justification": "The core risk is whether the real text model is robust enough to detect hate speech despite obfuscation. Mocking the model to always return 'hate_speech' bypasses the real robustness question. Testing text preprocessing and decision logic with mocks is insufficient—you must call the real text model to verify it actually handles obfuscation patterns. Pre-processing bugs or model limitations require real model calls to surface.",
+      "test_description": "Submit multiple text posts with hate speech disguised using letter substitution, unicode lookalikes, spacing tricks, and other obfuscation techniques. Verify the text model flags all variants as hate speech. Test both obvious and subtle obfuscation patterns.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real text model API calls to verify the model's actual robustness to obfuscation, which is System level.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.1,
+        "System": 0.72,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Post passing both content checks is published, not held or silently dropped",
+      "minimum_level": "Integration",
+      "justification": "The vision and text models can be mocked since you're testing the orchestration logic and publish mechanism, not model accuracy. The real failure risk is in the publish path: database corruption, publish mechanism broken, or silent drops. This requires a real database and message queue interaction. A unit test with mocks would never catch if the publish logic is inverted (hold safe, publish unsafe) at the DB layer.",
+      "test_description": "Submit a post with a safe image (mock model returns 'safe') and safe text (mock model returns 'safe'). Query the database to verify the post is marked as published. Verify it does not appear in the review queue. Verify it is not dropped/missing from all queues.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Models can be mocked, but real database interaction is required to catch publish mechanism failures.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full moderation pipeline (image check + text check + publish decision) completes within 5 seconds of submission",
+      "minimum_level": "System",
+      "justification": "Mocking the vision and text models defeats the purpose—real model latency is the primary variable that determines whether the 5-second SLA is met. Real network round-trips, model inference time, and queue latency are non-deterministic and must be measured with real services. A test with mocked instant-returning models provides zero signal about real performance and would pass deceptively.",
+      "test_description": "Submit posts with real images and text under normal conditions and high-throughput scenarios (e.g., 100 concurrent submissions). Measure end-to-end latency from submission to completion. Verify all submissions complete within 5 seconds. Include measurements with varying model response times.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The SLA test inherently requires real model API calls and real infrastructure to measure actual latency. Mocks make the test meaningless.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.08,
+        "System": 0.77,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When vision model is unavailable (timeout, API error), image posts are queued for retry, not auto-approved",
+      "minimum_level": "Integration",
+      "justification": "The retry queue logic can be tested with a mocked vision model that throws exceptions (Integration level). You don't need a real vision API—you need to verify the retry queue is populated and retries are triggered. However, if the system also needs to handle real network timeouts and HTTP error codes (not just in-process exceptions), you'd need System level (stubbed HTTP or real API behavior). Integration is minimum because the core behavior (queuing for retry) is testable with mocked failures.",
+      "test_description": "Mock the vision model to throw a timeout exception (or return HTTP 503). Verify the post is added to a retry queue. Verify the post is not published. Verify a retry attempt is made within a specified window (e.g., 5 minutes). Verify retry count is incremented.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocked model exceptions + real queue suffice to test queueing behavior; System level only needed if testing actual HTTP timeout handling.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window",
+      "minimum_level": "Integration",
+      "justification": "If consistency is achieved via caching, this is testable at Integration level (mock model + real cache layer). However, if the real vision model is non-deterministic or if borderline images naturally produce variance, you must test with the real model (Agentic level) to detect failures where cache is absent or decision logic doesn't handle variance. Minimum is Integration (cache logic), but Agentic is needed to catch failures caused by model variance on borderline cases.",
+      "test_description": "Submit the same borderline image (e.g., one that scores near the classification boundary) multiple times in quick succession (within 1 second, then at 5 seconds, then at 30 seconds). Verify all submissions receive the same moderation decision (all held or all published). If caching is used, verify cache hits. If variance-probe is applied, measure how often decisions differ.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Minimum Infrastructure: Integration tests cache + mocked varying model. However, Agentic tests (real model variance probing) are valuable to catch edge cases where model itself is non-deterministic.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.5,
+        "System": 0.15,
+        "Agentic": 0.25,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

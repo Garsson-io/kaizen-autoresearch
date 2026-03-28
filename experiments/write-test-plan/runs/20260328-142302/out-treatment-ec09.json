@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Plugin with missing required manifest field is rejected before any plugin code executes",
+      "minimum_level": "Integration",
+      "justification": "A unit test mocking require/import can verify the loader doesn't call import() on invalid plugins. However, the behavior explicitly requires verifying that 'code from that plugin is executed'—this demands observing actual module-level side effects. An integration test with a real plugin file that has an observable side effect (e.g., throws at module scope, sets a global, makes a request) is needed to confirm the plugin code truly never ran. A pure-mock unit test could have false positives if the module has deferred side effects or if someone refactored the loading order without realizing.",
+      "test_description": "Create a real plugin directory with an invalid manifest.json (missing required 'name' field) and an entry module with a detectable side effect (throw, set global, network call). Load the plugin; verify the loader rejects it via manifest validation error and the side effect never occurred. Then verify a valid plugin with the same structure loads and the side effect does occur.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A depends on plugin B, plugin B's onLoad hook is called before plugin A's",
+      "minimum_level": "Unit",
+      "justification": "The failure is purely in dependency-resolution logic and hook-invocation ordering—no I/O or subprocess boundary is crossed. We can mock two plugin objects with mock onLoad hooks, define a dependency relationship, and verify via a call-order tracker (e.g., a list or mock.call_args_list) that B's hook is invoked before A's. The loader's traversal and sorting logic is deterministic and contains no side effects that would be hidden by mocking. An integration test would be redundant; it would test the same ordering logic with more noise from file I/O and module importing.",
+      "test_description": "Create two mock plugin objects (pluginA with dependency on pluginB, pluginB with no dependencies). Instrument their onLoad hooks with a call tracker. Call the loader's load() method; verify the call tracker shows pluginB.onLoad invoked before pluginA.onLoad. Repeat with three plugins (A→B→C) to verify transitive ordering.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Circular dependency between two plugins is detected; neither plugin loads",
+      "minimum_level": "Unit",
+      "justification": "Cycle detection is pure graph-algorithm logic with no side effects. A unit test providing two mock manifest objects with circular dependencies and calling the dependency resolver is sufficient to verify the algorithm detects and rejects the cycle. The test needs only a deterministic, synchronous traversal; no imports, file reads, or hooks are required. Mocking cannot hide a cycle-detection bug because the bug is in the topological sort itself, not in how the results are applied.",
+      "test_description": "Create two mock plugin manifests: pluginA depends on pluginB, pluginB depends on pluginA. Call the loader's dependency-resolution method (or load() with these plugins). Verify it throws an error explicitly mentioning the cycle. Verify neither plugin's onLoad hook was called. Test with larger cycles (A→B→C→A) to ensure the detection is general.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Plugin's onLoad hook is invoked only after the plugin's entry module has been imported and executed",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that module-level code (outside onLoad) executes before the onLoad hook is invoked. Mocking require() hides the actual module-execution boundary—a mock could claim to 'execute' instantly without running any module-level statements. Only a real plugin file with observable module-level side effects can demonstrate true execution order. The failure would manifest as the onLoad hook being called before module initialization (e.g., before a module-level variable is set or a setup function runs), which a mock would never catch.",
+      "test_description": "Create a real plugin file whose module-level code sets a flag or increments a counter (e.g., globalThis.pluginInitialized = false at top, globalThis.pluginInitialized = true after initialization). The plugin's onLoad hook asserts that the flag is true. Load the plugin; verify the onLoad hook succeeds (asserting the module was initialized) and the flag is set. Verify that if module-level setup is prevented, onLoad would fail.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When plugin throws during onLoad, loader continues with remaining plugins that don't depend on the failing one",
+      "minimum_level": "Integration",
+      "justification": "While a unit test with mocked onLoad hooks that throw can verify the loader's error-handling logic, an integration test is safer because: (1) real JavaScript errors may have properties or stack traces that differ from mocked throw statements, (2) the actual dependency graph and load order must be tested in context—a mock test might verify the right plugins are _selected_ but not that they actually _load and execute_, (3) the loader's behavior of 'continuing' should be tested by checking that subsequent plugins' onLoad hooks actually run and modify observable state. A unit test could pass with correct error-handling logic but still fail to load the remaining plugins correctly in practice.",
+      "test_description": "Create three real plugin files: pluginA with no dependencies (throws in onLoad), pluginB depends on pluginA (should not load), pluginC with no dependencies (should load). Load all three; verify: pluginA's onLoad throws and is caught, pluginB's onLoad is never called (dependency failed), pluginC's onLoad is called and succeeds. Verify error message or log entry for pluginA. Test that pluginC sets a detectable side effect (e.g., a global or file write) confirming it ran.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

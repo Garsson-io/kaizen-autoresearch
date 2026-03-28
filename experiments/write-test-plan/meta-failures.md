@@ -98,6 +98,20 @@ Read this before iterating. These are the ways the process itself broke, not the
 
 ---
 
+### Unit definition additions cause U2 explosion (O1/U2 opposing forces)
+
+**What happened**: Added `(if the algorithm can be tested by passing data as arguments, it's Unit even if prod reads from DB)` to the Unit definition. Loss jumped from 368.08 to 495.25 (+127.17). The model started calling integration-wiring behaviors Unit because "I can pass data as arguments."
+
+**Symptom**: Score drop from 88.0% to 84.6% on a single prompt change. MINE analysis showed U2 (Unit→Integration under-prediction) exploded — behaviors that require real module wiring were relabeled Unit because the algorithm inside them can be tested by passing data.
+
+**Root cause**: There's a structural tension between O1 (Integration→Unit over-prediction) and U2 (Unit→Integration under-prediction). The model has a minimize-bias pull toward lower levels. Making Unit more permissive (easier to qualify for) amplifies this pull — the model reclassifies anything that could theoretically be tested with argument-passing as Unit, even when the failure mode requires real wiring.
+
+**Fix**: Reverted with `git revert --no-edit de0914b`.
+
+**Lesson**: Any addition to the Unit definition that makes Unit "easier to qualify for" will cause U2 explosion. The O1/U2 forces are in opposition — fixing one aggravates the other. Unit definition changes require special care. Agentic definition additions work because Agentic is above the minimize-bias pull; Unit is below it.
+
+---
+
 ### Noise floor is ~3% on score, loss baseline not yet established
 
 **Status**: confirmed (1 data point, needs replication)

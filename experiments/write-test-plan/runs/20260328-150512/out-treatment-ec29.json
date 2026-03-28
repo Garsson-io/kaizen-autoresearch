@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields (name, DOB, insurance ID) are validated before downstream processing; missing fields produce a clear error listing all missing items",
+      "minimum_level": "Unit",
+      "justification": "This is a single validation function with no external dependencies or inter-module coordination. The real failure boundary is whether the validator correctly identifies and reports all missing required fields. A mock cannot miss this—the logic is self-contained in one function. Unit testing with direct input/output checking is sufficient and necessary.",
+      "test_description": "Call the patient field validator with various invalid inputs (missing name only, missing DOB only, missing all three, etc.); verify error messages correctly enumerate exactly which fields are missing and no extras are reported; test edge cases like empty strings vs null.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date of birth validation rejects future dates, dates more than 150 years ago, and non-date strings",
+      "minimum_level": "Unit",
+      "justification": "Pure validation logic with hardcoded business rules (150-year threshold, future rejection). No I/O, no state, no coordination with other modules. The real failure boundary is whether the validation function implements its date checks correctly. Unit test with parametrized inputs (future dates, very old dates, malformed strings, valid dates) is necessary and sufficient.",
+      "test_description": "Parametrized unit test: submit dates across the boundary (e.g., today+1, today-150 years, today-151 years, 'not-a-date', empty string, valid DOB); verify each is correctly accepted or rejected and error messages are clear.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The insurance eligibility check sends the correct patient ID and plan code to the payer API and correctly interprets the 'eligible' vs 'not eligible' vs 'pending' response",
+      "minimum_level": "System",
+      "justification": "This behavior requires real or test-endpoint HTTP communication with an external payer API. A pure mock could hide critical failures: wrong field names/encoding sent to the real API, real API response format differs from mock expectations, serialization/deserialization mismatches, or authentication issues. The real failure boundary is at the API boundary—whether our code correctly formats the request and the real API accepts it, and whether we correctly interpret real API responses. System-level test with actual HTTP (real API or test endpoint) is needed to catch these.",
+      "test_description": "Call the insurance check with known patient ID and plan code against the real payer API (or test endpoint); verify the API receives correctly-formatted request; capture actual response and verify all three eligibility states ('eligible', 'not eligible', 'pending') are correctly interpreted; test error cases (malformed response, timeout, API error codes).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the payer API is unreachable, the system marks eligibility as 'pending' and continues the intake rather than blocking",
+      "minimum_level": "Integration",
+      "justification": "The critical failure is not about the mock itself, but whether the error handling integrates correctly with the downstream pipeline. A unit test of the insurance check in isolation could verify it returns 'pending' on network failure—but would miss the real failure: the next pipeline step not being triggered. This is cross-module coordination: insurance failure → fallback status → next step continues. Integration test wiring the insurance check with the full intake pipeline (or at least validation + triage) is needed to catch the 'blocks instead of continues' failure.",
+      "test_description": "Mock the HTTP client (or use a reachable stub that simulates failure) to raise a connection error; verify the insurance check returns 'pending'; verify that the symptom triage step is called next (not skipped or blocked); trace a patient through the full pipeline with API failure and confirm completion.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The AI symptom triage correctly assigns high urgency to symptom combinations that indicate emergency conditions (e.g., chest pain + shortness of breath)",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what a real LLM produces, not on deterministic logic. If you mock the LLM response (e.g., 'high_urgency'), you're not testing whether the AI actually recognizes the symptom combination—only that your code parses the mocked response. The real failure is: user submits chest pain + SOB, the LLM fails to classify it as high urgency, patient is triaged to low-urgency slot and harmed. To catch this, you must call the real LLM with real symptoms and verify the real output. A deterministic algorithm would be Unit-testable; an AI model requires Agentic-level testing because outcomes vary with model state and data.",
+      "test_description": "Submit the exact symptom combination 'chest pain + shortness of breath' to the real AI medical reasoning engine; verify that the returned urgency level is 'high'; repeat with other known emergency combinations (e.g., severe allergic reaction symptoms); verify non-emergency combinations return lower urgency. Document which LLM/model version was tested.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.95,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The symptom triage produces a natural language explanation of its urgency assessment that a clinician can review, not just a numeric score",
+      "minimum_level": "Agentic",
+      "justification": "Two parts: (a) the output includes text, not just a number, and (b) the explanation is clinically meaningful. Part (a) is Unit-testable: check that response contains a 'description' field and it is non-empty string. Part (b) is Agentic-testable: only a real LLM knows how to generate meaningful medical explanations. A mocked LLM response could pass the format test but produce nonsense text (e.g., 'xyzzy'). The real failure is that clinicians cannot understand the explanation, which happens when the LLM produces poor-quality text. You must use the real LLM to catch this.",
+      "test_description": "Submit diverse symptom sets to the real AI triage system (both common and rare presentations); verify each response includes a 'description' or 'explanation' field with non-empty text; read the explanations and verify they reference the reported symptoms, mention relevant clinical factors, and are intelligible to a clinician (or use a secondary LLM evaluation to score explanation quality).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "An appointment is scheduled in the first available slot that matches the assigned urgency level — high urgency gets same-day, medium gets within 48 hours",
+      "minimum_level": "Integration",
+      "justification": "This requires coordination between the triage module (which outputs urgency) and the scheduling module (which queries the calendar and books slots). The real failures are: (a) wrong urgency level fed to scheduler, (b) scheduler selects wrong slot due to calendar query issues, (c) slot is not actually written to calendar. A Unit test of the scheduler logic alone (with mocked calendar data) could catch (b) but not (a) or (c). Integration test with real/test calendar database and known urgency input catches all three. The failure boundary is at the data coordination level—urgency must flow correctly from triage to scheduler, and scheduler must read and write calendar correctly.",
+      "test_description": "Set up a test calendar with known slot availability (e.g., today has 3 same-day slots free at 10am, 2pm, 4pm; tomorrow has 5 slots). Call scheduling with high-urgency patient; verify the 10am same-day slot is selected and booked. Call again with medium-urgency patient; verify a slot within 48 hours is chosen. Verify slots are actually removed from availability (write confirmed).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The scheduling step does not double-book a time slot even when two patients are being processed concurrently",
+      "minimum_level": "Integration",
+      "justification": "Race conditions cannot be caught by Unit tests or mocks—they require real concurrency and real (or transactionally-sound) database behavior. The real failure is: two concurrent intake processes both select the same 10am slot, both write it, and two appointments exist for one slot. To catch this, you must: (a) spawn real concurrent threads/processes, (b) have both reach the scheduling step simultaneously or near-simultaneously, (c) use a real or well-configured test database with proper transaction isolation. A test database configured with concurrent access (local but shared state) is sufficient—this is Integration. A truly external/distributed database would be System, but local test DB with concurrency is Integration.",
+      "test_description": "Use threading or asyncio to spawn two concurrent patient intake flows; synchronize them so both reach the scheduling step at the same time and both attempt to book the same time slot (e.g., the only available same-day slot); run this 10+ times; verify that in every run, exactly one books successfully and the other either gets the next available slot (graceful fallback) or fails with a clear 'slot unavailable' error (not silent double-booking).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The confirmation message includes the patient name, appointment time, provider name, and preparation instructions appropriate to the visit type",
+      "minimum_level": "Integration",
+      "justification": "Confirmation generation has two layers: (a) formatting logic (Unit-testable) and (b) data lookup (Integration-testable if preparation instructions come from a database or external source). If all data is passed as parameters, this could be Unit. But if preparation instructions are looked up by visit type (e.g., 'cardiology' → prep instructions from DB), the test must wire the lookup. Cross-module data flow: appointment+patient data → lookup prep instructions → format message. A Unit test with hard-coded prep instructions could miss DB lookup failures. Integration test with actual prep instruction lookup is safer and more realistic.",
+      "test_description": "Create test appointment and patient records with known visit types (e.g., 'cardiology', 'pediatrics'); call the confirmation generator; verify the output message includes patient name (exact match), appointment time (correct format), provider name, and visit-appropriate prep instructions; test multiple visit types; verify no patient data is truncated or missing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The full intake pipeline — validate, check insurance, triage symptoms, schedule, confirm — completes for a real patient submission without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "This is an end-to-end orchestration test spanning multiple steps, including at least one Agentic step (symptom triage, which requires a real LLM). The real failure is not in any single step but in the coordination: does the entire pipeline run without deadlock, does one step's output correctly feed the next, do errors propagate or get swallowed, does the patient actually get a confirmation? This requires: (a) real LLM call for triage, (b) real (or test) external API for insurance, (c) real calendar for scheduling, (d) all steps wired together. Agentic tests each step; Workflow tests the sequence and integration of multiple steps together, especially Agentic steps. A failure in cross-step coordination (e.g., urgency level field name changed, breaking the triage-to-scheduler link) would only be caught in Workflow test.",
+      "test_description": "Create a complete, realistic patient intake form (patient demographics, symptom list, insurance info). Execute the full pipeline end-to-end: validation → insurance check (against real/test payer API) → AI symptom triage (real LLM) → scheduling (against test calendar) → confirmation message generation. Verify all steps complete without error, confirm message is sent/generated correctly, and spot-check that the appointment appears in the calendar. Run with 5+ diverse patient profiles to catch cross-patient coordination issues.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

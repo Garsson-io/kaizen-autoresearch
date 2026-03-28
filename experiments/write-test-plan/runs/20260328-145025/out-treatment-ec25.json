@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "The threshold comparison and risk score calculation are deterministic functions with no external dependencies or I/O. A mock of the configured thresholds and transaction inputs is sufficient to verify the logic. The scoring algorithm is a pure function—given fixed inputs (amount, merchant category, threshold), it always produces the same output. A real failure would be wrong comparison operator or score calculation, both caught by Unit tests with known inputs.",
+      "test_description": "Create a scoring model with configured amount thresholds per merchant category. Submit test transactions with amounts both above and below configured thresholds. Verify that when amount > threshold for the merchant category, the risk score increases (indicating threshold breach); when amount ≤ threshold, the score does not reflect a breach. Test multiple merchant categories to verify category-specific threshold lookup.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Agentic",
+      "justification": "Fraud pattern detection is a non-deterministic prediction task dependent on a real model's learned behavior. The same transaction sequence could produce different fraud probability scores depending on model version, training data, or stochastic elements within the model. Mocking would hide whether the model actually detects the pattern—you could mock it to always return fraud=true and pass tests that don't verify real detection. Only real model calls or controlled adversarial test data reveal whether the model genuinely learns to recognize rapid-purchase patterns across geographies. This is inherently non-deterministic ML behavior, crossing the Agentic boundary.",
+      "test_description": "Construct a sequence of 5 small transactions (e.g., $50 each, below the configured threshold) originating from 5 different countries within a 2-minute window. Submit this rapid-purchase pattern and verify the risk model assigns high fraud probability (e.g., > 0.7) despite no single transaction exceeding amount thresholds. Repeat the test multiple times (at least 10 runs) to verify the model reliably detects the pattern. Test both expected-fraud patterns and benign patterns to establish baseline consistency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.1,
+        "Agentic": 0.55,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The velocity check requires correctly querying historical transactions from a real (or representative) database, filtering by user and time window, and counting. While the counting logic itself is trivial (Unit), the real failures lurk in the query layer: off-by-one errors in time window boundaries, timezone handling bugs, query filters that exclude valid transactions, or database index issues. A pure Unit mock that returns a hardcoded list of transactions would pass tests but miss query bugs. The failure boundary is at the integration between the query builder, database driver, and time filtering logic—multiple modules that can only be tested together with real data.",
+      "test_description": "Populate a test database with historical transactions for a test user at precise timestamps: T-15min, T-10min, T-5min, T (current), T+5min. Configure a velocity rule (e.g., max 5 transactions per 10-minute window). Execute velocity check at time T. Verify it counts exactly the transactions within the [T-10min, T] window. Test boundary conditions explicitly: transactions at exact window start/end should be included; transactions 1 second outside should not. Verify the time window is user-specific (transactions from other users do not count).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review—the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "The combining logic is simple and deterministic: `hold = risk_model_flagged OR scoring_model_flagged`. This is a pure boolean operation with no I/O, no database queries, and no non-deterministic behavior. Mocking both models to return known boolean flags, then verifying all four combinations (T-T, T-F, F-T, F-F) correctly produce hold=true or hold=false, fully exercises the logic. A real failure would be a wrong operator (AND, NAND, XOR) or inverted logic, all caught by exhaustive Unit tests. Mocks are sufficient because the combination itself has no hidden dependencies.",
+      "test_description": "Mock the risk model and scoring model to return controlled flags. Test all four combinations: (1) risk=true, score=true → verify hold=true; (2) risk=true, score=false → verify hold=true; (3) risk=false, score=true → verify hold=true; (4) risk=false, score=false → verify hold=false. Each scenario submits a transaction and verifies the final hold decision. Verify both positive and negative cases (should-hold and should-not-hold).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "The combining logic is deterministic: assembling a data structure from two model outputs and including both fields. Unit tests with mocks verify the structure includes correct field names, data types, and values. However, real failures around human usability (JSON serialization format, missing explanation text, field naming conventions) could be missed by Unit tests and are better caught by Integration testing of the actual API response. Unit is the minimum to verify the combining logic itself; Integration is recommended to verify the output is truly usable by a reviewer.",
+      "test_description": "Mock the risk model to return fraud_probability=0.92 and the scoring model to return risk_score=75. Call the output formatter with both results. Verify the output contains: (1) a field for risk_score with value 75 and numeric type; (2) a field for fraud_probability with value 0.92 and numeric type; (3) boolean flags or labels indicating which model(s) flagged the transaction (e.g., risk_model_flagged=true, scoring_model_flagged=false); (4) the output is JSON-serializable without errors. Verify the output structure matches the schema expected by the review UI or API response.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.5,
+        "Integration": 0.4,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

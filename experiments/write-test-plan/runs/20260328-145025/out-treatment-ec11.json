@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to most recent 10 messages when full history exceeds the context window",
+      "minimum_level": "Unit",
+      "justification": "The behavior tests input construction logic—verifying the trimming happens correctly before LLM invocation. A mocked LLM can capture and inspect the exact arguments passed to it, allowing direct verification that only 10 messages are forwarded. No I/O or multi-module coordination is required; this is a single function boundary (the trimming logic).",
+      "test_description": "Mock the LLM call, pass a conversation history with 15+ messages, inspect the arguments passed to the mocked LLM, and verify only the last 10 messages are included. Assert the trimmed payload matches the expected message subset.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "Whether a response \"addresses the question\" depends entirely on real LLM output. Mocking the LLM hides prompt-engineering failures—we could stub a perfect response and the test passes, but in production the same prompt might yield generic or off-topic replies. Real LLM outputs vary due to sampling, temperature, or model differences. Testing this requires calling a real LLM and evaluating relevance (using heuristics or another evaluator).",
+      "test_description": "Call the real LLM with a test question (e.g., 'What is your refund policy?'), capture the response, and verify using a relevance evaluator (heuristic or LLM-based) that the response directly addresses the question and is not generic. Run multiple times to detect variance in output quality.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "The behavior encompasses both tone *identification* ('is this formal?') and the regeneration *trigger*. If the tone check uses an LLM (suggested by 'tone-checking step'), the identification step is non-deterministic and depends on real model behavior. Mocking the tone checker would hide cases where the real tone evaluator misclassifies or the prompt engineering is ineffective. Testing 'correctly identifies' requires a real tone check, which is likely LLM-based in modern systems.",
+      "test_description": "Generate or provide a deliberately formal response (e.g., 'As per company policy, the aforementioned issue shall be addressed in accordance with...'), pass it to the real tone checker with customer_tier='casual', verify the tone checker returns 'too_formal', and verify the regeneration trigger is activated. Inspect the regeneration request to confirm the second response is initiated.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.5,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "Mocking the database hides schema errors, missing fields, constraint violations, and timestamp precision issues. Real failure modes include: wrong timestamp format, missing regeneration records, broken foreign keys, or stale data. Testing requires a real (test) database to verify schema correctness, data integrity, and temporal accuracy. Multiple modules (LLM, tone check, persistence layer) must be wired together to verify all records are created with correct relationships.",
+      "test_description": "Trigger a conversation with regeneration (by mocking the tone check to return 'too_formal'), query the database directly, and verify: (1) three records exist (user message, initial response, regenerated response), (2) timestamps are chronologically ordered and in the expected format (ISO 8601, millisecond precision, etc.), (3) the regenerated response is correctly linked to the user message or conversation ID, (4) no orphaned or duplicate records.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, second response replaces the first — the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "Testing 'the customer never sees the draft' requires verifying the data state at the persistence layer. Mocking the database would miss cases where the draft is incorrectly included in the conversation history record or where both versions are stored. The core failure mode is database state corruption (draft visible in conversation). At minimum, Integration testing of the database record catches this. System testing (API delivery) is a secondary concern; Integration is the critical boundary.",
+      "test_description": "Trigger regeneration (mock tone check to flag the initial response as 'too_formal'), then query the conversation history from the database or via the customer-facing API endpoint. Verify that the history contains only the final regenerated response and does not include the initially-rejected response. Inspect the response payload to confirm no 'draft_response' or 'previous_versions' fields are exposed to the customer.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

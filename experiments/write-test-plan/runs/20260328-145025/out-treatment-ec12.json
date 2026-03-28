@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The validation logic (checking for missing fields) could be tested at Unit level with pure code. However, the behavior also requires the row to appear in the DLQ **with correct row number metadata**. This crosses module boundaries: validation → DLQ serialization → DLQ write. MOCK-MISS: A pure mock of DLQ.write() would miss failures in actual message formatting, row number off-by-one errors, or DLQ connection issues. REAL-INFRA: The DLQ is I/O infrastructure (SQS, Kafka, or database queue). Minimum requires either a real test DLQ or a realistic simulator with proper state verification.",
+      "test_description": "Create a test CSV with rows having missing required fields. Write to a test PostgreSQL dead-letter table (or test message queue). Verify: (1) invalid rows appear in DLQ with original CSV row numbers intact, (2) valid rows are not present in DLQ, (3) row number metadata survives serialization/deserialization.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "Date transformation is a pure function with no I/O or state: parse input → produce output. MOCK-MISS: Mocking the date parser would hide bugs, but you don't need to mock it—test the real parser directly with various inputs. REAL-INFRA: No external systems required; the parser is deterministic and locale-agnostic (assuming it doesn't depend on system locale, which should be avoided). LLM-DEP: No LLM involved. A carefully written Unit test with parametrized inputs (ISO 8601, US 'MM/DD/YYYY', European 'DD/MM/YYYY', edge cases like leap years) will catch transformation logic failures.",
+      "test_description": "Parametrized Unit test: call the date transformation function with inputs like '2024-01-15' (ISO), '01/15/2024' (US), '15/01/2024' (European), '2024-02-29' (leap year), and verify each produces the canonical format (e.g., 'YYYY-MM-DD'). Also test invalid formats (should raise or return error sentinel). Assert that 100 random date permutations all produce valid canonical format.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "This is a resource-boundary and performance behavior that requires real runtime infrastructure. MOCK-MISS: Mocking S3 reads and database writes could hide memory leaks or streaming inefficiencies. If you mock large data structures in-memory, you won't see the same memory pressure as real streaming from S3. REAL-INFRA: Memory behavior is OS-dependent; timeout enforcement depends on system resources and load. Real S3 streaming has different memory patterns than mock. MULTI-STEP: No agentic component, but the scale and resource constraints are real. Minimum requires real (or realistically scaled) S3 streaming, real data, real memory monitoring, and real timeout execution environment. Cannot be meaningfully tested without real OS resource constraints.",
+      "test_description": "System integration test: Use a real 500K-row CSV (or generate one dynamically) in a test S3 bucket (AWS S3 or LocalStack). Configure a timeout (e.g., 60 seconds). Run the pipeline and monitor memory usage with `psutil` or OS profiling. Assert: (1) process completes before timeout, (2) peak memory stays below threshold (e.g., 2GB), (3) streaming does not load entire CSV into memory at once. Fail the test if memory spikes indicate buffering of all rows.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "Retry logic spans multiple modules (HTTP client, backoff calculator, batch orchestrator). MOCK-MISS: A Unit test with mocked time and mocked S3 could test retry counts, but might miss: timing artifacts (actual delays vs. mocked time), integration with real async/await semantics, or orchestration logic that fails the batch despite retries. REAL-INFRA: The backoff timing and S3 error modes require realistic I/O semantics. Integration test can mock S3 (return 503 on first N attempts, then succeed) while using real async timing and observing actual backoff intervals. MULTI-STEP: No agentic, but the orchestration is complex enough to warrant integration testing.",
+      "test_description": "Integration test: Mock S3 to return 503 Forbidden for first 3 requests, then return success. Inject a request interceptor or use a test double that tracks request timing. Run the pipeline and verify: (1) retries occur (count ≥ 3), (2) intervals between retries increase exponentially (e.g., 1s, 2s, 4s), (3) batch processing continues and does not fail after S3 recovers. Assert that total elapsed time is > sum of backoff intervals (proving delays happened).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.32,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "System",
+      "justification": "Idempotency across process restarts depends on real database semantics and OS process lifecycle. MOCK-MISS: Mocking the database or simulating a 'restart' with code flags would hide real idempotency failures. Real PostgreSQL transactions, constraints, and UPSERT/INSERT … ON CONFLICT logic are required. REAL-INFRA: Actual process restart is OS behavior; state durability across restarts depends on real transaction logs and checkpoints. REAL-DB: PostgreSQL's constraint enforcement (e.g., unique indexes, UPSERT) and transaction visibility are required to catch duplicate-prevention failures. Cannot be tested by simulating state reset in code—must verify that killing and restarting the actual process does not duplicate rows.",
+      "test_description": "System test: Insert a checkpoint/offset file or write a row number tracker to disk. Run the pipeline with a large batch (e.g., 10K rows). Kill the process mid-batch (SIGKILL or process.terminate()) after N rows have been written to PostgreSQL. Query the database and record row count. Restart the pipeline (resume from checkpoint). Let it complete. Query again and verify row count has not increased (or increased only by the remaining rows, not duplicates). Repeat 5 times with different kill points to ensure idempotency holds across all restart scenarios.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.25,
+        "System": 0.7,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that thresholds are loaded from the actual configuration source (database, config file) and correctly applied to score calculation. A Unit-level test with hardcoded thresholds would miss failures like wrong threshold being selected from config, incorrect merchant-category mapping, or threshold not being updated when config changes. The failure boundary spans both config-loading logic and score-calculation logic, making pure mocks insufficient to catch real bugs in threshold resolution.",
+      "test_description": "Load configured amount thresholds from the database or config system for specific merchant categories. Create a transaction with an amount exceeding the configured threshold, pass it to the scoring model, and verify the returned risk score reflects the threshold breach (e.g., is in a high-risk range). Repeat with different merchant categories and threshold values to verify correct per-category threshold selection.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test explicitly loads thresholds from the configuration system rather than hardcoding them, which is necessary to catch threshold-loading bugs that Unit-level mocks would miss.",
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.6,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "Pattern detection depends on the model correctly accessing and processing transaction history, merchant data, and device information. A Unit-level test with mocked synthetic history would miss real failures: incorrect database query filters (wrong time window, missing user filter), data aggregation bugs, or missing joins between transaction and merchant tables. The risk model's classification logic itself is only part of the failure boundary; the other part is whether the input data is correctly assembled from multiple sources.",
+      "test_description": "Create a sequence of realistic transactions for a single user (e.g., 5 small purchases within 2 hours from different geographic locations) that individually fall below amount thresholds. Load the user's actual transaction history from the database, with merchant categories and device fingerprints populated. Call the risk model with the new transaction and verify it flags it as fraudulent (probability exceeds threshold), despite no single transaction or single rule triggering the scoring model's thresholds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test loads real transaction history and data from the database rather than synthetic mocks, which is necessary to catch failures in query logic, data aggregation, and cross-table joins.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "Velocity check requires querying transaction history and correctly filtering by user ID and timestamp boundaries. Real failures include: off-by-one errors, inverted timestamp comparisons (< vs <=), wrong time window values, or per-user scoping bugs (counting across users). A Unit-level mock could verify counting logic in isolation, but would miss query-construction failures—wrong WHERE clause, missing user filter, or incorrect timestamp range. The failure boundary is at the database access layer, not just the arithmetic.",
+      "test_description": "Create multiple transactions for a single user at varying timestamps within and outside a configured time window (e.g., 10 transactions within 1 hour, 5 transactions outside). Query the velocity check and verify it reports exactly the count of transactions within the window. Repeat with a different user and verify the count is independent (per-user scoping). Test boundary conditions: transactions at exact window edges and one second outside the window.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies per-user transaction counting from the actual database, which is necessary to catch query construction and filtering bugs that Unit mocks would not expose.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests the combining logic itself: whether the orchestration layer correctly implements OR semantics. A real failure is the combining logic using AND instead of OR, or one model's result being ignored. These are pure logic failures that can be caught at Unit level by mocking both models with specific flag combinations (risk=true/scoring=false, risk=false/scoring=true, etc.). The failure is not about data flow or module integration, but about the binary operation on two flags. Mocking prevents false passes by allowing precise control of each model's output.",
+      "test_description": "Mock the risk model to return flag=true, fraud_probability=0.95, and the scoring model to return flag=false, score=0.3. Call the transaction evaluation orchestration logic. Verify the transaction is marked for review or placed in the hold queue. Repeat with risk=false, scoring=true to verify OR logic. Test both flags true and both false to verify the truth table.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses mocked models and verifies only the combining logic via truth-table test cases, which is appropriate for Unit level.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Integration",
+      "justification": "Output correctness requires both models to produce results and the orchestration layer to correctly extract and combine them into the final response structure. A Unit-level test with mocked model results could verify the output shape (fields present), but would miss real failures: wrong field values, serialization bugs, missing attribution logic, or incorrect data types. The failure boundary spans model result extraction, combining, and output formatting—all of which depend on modules working together correctly.",
+      "test_description": "Run the full evaluation pipeline on a transaction (both scoring and risk models, with real implementations or realistic mocks that return the expected data structure). Verify the final output object contains: (1) a 'risk_score' field with the numeric value from the scoring model, (2) a 'fraud_probability' field with the value from the risk model, (3) a 'model_attribution' field indicating which model(s) flagged the transaction (e.g., 'risk_model', 'scoring_model', or both). Test output serialization (JSON/protobuf) to catch format issues.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test runs the full pipeline through both models and verifies the complete output structure, which requires Integration to catch orchestration and serialization bugs.",
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.6,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

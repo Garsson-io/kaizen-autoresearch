@@ -17,7 +17,7 @@
 
 import { readdirSync, readFileSync, existsSync, realpathSync } from "fs";
 import { join, basename } from "path";
-import { PATHS } from "./paths.js";
+import { PATHS, getRunDir } from "./paths.js";
 
 interface BehaviorThinking {
   task: string;
@@ -250,8 +250,7 @@ if (!runArg) {
   process.exit(1);
 }
 
-const runsBase = PATHS.runs;
-const runDir = join(runsBase, runArg);
+const runDir = getRunDir(runArg);
 
 if (!existsSync(runDir)) {
   console.error(`Run directory not found: ${runDir}`);

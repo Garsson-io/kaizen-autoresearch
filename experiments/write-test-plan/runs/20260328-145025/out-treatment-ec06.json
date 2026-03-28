@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of watched root are processed, not only root-level files",
+      "minimum_level": "Integration",
+      "justification": "Real failure: watcher not configured for recursive monitoring or recursive events not processed. A mock watcher would hide whether the daemon correctly enables recursive option on chokidar/fs.watch. Must use real filesystem with actual watcher receiving events from subdirectories to catch misconfiguration of the recursive flag.",
+      "test_description": "Create real filesystem directory structure with watched-root/subdir/, write file to subdir/, verify daemon processes it. Run in-process with real chokidar to test actual recursive event behavior without subprocess overhead.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication cache correctly filters second request for same file path within configurable time window",
+      "minimum_level": "Unit",
+      "justification": "Real failure: dedup cache logic has boundary error (off-by-one in timestamp comparison, wrong cache key, premature eviction). This is pure business logic. Mock the clock deterministically with jest.useFakeTimers, exercise the dedup cache directly: assert first call returns true, second call within window returns false. No filesystem or subprocess needed.",
+      "test_description": "Unit test the DeduplicationCache class: construct with 5000ms window, call shouldProcess('file.txt'), fast-forward time by 2000ms, call shouldProcess('file.txt') again, assert second returns false; fast-forward to 5001ms and assert next returns true. Verify timestamp comparison and cache eviction logic.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Single file write that emits multiple filesystem events is processed exactly once",
+      "minimum_level": "Integration",
+      "justification": "Real failure: daemon receives multiple 'change' or 'add' events for one file and processes it twice. A mock watcher that only emits one event hides the true OS behavior (macOS often emits multiple events, Linux behavior varies). Must use real watcher (chokidar/fs.watch) to receive actual OS events. Can test in-process by repeatedly triggering write events on same file and verifying single pipeline invocation.",
+      "test_description": "Integration test with real filesystem: create test file, manually emit two synthetic 'change' events from the watcher to the daemon's event handler (or write multiple times rapidly), verify file transformation pipeline runs exactly once (count invocations via spy on transformer). Real chokidar ensures we exercise actual event coalescing logic.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Watched directory removal and recreation allows daemon to resume watching without restart",
+      "minimum_level": "Integration",
+      "justification": "Real failure: when OS removes watched directory, watcher throws error or stops emitting events, and daemon lacks recovery logic (no error handler, no retry). Mocking fs.watch would never throw an error. Must use real filesystem operations (rmdir, mkdir) and real watcher to trigger the actual error condition. Testing recovery logic requires catching real watcher errors in-process.",
+      "test_description": "Integration test: start daemon watching real directory, call fs.rmdir on watched path, verify daemon catches watcher error (error event or promise rejection), recreate directory with fs.mkdir, verify daemon re-establishes watcher and processes new files. Spy on watcher.close() and watcher = chokidar.watch() calls to verify reconnection logic.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Multiple files arriving simultaneously are processed in creation-timestamp order, not arrival order",
+      "minimum_level": "Integration",
+      "justification": "Real failure: daemon processes files in event arrival order instead of ctime order (e.g., file2 arrives first but file1 has earlier ctime, file2 gets processed first). Pure sorting logic can be unit-tested if isolated, but the real failure includes incorrect ctime reading from filesystem. Integration test with real filesystem ensures fs.stat() returns actual ctimes and sort order is respected end-to-end.",
+      "test_description": "Integration test with real files: create 3 files with staggered ctimes (using fs.utimesSync to set explicit mtime/atime, or natural creation delays), trigger events rapidly to simulate concurrent arrival, verify daemon processes in ctime order by logging transformation invocation sequence. Verify that event arrival order ≠ processing order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "File still being written when event fires is not processed until write completes",
+      "minimum_level": "Integration",
+      "justification": "Real failure: daemon calls file transformer on incomplete file (partial read, truncated content), producing corrupted or wrong output. Mocking file read would always return complete content. Must use real filesystem with real in-progress file handle to test the daemon's wait-for-completion logic (size stability check, file lock detection, stat mtime polling, etc.).",
+      "test_description": "Integration test: open file handle for writing, allow daemon to detect file arrival event, verify daemon does NOT invoke transformer yet (spy on transformer call count = 0), write more data to the file, check stat to confirm file size changes, wait for daemon's stability check to pass, then close file handle, verify transformer is now invoked exactly once with complete file content.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

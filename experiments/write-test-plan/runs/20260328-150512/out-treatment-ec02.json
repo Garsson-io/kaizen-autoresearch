@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature (HMAC mismatch) rejected with 401; body not forwarded to queue",
+      "minimum_level": "Unit",
+      "justification": "Core logic is signature verification + conditional routing in one handler. Failure modes are: (a) invalid signatures not rejected, or (b) still forwarded despite invalid sig. Both caught by mocking the queue and asserting it's never called. No external I/O, async coordination, or cross-service boundary testing required.",
+      "test_description": "Mock the request with X-Signature-256 header that does NOT match the body. Verify handler returns 401 status code. Assert the queue's enqueue() was never called. Test both mismatched digest and missing header cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event written to queue BEFORE HTTP 200 returned to sender",
+      "minimum_level": "Integration",
+      "justification": "A synchronous mock queue hides the real failure—test would pass even if code sends response first. Requires wiring handler + queue with a test double that has observable latency or order tracking. Real failure: response sent before queue.enqueue() completes, violating acknowledgment contract. Tests ordering of operations across two components.",
+      "test_description": "Wire handler with a test double queue that tracks enqueue() call timing. Instrument the HTTP response path to track when 200 is sent. Verify queue.enqueue() completes before response is sent. Use a queue test double with artificial latency (e.g., 100ms) to make ordering observable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without awaiting downstream processing",
+      "minimum_level": "Integration",
+      "justification": "Synchronous mock queue always passes—it returns instantly, so handler never blocks. Real failure (handler blocks on downstream) only caught if queue/processor is async and potentially slow. Requires integrated handler + async queue with concurrent execution. Tests non-blocking I/O and async coordination.",
+      "test_description": "Wire handler with a queue test double that simulates async processing (5+ second background task). Send a request, measure time to HTTP 200 response (should be <100ms). Assert the response arrives before background processing completes. Verify handler doesn't await the processor.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response time <3 seconds wall-clock even with slow concurrent processing of earlier events",
+      "minimum_level": "Integration",
+      "justification": "Instant mock queue always passes. Real failure (handler serializes, or previous event blocks current one) only caught under actual concurrent load. Requires handler + queue handling concurrent requests with realistic latency. Wall-clock timing assertions need real event loop scheduling and async behavior.",
+      "test_description": "Wire handler with test double queue supporting concurrent processing. Enqueue event A (2 second processing). Immediately send request B. Measure wall-clock time from B's arrival to 200 response. Assert <3 seconds. Repeat with varying load (5+ concurrent requests) to catch head-of-line blocking bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Same event ID not enqueued a second time (idempotency)",
+      "minimum_level": "Integration",
+      "justification": "Real failure is duplicate enqueuing causing duplicate processing. If handler enforces dedup (in-memory cache), Unit test suffices. But if queue enforces uniqueness or handler queries queue before enqueuing, requires Integration. Conservative estimate: queue enforcement. A mock queue that doesn't track IDs would hide duplicates.",
+      "test_description": "Send event with ID=X. Verify queue.enqueue() called once with correct payload. Send identical event again (same ID, same body). Assert queue.enqueue() is not called a second time OR queue.getEvents() shows exactly one item with ID=X. Handle both in-memory dedup and queue-side enforcement patterns.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.45,
+        "Integration": 0.5,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Full queue returns 503 with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "Error handling in one function: queue raises 'full' error → handler catches → returns 503 + Retry-After. Mock queue throwing an exception is sufficient. No coordination with external services or async behavior required. Pure conditional error handling logic.",
+      "test_description": "Mock queue to throw a custom 'QueueFullError' when enqueue() is called. Send a valid webhook request. Assert HTTP response status is 503. Assert Retry-After header is present and contains a valid integer (e.g., 60 seconds). Test that response body indicates transient error (not permanent failure).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces configured capacity limit",
+      "minimum_level": "System",
+      "justification": "Explicitly tests the 'actual' queue's enforcement. Mock queue can't catch this—it's about real queue implementation (DB constraints, broker limits, OS resources). If queue is out-of-process or backed by durable storage, requires System level. Real failure: queue silently accepts beyond-capacity items or crashes under load.",
+      "test_description": "Configure queue with capacity=N (e.g., 100). Use real queue instance (not mock). Send N valid webhooks, verify all N are stored. Attempt to enqueue (N+1)th item. Verify it's rejected (exception or error response). Check queue size is still exactly N, not N+1. Test with concurrent sends to catch race conditions in capacity enforcement.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "To verify order, we must execute migrations against a real database and confirm that earlier-numbered migrations complete before later ones. A unit test mocking the database could verify that execute() calls happen in the right sequence, but would miss real failures where the filesystem returns files in unexpected order, or where the sorting logic has edge cases (e.g., '9' vs '10'). A real or containerized PostgreSQL with actual migration files proves the full chain works.",
+      "test_description": "Set up a test PostgreSQL database with three migrations (01_create_users.sql, 02_create_posts.sql, 03_add_indexes.sql). Run the migrator. Query the _migrations table and verify entries are ordered by applied_at timestamp, or by join with schema metadata that proves tables were created in order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency requires verifying that the runner queries _migrations, sees a prior entry, and skips execution. While mocking the database could verify call ordering (Unit), a real database test catches subtle failures: does the query actually find the row? Does the SQL condition correctly match? Are there race conditions on the query? Integration testing with a containerized PostgreSQL ensures the SELECT and skip logic work against real row formats and indexes.",
+      "test_description": "Run the migrator once against a test PostgreSQL database, verify the migration applied and recorded in _migrations. Run again and verify: (1) the SQL statement is not re-executed, (2) no duplicate row appears in _migrations, (3) the runner exits cleanly without error.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback is a database-specific behavior that cannot be mocked accurately. Real PostgreSQL might permit partial DDL rollback under some conditions, reject it under others, or exhibit lock behavior that a mock would miss. The only way to verify rollback works is to execute real SQL against a real PostgreSQL instance, intentionally trigger a failure (e.g., constraint violation or syntax error), and inspect the database state before and after the failed migration.",
+      "test_description": "Create a test migration suite where the second migration contains a deliberately broken SQL statement (e.g., 'INSERT INTO nonexistent_table'). Run the migrator. Verify: (1) the first migration was applied successfully, (2) the second migration failed and was rolled back (inspect that no partial changes persist), (3) the third migration was never attempted, (4) the _migrations table has only one entry (the successful first migration).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Concurrency correctness depends on real database locking primitives (e.g., PostgreSQL advisory locks) and real process scheduling. The behavior explicitly states 'two instances of the runner start at the same time'—this requires spawning actual subprocesses (System level). Mocking cannot replicate race conditions, lock timeouts, or deadlock scenarios. Only real process concurrency against a real PostgreSQL with real locks will expose failures like: one process holding a lock too long, lock release on connection failure, or incorrect lock key scope.",
+      "test_description": "Spawn two Node.js processes concurrently, both pointing to the same test PostgreSQL database. Each process runs the migrator with the same migration suite. Use database polling and process synchronization to ensure they start within a narrow time window. Verify: (1) each migration is recorded exactly once in _migrations, (2) no duplicate entries exist, (3) both processes complete without locking errors, (4) the final schema state is correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "Creating the table before applying migrations is an ordering and schema constraint. Unit mocking could verify the CREATE TABLE statement is issued before migration statements, but would miss real failures: malformed CREATE TABLE SQL, missing columns in the schema, or the table not actually existing in the database when the first migration tries to insert. Integration testing against a containerized PostgreSQL verifies that the table schema is correct and usable immediately after creation.",
+      "test_description": "Point the migrator at a fresh PostgreSQL database with no _migrations table. Run the migrator. Verify: (1) the _migrations table exists after the run, (2) the table schema matches expectations (correct columns, indexes, constraints), (3) the first migration's entry appears in _migrations, (4) no errors occur about the table not existing during the first migration.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

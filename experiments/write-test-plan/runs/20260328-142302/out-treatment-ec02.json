@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject requests with invalid HMAC-SHA256 signature, returning 401 and not forwarding the body to the queue",
+      "minimum_level": "Unit",
+      "justification": "The real failure is a logic bug in the handler: signature validation is skipped or ignored, so invalid requests are forwarded anyway. This is testable with a mocked queue at the handler boundary. The signature validation itself is pure cryptographic computation (no I/O). A unit test can verify: given an invalid signature, the queue's enqueue() method is NOT called. Mocking the queue is sufficient because the failure is in the handler's control flow, not in the queue's behavior.",
+      "test_description": "Unit test: mock the queue, call handler with a request whose X-Signature-256 header doesn't match the body, assert HTTP 401 response and queue.enqueue() was never called.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event must be written to the persistent queue and the write must durably complete BEFORE the HTTP 200 response is sent to the client",
+      "minimum_level": "Integration",
+      "justification": "The real failure is subtle: the handler might return the response before the persistent queue durably acknowledges the write (e.g., before a disk flush or replication completes). A mock queue that responds synchronously would hide this timing issue—the test would pass even if the real queue's async flush happens after the response is sent. We must test against a persistent queue (in-memory DB, test file, or equivalent) that enforces durability guarantees and exposes the actual async I/O behavior. This catches the case where the handler does `queue.write(); res.send()` without awaiting.",
+      "test_description": "Integration test: use a test-backed persistent queue (e.g., in-memory with durability semantics), call handler, verify the queue has recorded the event BEFORE the HTTP response completes. Can use a counter or timestamp to verify ordering: queue.write() must resolve before res.send() returns.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP 200 response immediately after queuing the event, without waiting for downstream async processing of the event to complete",
+      "minimum_level": "Unit",
+      "justification": "The real failure is a handler logic bug: the handler waits for downstream processing (or the queue's internal processing) before returning the response. This is testable with a mock of the downstream/queue component that has controllable timing (e.g., a slow mock that takes 5 seconds to resolve). A unit test can verify: the HTTP response is returned before the downstream mock completes. Mocking is safe here because the failure is in the handler's control flow (whether it awaits something it shouldn't), not in the downstream system's behavior.",
+      "test_description": "Unit test: mock the queue or downstream processor with a 5-second artificial delay, call handler, measure wall-clock time to first byte of HTTP 200 response, assert response arrives in <100ms (well before the 5-second delay).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Even when downstream processing of earlier events is slow and concurrent, the handler returns an HTTP response within 3 seconds wall-clock time for new incoming requests",
+      "minimum_level": "Integration",
+      "justification": "The real failure is performance-related: under concurrent load, the event loop blocks, response queuing lags, or the handler has some synchronous I/O that serializes requests. A unit test with mocked downstream doesn't reveal this because all operations are mocked/synchronous. We must test with real concurrency: send N concurrent webhook requests while downstream is slow (mocked but with realistic latency), and measure actual wall-clock response times. This catches blocking I/O, event loop starvation, or queue contention that would only show up under realistic async load.",
+      "test_description": "Integration test: use a test queue and mock downstream that introduces a 2–5 second delay per event. Send 10–20 concurrent webhook requests (using Promise.all or similar concurrency primitive). Measure wall-clock response time for each request. Assert that all responses complete within 3 seconds, even the last one in the queue.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time (idempotency / deduplication)",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a durability/persistence issue: the deduplication store (whatever tracks seen event IDs) is not persistent across service restarts, crashes, or multiple instances. A unit test with an in-memory mock of the dedup store would pass even if the real system loses dedup state on restart. We must test with a persistent dedup store (e.g., Redis, in-memory database with persistence semantics, or a test fixture that survives process boundaries) to verify the deduplication actually prevents duplicate queue writes.",
+      "test_description": "Integration test: send two webhook requests with the same event ID, separated by a delay or service restart (if testing persistence across restarts). Assert the queue contains exactly one entry for that event ID (not two). Alternatively, mock the persistent dedup store such that it returns 'not seen' on the second request, then verify the queue.enqueue() is not called.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports that it is full, the handler returns HTTP 503 with a Retry-After header; the event is not enqueued",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the handler ignores queue.isFull() or doesn't check capacity before attempting to enqueue. While the logic check could be done at unit level (mock queue returns isFull=true, assert 503), we need integration testing to verify the handler actually respects the real queue's capacity limit during operation—catching cases where the queue's size tracking is incorrect or the capacity threshold is wrong. A mock always returns the expected value, so we'd miss a subtle bug where the real queue's capacity checking is off-by-one or doesn't match the handler's expectation.",
+      "test_description": "Integration test: use a real (or testable) queue with a small configured capacity (e.g., 5 events). Send events until the queue is full. Assert the 6th request returns HTTP 503 with a Retry-After header. Verify that the queue's internal count matches expectations and the event was NOT enqueued. If using a mock, the mock should simulate real capacity constraints: actually fail to enqueue when full, not just return a flag.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue enforces its configured capacity limit and rejects events that would exceed it",
+      "minimum_level": "Integration",
+      "justification": "This behavior is testing the queue implementation itself (not the handler). The real failure is a bug in the queue's capacity enforcement: it allows N+1 events when the limit is N, or it miscounts, or garbage collection doesn't shrink the queue. A unit test of the queue in isolation with mocks of storage would pass regardless. We must test the actual queue implementation with real (or realistic) persistent storage: create a queue with capacity=5, insert 5 events, attempt to insert a 6th, assert rejection. This catches off-by-one errors, race conditions in the count, or storage backend issues that would only appear in integration.",
+      "test_description": "Integration test: instantiate the persistent queue with a configured capacity limit (e.g., 5). Insert exactly 5 events and assert all succeed. Attempt to insert a 6th event and assert it is rejected (raises an exception or returns a failure code). Verify the queue's internal size counter is correct. Optionally, test boundary conditions: insert at limit-1, limit, and limit+1.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history passed to LLM is trimmed to the most recent 10 messages when exceeding the context window",
+      "minimum_level": "Unit",
+      "justification": "This is a pure data-transformation concern (trim history, call LLM with trimmed input). We can mock the LLM and directly assert what input it received. A mock won't hide this failure—if the trimming logic is broken (e.g., off-by-one, wrong slice), we'll see it in the mocked call's arguments. No I/O, OS dependency, or LLM quality matters here.",
+      "test_description": "Mock the LLM client. Create a conversation history larger than the context window. Call the chatbot logic and assert the mocked LLM received exactly the last 10 messages (or fewer if history is shorter than 10). Verify no messages before the window boundary were included.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses the customer's question rather than producing generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "This is fundamentally an LLM output quality check. A mock LLM can return anything—generic, off-topic, or nonsensical—and a mock won't reveal the failure. You cannot verify relevance without a real LLM call. The failure you're guarding against ('model produces off-topic response') is invisible to unit or integration tests. You need to invoke the actual model and evaluate the response.",
+      "test_description": "Call the real LLM with a well-defined customer question (e.g., 'How do I reset my password?'). Verify the response actually addresses that question and is not generic (e.g., 'I'm here to help') or off-topic (e.g., product features unrelated to the question). Use criteria like: response mentions the reset process or relevant keywords, and is not a boilerplate template.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.95,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "The behavior has two components: (1) tone-check *correctly identifies* formality—this requires real evaluation of tone, almost certainly via LLM (heuristics are fragile), and (2) regeneration is triggered. Mocking the tone-checker would hide whether it actually works. The real failure—'model generates formal response that isn't caught, so customer sees it'—requires a real tone-evaluation mechanism (LLM-based or learned classifier). The regeneration flow is a bonus; the critical part is tone detection accuracy.",
+      "test_description": "Call the real LLM to generate an initial response with formal language patterns (e.g., 'We shall endeavor to resolve...', 'Kindly be advised...'). Invoke the tone-check with the customer tier set to 'casual'. Verify the tone-check flags the response as too formal. Confirm regeneration is triggered with an updated prompt emphasizing casual tone. Verify the regenerated response uses conversational language and is actually different from the first.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange (user message, generated response, any regenerations) is persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the database write. Mocking the DB client won't catch schema mismatches, timestamp corruption, missing fields, or write-order issues. You need a real (or real-like) database to verify schema, field cardinality, and timestamp accuracy. The LLM quality is irrelevant here—you can mock it to return consistent responses. But the DB persistence logic must be tested against actual DB behavior (even an in-memory test DB like SQLite).",
+      "test_description": "Mock the LLM to return a deterministic response. Call the chatbot, passing a user message, conversation history, and customer metadata. Query the test database and verify: (1) a record exists with the user message, generated response, and customer tier, (2) all timestamp fields (created_at, updated_at, etc.) are present and are recent ISO8601 datetimes, (3) no fields are null except those explicitly optional, (4) if regeneration occurred, verify the regenerated response is in the record (not the first attempt).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first—customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "The failure is: first (rejected) response is stored or returned, even though tone-check flagged it. To catch this, you need a real database to verify only the regenerated response is persisted, and you need to verify the API response returned to the customer is the second one. You can mock both LLM calls (first returns formal, second returns casual) because the logic being tested is 'discard first, keep second', not the quality of the responses. The minimum infrastructure is a real DB + business logic test; a mock DB would hide persistence bugs like 'stored both responses' or 'stored in wrong order'.",
+      "test_description": "Mock the LLM: first call returns a formal response, second call returns a casual response. Invoke the chatbot flow. Verify: (1) the tone-check flags the formal response as inappropriate for the customer tier, (2) regeneration is triggered, (3) the database contains exactly one response record with only the casual response (not the formal one), (4) the API response body returned to the customer is the casual response, not the formal response, (5) if the customer later queries their message history, they see only the final response, not both.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    }
+  ]
+}

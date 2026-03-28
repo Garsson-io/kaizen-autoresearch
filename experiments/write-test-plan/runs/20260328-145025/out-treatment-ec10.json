@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Review input is scoped to only the changed lines in the diff, not the full file content",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: code reads the full file instead of limiting analysis to the changed diff lines. A Unit test of the line-extraction function in isolation could pass while the code incorrectly reads full files elsewhere. You need to mock the GitHub API (or git diff provider) AND verify the code doesn't request content outside the diff range. This requires Integration-level wiring: fake GitHub that tracks what was requested, with assertions that full-file reads never occur for the diff analysis path.",
+      "test_description": "Mock GitHub API to return a diff with 3 changed lines in a 500-line file. Instrument the mock to track all file-content requests. Verify that the code requests only the 3 changed lines (or a reasonable window around them), never the full 500 lines. Run the analysis and confirm no full-file reads occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is necessary: Unit tests can't verify 'this function doesn't call that function inappropriately,' but Integration-level mocking with request tracking can.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.7,
+        "System": 0.3,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions (line numbers) in the diff view",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: line-number mapping is incorrect (off-by-one, confusing file line numbers with diff line numbers, etc.). A Unit test of the mapping function alone could pass with correct logic, but the integration with GitHub API calls could still send wrong line numbers. Integration-level test mocks GitHub API and verifies the exact line numbers passed in each POST comment request match the expected diff positions. This catches both function-level bugs and API-contract mismatches.",
+      "test_description": "Create a mock GitHub API that records all comment POST requests. Submit a diff with changes on lines 10, 25, and 40 (file-absolute numbering). Invoke the code to post comments at those positions. Verify that each POST to the GitHub comment endpoint includes the correct line numbers (in diff-context coordinates, not file-absolute). Fail if any comment was posted with an off-by-one or mismatched line number.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration catches this because you can mock GitHub and spy on the requests. System (real GitHub) could verify visual rendering, but that's overkill; the code either sends the right line number or it doesn't.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Agent identifies at least one real defect in a pull request that contains a known introduced bug",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is: the LLM fails to detect a bug that is objectively present in the code. A mocked LLM (returning canned 'defect found' / 'no defects' responses) would always pass or always fail regardless of real LLM capability. Only a real LLM call can demonstrate whether the agent's prompt, context window, and reasoning actually cause it to identify the bug. This is non-deterministic—the same bug and LLM might be identified 95 times in 100 runs due to temperature, instruction phrasing, token selection variance. You cannot mock your way out of this.",
+      "test_description": "Prepare a real pull request with a known, realistic bug (e.g., missing null check, uncaught exception in a branch, off-by-one in a loop). Invoke the agent with the real LLM (e.g., Claude, GPT-4, etc.) to analyze this PR. Run this test multiple times (N ≥ 5) to account for LLM non-determinism. Assert that the defect is identified in at least 80% of runs. Record which LLM, model version, and temperature were used.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic is mandatory here. The success criterion depends entirely on real LLM judgment and is not deterministic.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the summary comment corresponds to an inline comment that was posted; no orphan findings in the summary",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: the code posts an inline comment but forgets to add it to the summary, or vice versa (summary includes a finding that has no inline comment). This is a deterministic data-flow bug in code orchestration, not dependent on LLM variance. A Unit test of the 'matching' function alone could pass while the full workflow logic loses a comment due to async handling, exception swallowing, or state-management bugs. Integration-level test mocks GitHub API, collects all comment requests and the summary request in a transaction, then verifies that every comment.text is referenced in summary.text and vice versa.",
+      "test_description": "Mock the GitHub API to capture all requests (inline comments and summary POST). Run the full analysis on a PR with 3 identified findings. Assert that exactly 3 inline comments were posted AND the summary contains exactly 3 findings, and that each finding's text appears in both a comment and the summary. Check for no orphan findings (in summary but not posted) and no posted comments missing from the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is sufficient: you can mock GitHub, inspect all requests, and verify consistency without needing real infrastructure. A Unit test might verify the matching logic alone, but wouldn't catch if comments are lost during async posting or summary generation.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full sequence (read diff → post inline comments → post summary) completes without error or manual intervention for a real PR",
+      "minimum_level": "Workflow",
+      "justification": "The failure mode is: the end-to-end pipeline fails, times out, or requires manual intervention at some step. This crosses the Agentic boundary because it includes LLM calls (non-deterministic, variable latency, potential errors) AND orchestration boundaries (retries, error handling, state passing between steps). It cannot be caught by Integration mocks because mocks hide rate limits, network partitions, LLM service unavailability, and token limits that only appear in production. It requires running the real LLM, real GitHub API, and verifying the orchestration layer handles transient failures correctly. This is a full agent workflow: multiple steps including agentic inference, wired together with error handling and state propagation.",
+      "test_description": "Execute the review agent on a real GitHub pull request (e.g., create a test PR in a real repo, or use a staging PR). Use real LLM and real GitHub API (not mocks). Run the full sequence: diff retrieval → LLM analysis → inline comment posting → summary comment posting. Record timing, token usage, and any errors. Assert: (1) no exceptions or manual-intervention prompts, (2) all 4 steps complete within a timeout (e.g., 5 min), (3) at least one comment and one summary are posted to the actual GitHub PR. Run this test at least once per day to catch transient infrastructure issues.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Workflow is necessary: mocks would hide real failures (rate limits, service errors, orchestration bugs). System alone (real GitHub without full orchestration verification) might not catch state-passing bugs between steps. Agentic alone wouldn't verify the multi-step coordination.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.2,
+        "Agentic": 0.16,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}

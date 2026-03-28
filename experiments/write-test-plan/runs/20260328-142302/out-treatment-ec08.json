@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is pure exponential backoff logic. A Unit test can mock the API to return rate-limited responses and use Jest's fake timers to verify: (1) the calculation of exponential wait times (100ms, 200ms, 400ms...), (2) that the maximum wait time is respected, and (3) that the library actually waits the correct duration before retrying. Fake timers avoid real time consumption while preserving the ability to catch logic bugs in backoff computation and sequencing.",
+      "test_description": "Mock the API to always return rate-limited responses, enable fake timers, trigger multiple consecutive failures, and verify that wait times follow the exponential backoff curve (starting at base, doubling each time) and never exceed the configured maximum.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test executes at Unit level: single component (backoff logic), no real I/O or async concurrency concerns, mocked responses sufficient.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "This is pure response parsing and logic. A Unit test can mock various HTTP responses (rate-limit status codes, headers, retry-after values) and verify that the library correctly detects them and extracts the intended wait time. No real network, filesystem, or async concurrency is involved—just response structure interpretation.",
+      "test_description": "Mock HTTP responses with different rate-limit indicators (e.g., 429 status, Retry-After header, custom quota header), verify that the library correctly identifies each as a rate-limit and extracts the correct wait time from the response.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test executes at Unit level: isolated response parsing logic, mocked inputs, deterministic verification.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "This tests the retry flow: detect failure → wait → resend → return result. A Unit test can mock the HTTP client to return a rate-limit response on the first call and a success response on the second, then verify that (1) the retry was actually issued (by counting mock calls), (2) the request parameters match the original, and (3) the result is returned transparently to the caller. Fake timers skip the actual wait. A mock could hide bugs if verification is weak, which explains why Integration has non-trivial probability—but proper mock verification at Unit level is sufficient.",
+      "test_description": "Mock HTTP client: first call returns 429 rate-limited, second call returns success with data. Enable fake timers, call the library method, advance time past the backoff delay, and verify the second HTTP call was made with identical parameters and the original result is returned to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test can execute at Unit level with careful mock verification. The key is verifying the retry call was actually made, not just that the response was returned.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "This is error handling and type enforcement. A Unit test can mock the API to always return rate-limit responses, set maxRetries to a small number (e.g., 3), exhaust retries, and verify the thrown error is exactly the `QuotaExhaustedError` type, not Error or RateLimitError. No real infrastructure or concurrency needed.",
+      "test_description": "Mock HTTP to always return rate-limit, set maxRetries=3, call the library method, and verify it throws a `QuotaExhaustedError` instance (not a generic Error) after exactly 3 retries.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test executes at Unit level: mocked API, deterministic error type verification, no async concurrency.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "This verifies termination of the retry loop and prevents infinite loops. A Unit test can mock the API to always return rate-limit, set a test timeout (e.g., 5 seconds), call the library method, and verify it throws `QuotaExhaustedError` before the timeout. If the loop were infinite or had a bug preventing termination, the test would timeout and fail. No real I/O or concurrency needed—pure logic verification.",
+      "test_description": "Mock HTTP to always return rate-limit, set a Jest timeout of 5 seconds, call the library method with maxRetries=5, and verify it throws `QuotaExhaustedError` and completes well before the timeout (e.g., within 1 second of fake-timer advancement).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test executes at Unit level: timeout-based verification of termination, mocked API, fake timers.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This behavior depends on correct concurrent access to shared mutable state. A Unit test with a mocked quota bucket would always pass (the mock is always consistent), but real concurrency bugs—race conditions, lost updates, or synchronization errors—would not be caught. Integration testing requires a real (in-memory) quota bucket with genuine concurrent async execution: spawn multiple async tasks that call the library simultaneously, observe their quota draw behavior, and verify they all decrement from the same counter without race conditions. This is beyond pure logic and requires testing the interaction of multiple async flows.",
+      "test_description": "Create a real (in-memory) quota bucket with initial count 10. Launch 5 concurrent async calls to the library, each targeting the same quota. Mock the HTTP API to succeed immediately (no rate-limit), verify that all 5 calls complete, and that the shared quota count decreased by exactly 5 with no race conditions or double-counting.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real concurrent async execution is essential to reveal synchronization bugs. Mocking the quota would hide the exact failure this behavior targets.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This behavior depends on correct ordering under concurrent async load. A Unit test that manually checks queue logic or tests ordering sequentially would miss timing-dependent bugs that emerge only under real concurrency (e.g., request reordering due to event-loop scheduling). To catch ordering violations, Integration testing must spawn multiple concurrent async calls, throttle or block the API so they queue up, release them, and verify that the requests are dispatched (and succeed) in the order they were originally submitted. This requires real async concurrency and observation of the actual dispatch sequence.",
+      "test_description": "Mock the API to initially block (return pending promise), then unblock. Launch 5 concurrent calls to the library in a specific order (call 1, call 2, ..., call 5). Verify that the API receives them in the same order (e.g., by recording call timestamps and request IDs and asserting their sequence matches the submission order).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real concurrent async execution and timing observation are necessary to detect ordering violations. Sequential or mocked queue tests would not expose bugs that arise only under concurrent load.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

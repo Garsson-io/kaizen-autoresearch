@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "The behavior requires verifying that the system actually detects explicit images—not just that it holds flagged posts correctly. MOCK-MISS: If we mock the classifier to always return explicit=true, we pass the test even if the real model fails to detect explicit content. The failure we need to catch is: 'real explicit images go undetected by the model and are published'. This cannot be caught without a real image and real model call. AGENTIC-DEP: Correctness depends on what the real vision model classifies.",
+      "test_description": "Agentic test using real vision model. Submit a test image known to contain explicit content, verify the real model classifies it as explicit, and verify the post is stored with hold_flag=true and not published to the user feed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires actual model inference to verify the behavior. A mocked classifier would hide failures in the model itself.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "The core failure is that obfuscated hate speech goes undetected—a model robustness issue. MOCK-MISS: Mocking the classifier to always return hate_speech=true passes the test but hides the actual failure: 'the real model fails to handle obfuscation'. The behavior explicitly tests adversarial robustness (obfuscation techniques), which is entirely a model capability question. AGENTIC-DEP: Detecting hate speech through obfuscation is non-deterministic relative to implementation details; only the real model's robustness can verify this.",
+      "test_description": "Agentic test with real NLP model. Create text samples with multiple obfuscation techniques (h4t3=hate, unicode lookalikes, spacing tricks), submit each to the real text classifier, verify all are correctly flagged as hate speech despite obfuscation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Robustness to adversarial techniques is inherently a model quality test, not a pipeline logic test.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "This tests pipeline decision logic: if both classifiers return safe, the post must be published. MOCK-MISS: Mocking both classifiers to return safe=true and verifying publication does not miss any critical failures—we're testing whether the pipeline correctly implements the decision rule. We don't need real models here because the test is about logic coordination, not model correctness. REAL-INFRA: No OS/subprocess calls needed. Integration-level wiring (mocked classifiers + real publication logic) catches logic bugs.",
+      "test_description": "Integration test with mocked classifiers. Create a test post, mock both image and text classifiers to return safe/approved, invoke the full pipeline, verify the post is written to the published feed and not to the hold-for-review queue.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocked classifiers are sufficient; real models add no value for testing this decision logic.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline—image check, text check, publish decision—completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "This is a performance/latency requirement that depends on real model call times. MOCK-MISS: Integration with mocked classifiers returning instantly might show 50ms pipeline overhead and pass, but with real models (10–30s total latency) would fail. Integration testing hides the real bottleneck: actual model inference latency. REAL-INFRA: Must measure latency with real subprocess/API calls to models. System-level testing with actual model processes or realistic network calls is the boundary where latency becomes measurable.",
+      "test_description": "System test with real vision and NLP models. Submit an image + text post to the live pipeline, measure end-to-end elapsed time from submission to completion, repeat 5+ times with different images, verify latency does not exceed 5 seconds in any run.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Performance cannot be verified without real model latencies; mocked instant classifiers would always pass regardless of actual performance.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.75,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The failure to catch is a pipeline error-handling logic bug: when the vision model fails, the post is auto-approved instead of queued. MOCK-MISS: This is false—mocking the classifier to raise an exception fully tests the error path. We're testing whether the pipeline correctly implements the error-handling rule (queue on failure), not testing whether the real model actually fails. MOCK-HIDE: Mocking an exception is representative of model unavailability; it correctly exercises the error path. Integration is sufficient.",
+      "test_description": "Integration test with mocked exception. Mock the vision model to raise a connection timeout or service unavailable exception, submit an image post, verify the post is stored in a retry/pending queue and not auto-approved to the feed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocked exception correctly triggers error-handling logic; real model unavailability would behave the same way in the code path.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Integration",
+      "justification": "The primary failure is missing caching: the same image is re-classified instead of using a cached result. MOCK-MISS: Mocking the classifier and verifying it is called only once (cache hit on second call) fully tests caching logic. The phrase 'within a short window' refers to cache TTL, which is testable at Integration. However, 'borderline image' introduces some uncertainty—if the test is also about model consistency on difficult cases, Agentic would be needed. Most likely the behavior is caching-focused.",
+      "test_description": "Integration test with mocked classifier. Submit a test image to the pipeline, mock the classifier to return a consistent response, immediately resubmit the identical image, verify the classifier function is called only once (cache hit on second call) and the decision is identical both times.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Tests caching logic via mocking. If the goal is also to verify the real model produces identical results for borderline images, Agentic testing would strengthen confidence, but is not the minimum.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0.25,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}
