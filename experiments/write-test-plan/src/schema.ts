@@ -55,7 +55,7 @@ export const BehaviorOutput = z.object({
   plan_consistent: z.boolean(),
 
   /** Required when plan_consistent is false. Explain the gap. */
-  plan_consistent_note: z.string().optional(),
+  plan_consistent_note: z.string().nullish(),
 
   /**
    * Probability distribution over all 5 levels. Each value 0–100 (percent).
