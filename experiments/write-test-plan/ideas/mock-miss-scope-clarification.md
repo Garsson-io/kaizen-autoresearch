@@ -1,7 +1,7 @@
 ---
 id: mock-miss-scope-clarification
 title: Scope MOCK-MISS to the specific behavior's failure mode, not hypothetical wiring failures
-status: trying
+status: kept
 effort: low
 expected_impact: high
 targets:
