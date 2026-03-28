@@ -63,3 +63,35 @@ Read this before iterating. These are the ways the process itself broke, not the
 **Fix**: GT corrections applied. Ideas rejected before GT correction are candidates for retry — their `status: rejected` may be a false negative. Check whether the rejection was against pre-correction or post-correction GT before trusting it.
 
 **Lesson**: A rejected idea is only as reliable as the GT it was tested against. When GT changes, reconsider past rejections.
+
+---
+
+### Replaced a working section instead of adding alongside it
+
+**What happened**: `challenge-your-choice` replaced SELF-CHECK with an adversarial challenge — two changes in one (removal + addition). Score dropped -4.3. Can't attribute to removal vs addition.
+
+**Fix**: Rule in program.md: be explicit about add vs replace. Both are valid hypotheses but must be a conscious choice stated in the commit message.
+
+**Lesson**: "Replace A with B" is one hypothesis. "Remove A" and "Add B" are two. Don't conflate them accidentally.
+
+---
+
+### Reverted a no-op as if it were a regression
+
+**What happened**: `swap-question-order-only` scored 89.4 vs baseline 89.5 (delta -0.1). Reverted as "discard." This is within noise — should have been logged as no-op.
+
+**What it actually showed (positive)**: Rearranging bullets gives nearly identical results. This confirms measurement stability — same prompt content, different order → 0.1% delta. The eval is reproducible.
+
+**Policy adopted** (from autoresearch protocol): same-or-worse → revert. This is correct. But log as `no-op` (no effect) not `discard` (actively hurt). The distinction matters for future idea selection — a no-op might work in combination, while a discard actively made things worse.
+
+---
+
+### Too conservative with prompt changes
+
+**Status**: hypothesis (not yet confirmed)
+
+**Observation**: Every "add one line" change either helped slightly (+2-3) or had no effect. Every "add multiple lines" change hurt (-3 to -5). This led to a bias toward tiny changes.
+
+**Counter-hypothesis** (from user): the prompt is small enough that a few lines don't matter. Being too conservative means never making the structural changes that could produce breakthroughs. The right approach may be to make larger changes, let the prompt grow, THEN experiment with pruning once it's working well.
+
+**Evidence needed**: try a medium-effort idea (e.g. few-shot-worked-examples) and see if the size penalty is real or just noise from bad ideas.
