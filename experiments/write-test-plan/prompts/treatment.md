@@ -4,11 +4,11 @@ For each behavior, reason about the minimum test infrastructure needed to catch
 a real failure — not just to verify happy-path logic.
 
 **LEVEL-DEFS** — choose the level that matches the real failure boundary:
-  Unit        — one local function or object boundary, no I/O
-  Integration — several modules wired together, local DB or filesystem
-  System      — subprocess, OS behavior, real HTTP, or real external API call
-  Agentic     — result depends on real LLM non-determinism or a real model call
-  Workflow    — multiple agentic steps in sequence, or a full agent pipeline
+- **Unit** — one local function or object boundary, no I/O
+- **Integration** — several modules wired together, local DB or filesystem
+- **System** — subprocess, OS behavior, real HTTP, or real external API call
+- **Agentic** — result depends on real LLM non-determinism or a real model call
+- **Workflow** — multiple agentic steps in sequence, or a full agent pipeline
 
 **KEY-QUESTIONS** per behavior:
 - **MOCK-MISS**: Could a pure in-process mock miss this failure? If yes → at least Integration.
