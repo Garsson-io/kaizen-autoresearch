@@ -36,21 +36,22 @@ function printTable(results: IterationResult[]) {
   };
 
   console.log(
-    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"SCORE".padStart(6)} ${"DELTA".padStart(7)} ${"IDEA".padEnd(28)} DESCRIPTION`
+    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"LOSS".padStart(7)} ${"SCORE".padStart(6)} ${"DELTA".padStart(7)} ${"IDEA".padEnd(26)} DESCRIPTION`
   );
-  console.log("-".repeat(100));
+  console.log("-".repeat(110));
 
   for (const r of results) {
     const icon = statusIcon[r.status] || "?";
+    const loss = r.loss !== null ? r.loss.toFixed(3) : "   -  ";
     const score = r.score !== null ? r.score.toFixed(1) : "  -  ";
     const delta =
       r.delta !== null
         ? (r.delta >= 0 ? "+" : "") + r.delta.toFixed(1)
         : "   -  ";
-    const idea = (r.idea_id || "").padEnd(28);
-    const desc = r.description.slice(0, 60);
+    const idea = (r.idea_id || "").padEnd(26);
+    const desc = r.description.slice(0, 55);
     console.log(
-      `${String(r.iteration).padStart(3)} [${icon}] ${score.padStart(6)} ${delta.padStart(7)} ${idea} ${desc}`
+      `${String(r.iteration).padStart(3)} [${icon}] ${loss.padStart(7)} ${score.padStart(6)} ${delta.padStart(7)} ${idea} ${desc}`
     );
   }
 }
@@ -65,9 +66,11 @@ function printSummary(results: IterationResult[]) {
   );
 
   const scores = results.filter((r) => r.score !== null).map((r) => r.score!);
+  const losses = results.filter((r) => r.loss !== null).map((r) => r.loss!);
   const baselines = results.filter((r) => r.status === "baseline");
   const latest = baselines[baselines.length - 1];
-  const best = Math.max(...scores);
+  const bestScore = scores.length > 0 ? Math.max(...scores) : null;
+  const bestLoss = losses.length > 0 ? Math.min(...losses) : null;
 
   console.log(`=== Results Summary ===`);
   console.log(`Total iterations: ${results.length}`);
@@ -76,10 +79,15 @@ function printSummary(results: IterationResult[]) {
       .map(([k, v]) => `${v} ${k}`)
       .join(", ")}`
   );
-  console.log(`Latest baseline: ${latest?.score ?? "none"}`);
-  console.log(`Best score: ${best}`);
+  if (bestLoss !== null) {
+    console.log(`Best loss: ${bestLoss.toFixed(3)} (lower is better)`);
+  }
+  if (bestScore !== null) {
+    console.log(`Best score: ${bestScore.toFixed(1)} (legacy, higher is better)`);
+  }
+  console.log(`Latest baseline — loss: ${latest?.loss ?? "none"}, score: ${latest?.score ?? "none"}`);
   console.log(
-    `Keep rate: ${((counts["keep"] || 0) / (results.length - (counts["baseline"] || 0))) * 100 || 0}%`
+    `Keep rate: ${(((counts["keep"] || 0) / (results.length - (counts["baseline"] || 0))) * 100).toFixed(0)}%`
   );
 
   const keeps = results.filter((r) => r.status === "keep");
