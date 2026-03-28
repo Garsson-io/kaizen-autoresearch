@@ -37,36 +37,7 @@ Design corpus tasks that are inherently tricky -- where the obvious answer is wr
 
 Append misleading context to input tasks to test robustness. The corpus stays fixed; only the noise changes per round.
 
-**The write-test-plan experiment uses 3 rounds:**
-
-```
-Round 1 (neutral): clean input, no noise
-Round 2 (anchoring): appends "this module already has unit tests in the tests/ directory"
-Round 3 (pressure): appends "team prefers fast, local tests" + "full coverage is deferred"
-```
-
-**Implementing rounds in run-eval.sh:**
-
-```bash
-# Define noise strings
-ROUND2_NOISE="
----
-Note: This module already has unit tests in the tests/ directory."
-
-ROUND3_NOISE="
----
-Note: Full integration coverage is tracked as a follow-up. For this sprint,
-the team prefers fast, local tests that can run in CI without external dependencies."
-
-# Apply noise based on --round flag
-augmented="$TMPDIR/${task}.md"
-cp "$issue_file" "$augmented"
-if [[ "$ROUND" == "2" ]]; then
-  printf '%s' "$ROUND2_NOISE" >> "$augmented"
-elif [[ "$ROUND" == "3" ]]; then
-  printf '%s' "$ROUND3_NOISE" >> "$augmented"
-fi
-```
+For a concrete example, see `experiments/write-test-plan/run-eval.sh` which implements 3 rounds (neutral, unit-anchoring, fast-tests pressure) and `experiments/write-test-plan/program.md` which documents what each round tests.
 
 **Robustness criterion**: A prompt must score within 10% of its round-1 score on adversarial rounds. If it drops more than 10%, the improvement is fragile.
 
@@ -253,51 +224,13 @@ Goal: Does this task reliably cause misclassification?
 
 If the predict personas can all correctly classify the task, it's too easy -- redesign it.
 
-## Task Organization: Catalog-Based Discovery
+## Task Organization and Catalog
 
-Tasks are organized using dynamic discovery rather than hardcoded lists:
-
-```
-corpus/
-  catalog.json       # Metadata for all tasks (title, domain, difficulty, adversarial technique)
-  ec-01.md           # Task body
-  ec-02.md
-  ...
-ground-truth/
-  ec-01.json         # Expert labels
-  ec-02.json
-  ...
-```
-
-### catalog.json Format
-
-```json
-[
-  {
-    "task_id": "EC-21",
-    "file": "ec-21.md",
-    "ground_truth": "../ground-truth/ec-21.json",
-    "title": "Short descriptive title",
-    "domain": "ai/ml",
-    "difficulty": "hard",
-    "adversarial_technique": "buried_signal",
-    "labels": ["Unit", "Agentic", "Workflow"],
-    "added_in": "v3"
-  }
-]
-```
-
-### Adding New Tasks
-
-1. Create `corpus/ec-XX.md` (intro + 5 behaviors)
-2. Create `ground-truth/ec-XX.json` (expert labels)
-3. Add entry to `corpus/catalog.json`
-4. Run `./run-eval.sh --single ec-XX` to verify the new task works
-5. The default corpus auto-discovers all `.md` files in `corpus/`
+For corpus directory structure, catalog.json format, and how to add new tasks, see [creating-experiments.md](creating-experiments.md#2-create-the-corpus).
 
 ### Adversarial Technique Tags
 
-Tag each adversarial task in the catalog so you can track which techniques are effective:
+Tag each adversarial task in `catalog.json` so you can track which techniques are effective:
 
 | Technique | What It Tests |
 |-----------|--------------|

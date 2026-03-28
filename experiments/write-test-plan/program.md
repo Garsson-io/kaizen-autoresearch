@@ -80,26 +80,11 @@ After each verify run, read `runs/latest/` output files + the scoring breakdown:
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
 ### After every batch — mine the prose reasoning
-After each bounded run or manual stop, run **`/mine-ideas write-test-plan`** (or do it manually):
-1. Extract all justifications from `runs/latest/` with predicted vs GT level and correct/under/over status
-2. Update `experiments/write-test-plan/taxonomy/` — one `.md` file per reasoning pattern, one line per occurrence
-3. Count and rank patterns by score impact (frequency x weight)
-4. Generate new ideas in `ideas/` grounded in the data
-5. Post results via **`/post-run-report write-test-plan`**
+Run **`/mine-ideas write-test-plan`** after each bounded run or manual stop. This extracts justifications, updates `taxonomy/`, and generates new `ideas/`. See CLAUDE.md "Post-run workflow" for the full process.
 
-The `taxonomy/` folder is the source of truth for failure patterns. Read it before choosing your next change.
-
-### Read ideas/ before iterating
-
-The `ideas/` folder contains prompt-improvement hypotheses with structured frontmatter and steelman/critique analysis. **Read all ideas before choosing your next change.** Each file has:
-- `status`: proposed, trying, kept, rejected, parked
-- `effort`: low, medium, high
-- `expected_impact`: low, medium, high
-- `targets`: which failure modes it addresses
-- `confusion_pairs`: which label boundaries it targets
-- Body: **Steelman** (why it would work) + **Scathing Critique** (why it wouldn't)
-
-Update `status` after trying each idea.
+### Read ideas/ and taxonomy/ before iterating
+- **`ideas/`** — hypotheses with steelman/critique. See `ideas/README.md` for schema.
+- **`taxonomy/`** — failure patterns from past runs. Source of truth for what the model gets wrong and why.
 
 ### What makes a good edit to `prompts/treatment.md`
 - ✓ Add a concrete positive example for the level the model misses
@@ -129,22 +114,14 @@ Run adversarial rounds and update `leaderboard.md`:
 
 ## Upstream knowledge: Garsson-io/kaizen
 
-The `Garsson-io/kaizen` repo is where these skills run in production. Its issues, PRs, and discussions contain incident reports, failure analyses, and theories that directly inform this experiment. Mine it for ideas using `gh`:
+See CLAUDE.md "Mining Garsson-io/kaizen for ideas" for how to search the upstream repo.
 
-```bash
-gh issue list --repo Garsson-io/kaizen --label bug --limit 20
-gh issue list --repo Garsson-io/kaizen --label area/skills --limit 20
-gh search issues "test level" --repo Garsson-io/kaizen
-```
-
-Key upstream issues already mined:
-- **#1016**: Original experiment design, round results, failure mode analysis
-- **#1020**: Corpus design constraints — vocabulary leak prevention, observable behavior framing
-- **#1014**: Incident — agent correctly identified seam but defaulted to unit-only test plan
-- **#1019**: Incident — agent self-certified PASS despite stored FAIL findings
-- **#1017**: Skill eval infrastructure vision — how this experiment fits the bigger picture
-
-When stuck or generating new ideas, search for new incidents and discussions upstream. Production failures are the best source of adversarial corpus tasks and prompt improvement hypotheses.
+Key issues already mined (ideas in `ideas/` have source attribution):
+- **#1016**: experiment design, round results, failure modes
+- **#1020**: corpus design constraints (vocabulary leak, observable behavior framing)
+- **#1014**: agent correctly identified seam but defaulted to unit-only
+- **#1019**: agent self-certified PASS despite stored FAIL findings
+- **#1017**: skill eval infrastructure vision
 
 ---
 
@@ -182,15 +159,7 @@ Full corpus is dynamically discovered from `corpus/*.md` files (currently 20 tas
 - Adversarial only: `--corpus ec-11,ec-12,ec-13,ec-14,ec-15,ec-16,ec-17,ec-18,ec-19,ec-20`
 - Single task debug: `--single ec-09`
 
-**Adversarial techniques in v2 tasks** (EC-11 to EC-20):
-- `buried_signal` — LLM dependency hidden in technical phrasing
-- `misleading_surface` — looks like AI/Agentic but is actually deterministic
-- `boundary_case` — sits on the boundary between two labels
-- `multi_step_pipeline` — multiple agentic steps that could be Workflow
-- `distractor_content` — irrelevant detail hides classification signal
-- `contradiction` — behaviors that look like one level but are actually another
-
-**Adding new tasks**: Drop a new `.md` file in `corpus/` and matching `.json` in `ground-truth/`. Update `corpus/catalog.json` with metadata. The eval script auto-discovers new tasks.
+**Adding new tasks**: Drop a new `.md` file in `corpus/` and matching `.json` in `ground-truth/`. Update `corpus/catalog.json` with metadata. The eval script auto-discovers new tasks. See [docs/adversarial-training.md](../../docs/adversarial-training.md) for adversarial technique definitions and [docs/generating-realistic-adversarial-examples.md](../../docs/generating-realistic-adversarial-examples.md) for design principles.
 
 All tasks run in parallel. `--single ec-09` for fast single-task debug.
 
