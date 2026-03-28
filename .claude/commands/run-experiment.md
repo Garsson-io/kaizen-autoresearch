@@ -10,21 +10,18 @@ Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional
 
 ## Read these files before doing anything
 
-```
-experiments/<name>/program.md                  — the loop definition, config, rules (FOLLOW THIS)
-experiments/<name>/meta-failures.md            — process mistakes to avoid
-experiments/<name>/taxonomy/README.md          — how taxonomy works
-experiments/<name>/ideas/README.md             — idea schema
-experiments/<name>/prompts/                    — all prompt variants (study differences)
-experiments/<name>/leaderboard.md              — score history
-.claude/skills/autoresearch/references/core-principles.md    — autoresearch principles
-.claude/skills/autoresearch/references/autonomous-loop-protocol.md
-```
+| File | Why |
+|------|-----|
+| `experiments/<name>/program.md` | **Your instructions.** Loop definition, metric, edit rules. Follow this. |
+| `experiments/<name>/meta-failures.md` | Process mistakes to avoid repeating. |
+| `experiments/<name>/leaderboard.md` | What's been tried and what scored what. |
+| `experiments/<name>/prompts/` | All prompt variants — study what works vs what failed. |
+| `experiments/<name>/taxonomy/README.md` | Failure patterns from the model's own reasoning. |
+| `experiments/<name>/ideas/README.md` | Hypothesis backlog. Check `status` before retrying. |
+| `.claude/skills/autoresearch/references/core-principles.md` | The methodology — git as memory, one change per iteration, mechanical verification. |
+| `.claude/skills/autoresearch/references/autonomous-loop-protocol.md` | The 8-phase protocol — how to review, ideate, commit before verify, handle noise, recover from being stuck. |
+| `.claude/skills/autoresearch/references/results-logging.md` | TSV logging format for `autoresearch-results.tsv`. |
 
 ## Execute
 
-Follow the iteration loop defined in `program.md` exactly. It has the steps, the rules, the keep/revert policy, and the edit constraints. Do not improvise — the loop is there because we learned from mistakes documented in `meta-failures.md`.
-
-If no baseline exists in `autoresearch-results.tsv`, run one first (step 0).
-
-If `--iterations N` was given, stop after N iterations and print a summary. Then run `/post-run-report <experiment>`.
+Follow `program.md`. If no baseline exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
