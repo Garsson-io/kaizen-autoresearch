@@ -21,8 +21,6 @@ a real failure — not just to verify happy-path logic.
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
 
-Answer as a staff engineer justifying the testing strategy in a PR review. You must be ready to defend why this level — not lower, not higher — is the minimum that would actually catch a real production failure.
-
 Issue (task_id: {{TASK_ID}}):
 ---
 {{ISSUE_BODY}}
