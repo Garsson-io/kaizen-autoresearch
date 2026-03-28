@@ -13,6 +13,7 @@ a real failure — not just to verify happy-path logic.
 - **KEY-QUESTIONS** per behavior:
   - **MOCK-MISS**: Could a pure in-process mock miss this failure? If yes → at least Integration.
   - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
+    Think: could you catch the failure with just module wiring (Integration), or does the failure only appear with real network latency, real filesystem behavior, real process spawning, or real OS signals? If only real infra reveals it → System.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
     Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
