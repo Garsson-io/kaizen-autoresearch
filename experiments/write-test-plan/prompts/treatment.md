@@ -7,7 +7,7 @@ a real failure — not just to verify happy-path logic.
   - **Unit** — one local function or object boundary, no I/O
   - **Integration** — several modules wired together, local DB or filesystem
   - **System** — subprocess, OS behavior, real HTTP, or real external API call
-  - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs); mocking the model tests your mock, not the system
+  - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs)
   - **Workflow** — multiple agentic steps in sequence, or a full agent pipeline
 
 - **KEY-QUESTIONS** per behavior:
