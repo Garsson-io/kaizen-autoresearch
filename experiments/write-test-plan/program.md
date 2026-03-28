@@ -149,6 +149,7 @@ DIFF:
 ```
 RATIONALE: {one sentence — why this targets the top taxonomy pattern}
 SKEPTIC: {one sentence — the strongest argument against this idea}
+META_NOTE: {optional — any observation about process patterns, e.g. "3 rejections from replacements confirms add-not-replace hypothesis"}
 ```
 
 The subagent runs the index script, reads 3-5 files, thinks, possibly writes new ideas, and returns a 4-line recommendation. You then execute it in step 5 (EDIT).

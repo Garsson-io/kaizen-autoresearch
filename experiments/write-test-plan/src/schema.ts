@@ -74,6 +74,38 @@ export const ProbeOutput = z.object({
 });
 export type ProbeOutput = z.infer<typeof ProbeOutput>;
 
+/**
+ * Schema for iteration results log (autoresearch-results.jsonl).
+ * One JSON object per line, appended after each iteration.
+ */
+export const IterationResult = z.object({
+  /** Sequential counter starting at 0 (baseline) */
+  iteration: z.number().int().min(0),
+  /** ISO 8601 timestamp */
+  timestamp: z.string(),
+  /** Short git hash (7 chars), null if reverted */
+  commit: z.string().nullable(),
+  /** Run directory name (e.g. "20260328-124120"), null if no run */
+  run_dir: z.string().nullable(),
+  /** Idea id from ideas/ that was tried, null for baseline */
+  idea_id: z.string().nullable(),
+  /** Legacy weighted average score 0-100 (higher is better) */
+  score: z.number().nullable(),
+  /** Weighted cross-entropy loss (lower is better) */
+  loss: z.number().nullable(),
+  /** Change from previous best (negative = improved for loss) */
+  delta: z.number().nullable(),
+  /** baseline | keep | discard | crash | no-op | hook-blocked */
+  status: z.enum(["baseline", "keep", "discard", "crash", "no-op", "hook-blocked"]),
+  /** One-sentence description of what was tried */
+  description: z.string(),
+  /** Which named section of treatment.md was changed */
+  section: z.string().nullable(),
+  /** add | remove | replace */
+  edit_type: z.enum(["add", "remove", "replace"]).nullable(),
+});
+export type IterationResult = z.infer<typeof IterationResult>;
+
 export const GroundTruthBehavior = z.object({
   behavior_id: z.number().int().min(1).max(10),
   ground_truth_level: Level,
