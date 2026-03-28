@@ -19,6 +19,11 @@ a real failure — not just to verify happy-path logic.
     If the behavior claims the model should classify/rank/score correctly (recommendation quality, fraud/risk detection quality, moderation quality), treat it as Agentic even when the surrounding pipeline wiring is Integration.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
+- **INTEGRATION-CHECK** (apply only when your answer so far is Integration):
+  - **Down-test**: Can this specific failure be reproduced by calling one function/method with crafted arguments, no module wiring needed? If yes → Unit.
+  - **Up-test**: Does the failure require real OS/network/subprocess behavior, real AI model output, or multiple sequential AI steps that no in-process fake can reproduce? If yes → re-apply REAL-INFRA, LLM-DEP, MULTI-STEP to find the correct higher level.
+  - Integration survives only when both: (a) the failure needs cross-module wiring, AND (b) in-process module wiring is sufficient to reproduce it.
+
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
 
