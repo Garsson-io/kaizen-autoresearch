@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Explicit image flagged and held for review, not published",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is: 'explicit image is misclassified as safe and published.' A mock vision model can be instructed to return anything, hiding the real failure where the actual model misclassifies. At Integration level with a mocked model, the test always passes regardless of what the mock says. Only by calling the real vision model can we catch the case where it incorrectly classifies explicit content as safe.",
+      "test_description": "Submit an image with known explicit content to the real vision API. Verify the real model classifies it as explicit. Verify the system flags it for review rather than publishing. Run multiple times to verify the model is actually evaluating it.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.01,
+        "Agentic": 0.96,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Text with hate speech flagged despite obfuscation techniques",
+      "minimum_level": "Agentic",
+      "justification": "The core failure is: 'obfuscated hate speech passes the real text classifier.' Mocking the text model to always detect hate speech gives false confidence. A mock can be told to pass any obfuscation pattern, but the real model may not handle novel substitutions (l33t speak, unicode lookalikes, etc.). The test must call the real model against real obfuscation variants to verify robustness.",
+      "test_description": "Create test cases with hate speech obfuscated using various techniques (letter substitution, unicode lookalikes, spacing). Submit each to the real text classification API. Verify the real model detects hate speech in each variant despite obfuscation. Test multiple obfuscation patterns to verify the model's actual robustness.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.01,
+        "Agentic": 0.96,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Post passing both checks is published, not held or dropped",
+      "minimum_level": "Integration",
+      "justification": "The failure being tested is infrastructure, not model accuracy: 'when both checks return safe, does the post actually get published?' The test verifies the publish action succeeds with a real database/queue. Mock both models to return 'safe' (testing the publish decision logic, not model accuracy — behaviors 1-2 already test that). The real question is whether the publish infrastructure works. A real integration test with mocked models suffices; you don't need real model classifications.",
+      "test_description": "Mock both vision and text models to return 'safe'. Submit a test post. Verify the post appears in the real publish database/queue with status 'published'. Verify it is not held or marked as review-pending. Check the database directly to confirm the record exists.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full pipeline completes within 5 seconds of submission",
+      "minimum_level": "Workflow",
+      "justification": "Latency requirements are invisible in mocked tests. Mocking vision and text models to return instantly hides the real failure: 'API calls to the real models take 6+ seconds, exceeding the SLA.' End-to-end latency only manifests when calling real external models. Measuring time with instant-returning mocks produces false confidence. Both real vision and text model calls (agentic steps) plus the full infrastructure must be measured together to catch actual bottlenecks.",
+      "test_description": "Submit a real post with real image and text to the production or staging model APIs. Measure wall-clock time from submission to completion (database write + response back). Run multiple times to account for network variation. Verify 95th percentile latency is under 5 seconds. Include latency from both the vision model call and text model call.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.1,
+        "Workflow": 0.8
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Vision model unavailable triggers retry queue, not auto-approval",
+      "minimum_level": "Integration",
+      "justification": "The failure is the error-handling logic: 'when vision model fails, code auto-approves instead of queueing.' Mock the vision model to throw a timeout/unavailable exception, simulating the real failure mode. The test validates the retry queue is actually called and the post is not auto-approved. The retry queue must be real (Integration) to catch if queueing logic is broken. No need for actual network unavailability (System) since a thrown exception triggers the same code path.",
+      "test_description": "Mock the vision model to raise a TimeoutError. Submit an image post. Verify the real retry queue receives the post (check queue database). Verify the post does not have 'approved' status. Verify the auto-approval logic is not triggered. Check that the error is logged for observability.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Same borderline image gets consistent decision within short time window",
+      "minimum_level": "Integration",
+      "justification": "The expected behavior suggests caching: 'within a short window, decisions should be consistent.' The test validates the caching mechanism works — submit the same image 3 times, verify it hits the cache. Mock the model to simulate a borderline classification, then verify the model is called only once (cached on calls 2 and 3). This is a logic test of the caching layer, not a test of model consistency. System level would be needed if the cache is distributed across services; Agentic would be needed if the system relies on actual model consistency, but that would be flaky and fragile.",
+      "test_description": "Mock the vision model to return 'borderline' on the first call. Submit the same image three times in quick succession (within 1 second). Verify the mock is called exactly once (calls 2 and 3 hit cache). Verify all three submissions receive the same decision from the cache. Verify the decision is correctly stored with a cache timestamp.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

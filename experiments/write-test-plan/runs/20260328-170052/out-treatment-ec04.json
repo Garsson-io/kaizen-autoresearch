@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Real failure: the HTTP request omits the taxonomy list, API silently misclassifies or rejects. Mocking only the API response masks this. We must verify the *actual request structure* — either by mocking at the HTTP layer and inspecting serialization, or via a test-double API that validates incoming requests. A pure unit mock of the API client's response logic won't catch serialization bugs or missing fields in the real HTTP request.",
+      "test_description": "Mock the HTTP client (or use a fake API server) and capture the outgoing request. Verify the request body/JSON includes the complete taxonomy list with correct formatting. Repeat this test with different document sizes to ensure taxonomy is always present, never conditionally omitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test description requires seeing the actual HTTP request payload, which mandates at least Integration level (testing at the API boundary).",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns 'unknown' instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Unit",
+      "justification": "Pure module logic. Real failure: invalid label propagates to caller, causing caller bugs. A unit test mocking the API to return an out-of-taxonomy label can verify the module sanitizes it. No external infrastructure, OS calls, or real API behavior needed — this is a deterministic validation check on a single object boundary.",
+      "test_description": "Mock the API client to return an invalid label (e.g., 'malicious_category' when only ['legal', 'technical', 'financial', 'other'] are valid). Verify the module returns exactly 'unknown'. Parametrize across multiple invalid labels to ensure the sanitization logic covers the entire invalid set.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test stays within unit boundaries: one module, mocked API response, no I/O.",
+      "level_probabilities": {
+        "Unit": 0.98,
+        "Integration": 0.02,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Unit",
+      "justification": "Tests caching logic when API is mocked (or simulated as non-deterministic). Real failure: cache miss allows different results for identical inputs. Unit test: mock API to return *different* values per call, then invoke module twice with the same document, verify same result is returned and API was called only once. Catches cache-key bugs, cache eviction bugs, and missing cache logic. Assumes cache is in-process; if externalized (Redis), Integration required.",
+      "test_description": "Mock the API to return different labels on each call (e.g., first call returns 'legal', second returns 'financial'). Call the module twice with an identical document. Verify: (1) the result is consistent (same both times), (2) the underlying API mock was invoked exactly once (proving caching), (3) multiple different documents get independently cached.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test verifies module caching behavior in isolation with mocked API. No external systems required for in-memory cache.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "System",
+      "justification": "Real failure: real documents exceed the token budget in production because mock token counting (if any) diverges from the real API's behavior. The real API determines token usage; we cannot reliably replicate this without calling it. A mock or simulation could undercount or overcount, falsely passing tests. Must call the real API (or a test endpoint that accurately replicates token counting) with representative documents and measure actual token consumption.",
+      "test_description": "Call the real API (or test endpoint) with a representative corpus of 'typical' documents (e.g., legal contracts, technical specs, financial reports). Capture token usage from API response metadata. Verify each document stays within configured budget. Log actual token counts and percentiles (p50, p95, p99) to catch budget headroom issues. Test a few oversized documents to confirm they are flagged or rejected before API call.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Token counting is a real API responsibility; mocking it would hide real failures. Test must be system-level (real API) or at minimum integration with a test-double that faithfully replicates token rules.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high (429 or equivalent), the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Unit",
+      "justification": "Real failure: module propagates rate-limit error instead of retrying. Unit test can mock the API to fail on first call (return 429) and succeed on second, then verify: (1) module does not raise/propagate the 429 error, (2) module succeeds (gets a result), (3) the retry occurred (via mock call count or by capturing the request sequence). Can optionally verify wait timing by measuring elapsed time or mocking time.sleep. No real network or actual rate limiting needed.",
+      "test_description": "Mock the API client's classify method to raise HTTPError(429) on the first call, then return 'legal' on the second call. Invoke module.classify(). Verify: (1) no exception is raised to the caller, (2) result is 'legal' (not an error), (3) mock was called exactly twice (proving retry). Optionally capture the elapsed time between calls to verify the module waited (e.g., >= 1 second) before retrying. Test with different retry budgets (e.g., 429 three times, then success) to verify retry limits.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test mocks the API and verifies retry logic within the module's boundaries. Real rate limiting is not needed; the mock simulates the error condition and verifies the module's response.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

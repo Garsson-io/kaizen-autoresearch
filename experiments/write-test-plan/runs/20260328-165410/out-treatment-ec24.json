@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "Testing translation quality requires calling the real neural machine translation API — mocking it would hide quality regressions that only surface in the actual model's output. Evaluating 'grammatically coherent' and 'preserves meaning' requires either reference translations (checked via semantic similarity using another model) or human review. The real failure boundary is whether the actual NMT model produces acceptable quality, not whether the orchestration logic works. Unit/Integration/System levels with mocks would always pass even if the real API started producing poor translations. We cannot substitute a mock without losing the entire point of the test.",
+      "test_description": "Call the real NMT API with a diverse test set of source texts in the supported language pairs. For each translation, verify grammatical coherence by comparing semantic similarity against reference translations using a second language model, or compute BLEU scores. Ensure outputs demonstrate meaning preservation and syntactic rearrangement, not word-for-word substitution.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.15,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the integration: does the error handling correctly wire to the fallback path and actually retrieve a translation? A unit test of the error handler in isolation would pass even if the fallback wiring is broken or the database query fails. System level is unnecessary — we don't need the real NMT API failing; a mock returning 503 is sufficient. The test must verify: (1) primary error is caught, (2) fallback translator is invoked, (3) fallback succeeds and returns, (4) caller gets a valid response. All of this requires wiring primary + fallback + database together, which is Integration-level.",
+      "test_description": "Mock the NMT API to return HTTP 503. Call the translation service with test input. Verify the service catches the error, queries the real SQLite dictionary for a fallback translation, and returns a valid translation to the caller without raising an exception.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "The behavior explicitly requires correct retrieval from a real SQLite database. Mocking the database defeats the purpose: a mock would always return the 'correct' value, hiding real failures like wrong column names, schema mismatches, encoding issues, data corruption, or query logic errors. The failure boundary is whether the actual database contains the right data and whether the query logic correctly retrieves it. We must use a real SQLite database populated with test data. Unit testing with mocks would pass even if the actual database queries are broken.",
+      "test_description": "Populate a real local SQLite database with test phrase entries (exact matches, special characters, diacritics, case variations). Call the dictionary translator with each phrase. Verify correct translations are returned for stored entries and appropriate behavior for missing entries.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "While edit distance computation is deterministic and testable at unit level, the behavior requires both computation AND persistence ('stores the metric'). Mocking the storage layer would hide real failures: failed writes, schema mismatches, data loss on retrieval, or race conditions in the storage system. The edit distance algorithm can be unit-tested with simple inputs, but verifying the end-to-end flow (compute → store → retrieve → verify correctness) requires a real storage backend. Unit tests with mocked storage would pass even if metrics are never actually persisted.",
+      "test_description": "Generate two mock translations with a known edit distance (e.g., 'hello' vs 'hallo'). Invoke the quality tracking system to compute and store the metric. Retrieve the stored metric from the real backend (database/file/cache). Verify the stored edit distance matches the expected value.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires two things: (1) primary translation returned immediately to the caller, and (2) quality comparison logged asynchronously. Unit testing the orchestration logic with mocked dependencies would hide real failures: logging never actually happens, logging blocks the main response (defeating 'background'), or the logging call throws an exception. The failure boundary is the integration between request handling and background logging infrastructure. We can mock the NMT API (the computation itself is correct, we're testing orchestration, not translation quality), but we must wire real logging to catch failures like background task not running, missing async handling, or unhandled exceptions in logging. System level would add unnecessary cost (real NMT API call); Agentic would require the real API, but orchestration logic doesn't depend on NMT non-determinism.",
+      "test_description": "Mock the NMT API to return a deterministic translation. Call the translation service. Verify the response is returned immediately with the primary translation. In parallel, verify the quality comparison (edit distance between primary and fallback) is written to the real logging system without blocking the main response thread.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The traveling-salesman heuristic produces a route that is no more than 1.5x the length of the optimal route for inputs up to 20 stops",
+      "minimum_level": "Unit",
+      "justification": "The TSP heuristic is a pure deterministic algorithm: coordinates → route. Testing the route quality is a pure function call with no I/O. For instances ≤20 stops, we can compute or lookup the optimal solution and verify the heuristic stays within bounds. A mock or stub of the geocoding layer (which feeds coordinates to TSP) is appropriate—the heuristic quality failure boundary is the algorithm logic itself, not the coordinate source. If the heuristic implementation is broken (wrong greedy choice, wrong distance calculation, wrong termination), the test will fail on any sufficiently large test set.",
+      "test_description": "Create test coordinate sets spanning 5–20 stops (e.g., grid, circle, random clusters). For each set, compute the heuristic's route length and the optimal or near-optimal length (via brute force for ≤15 stops, or known lower bounds). Assert that route_length ≤ 1.5 × optimal_length. Include edge cases: all stops co-located, stops in a line, and clusters far apart. Test failing cases: heuristic produces > 1.5x optimal should fail the test.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test directly exercises the heuristic algorithm with test coordinate data. No I/O, no external APIs, no state management—purely computational. Unit level is sufficient and appropriate.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The delivery time window estimates are computed correctly from the distance between consecutive stops and the configured average speed for the road type",
+      "minimum_level": "Unit",
+      "justification": "Time-window computation is a pure formula: time = distance / speed. This is a deterministic calculation with no I/O. We can inject test distances and speed values directly, verify the formula is applied correctly, and assert the result. A real failure (wrong formula, unit mismatch, wrong speed lookup, off-by-one in road type config) will show up immediately. No mock can hide a broken formula; if the code divides instead of multiplying or uses the wrong speed constant, the test fails.",
+      "test_description": "Parametrize test cases covering: (distance_km, speed_kmh, expected_time_hours). Include edge cases: distance=0 → time=0, high speed (120 kmh), low speed (5 kmh for pedestrian delivery), road type lookup (highway vs. city), unit conversion if applicable. Assert computed_time == expected_time within floating-point tolerance. Test failing cases: heuristic produces wrong formula output should fail the test.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test feeds known inputs (distance, speed) to the time computation function and verifies the output. Pure formula—no I/O, no external state. Unit level is correct.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount",
+      "minimum_level": "Unit",
+      "justification": "Shift validation is a pure decision function: (total_time, remaining_shift) → (reject: bool, excess: duration). This is deterministic logic with no external dependencies. We can inject test values and verify the comparison and calculation. A broken validator (wrong comparison operator, off-by-one error, wrong excess calculation) will fail on simple test cases. No I/O, no mocking needed.",
+      "test_description": "Parametrize test cases: (total_time_h, remaining_shift_h, expect_reject, expect_excess_h). Include: total < remaining (reject=false, excess=0), total == remaining (reject=false, excess=0), total > remaining by 0.5h (reject=true, excess=0.5), total >> remaining (reject=true, excess large). Test boundary conditions: off-by-one on hours, millisecond precision near boundary. Assert reject value and excess calculation both correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test calls the validator with known inputs and verifies the boolean and numeric outputs. Pure logic, no I/O. Unit is correct.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address in the list fails geocoding (API returns no results), the service skips that stop and optimizes the remaining addresses, reporting which addresses were skipped",
+      "minimum_level": "Integration",
+      "justification": "This behavior spans the full service flow: parse input → geocode → handle error → skip address → optimize remaining → generate report. Individual unit tests of error-handling code could pass while the integration fails: (a) exception handler returns cleanly but calling code ignores the result; (b) skip logic works in isolation but corrupts the address list in context; (c) reporting function exists but is never called. The failure boundary is in the orchestration. A mock geocoding API is appropriate (we're testing \"returns no results\", a specific response); we don't need a real API. But we must test the full service flow with the error condition to catch real failures in address tracking, TSP rerouting, and reporting.",
+      "test_description": "Create a service test with input list: [\"123 Main St\", \"456 Oak Ave\", \"789 Elm Rd\"] with delivery items. Mock geocoding to: return coordinates for Main & Elm, return empty results for Oak Ave. Call service with this list. Assert: (1) returned route visits exactly 2 stops (Main & Elm); (2) route is optimized for those 2 (TSP runs on remaining); (3) service does not crash; (4) returned report includes \"456 Oak Ave\" in skipped list; (5) delivery items for Main & Elm are routed, Oak items are reported as skipped. Verify state consistency: no orphaned items, no out-of-bounds list access.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing \"API returns no results\" requires orchestrating address parsing, geocoding mock, error handling, list filtering, TSP re-run, and reporting in one flow. Unit tests of sub-functions would miss failures in the glue. Integration level is the minimum.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses in the input list are consolidated into a single stop with combined delivery items, not visited twice",
+      "minimum_level": "Unit",
+      "justification": "Duplicate consolidation is pure list processing: filter and merge by address identity. We can inject a list with duplicates (e.g., [\"Main St (item1, item2)\", \"Oak Ave (item3)\", \"Main St (item4)\"]) and verify the output consolidates to unique addresses with combined item counts. A broken consolidation (loses items, still visits twice, merges incorrectly) will fail on simple test data. No I/O, no external logic needed. The deduplication logic is deterministic and locally testable.",
+      "test_description": "Parametrize test cases: input lists with various duplicate patterns. Example: [(\"123 Main\", [item1, item2]), (\"456 Oak\", [item3]), (\"123 Main\", [item4])] → output should be [(\"123 Main\", [item1, item2, item4]), (\"456 Oak\", [item3])]. Test edge cases: all same address, no duplicates, many duplicates of one address, interleaved duplicates. Assert: (1) output has one entry per unique address; (2) all items present in consolidated output; (3) item count matches sum of input counts; (4) no addresses appear twice. Verify failing case: duplicate consolidation broken should fail test.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test feeds a list with duplicates to the consolidation function and verifies the output structure and item counts. Pure data processing—no I/O, no ordering (consolidation should not depend on TSP execution). Unit is correct.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

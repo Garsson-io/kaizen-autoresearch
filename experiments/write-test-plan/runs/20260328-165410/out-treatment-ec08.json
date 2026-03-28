@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is pure computation with no I/O. A unit test can mock the delay function to track calls and verify the sequence of intervals (1s → 2s → 4s → ... → max). The failure mode (backoff math wrong, max not enforced) is entirely deterministic logic testable in isolation. No network, concurrency, or OS behavior required.",
+      "test_description": "Mock the delay function to capture all calls, mock the HTTP client to always return 429, call the library with maxRetries=4. Verify delay() was called with arguments approximately [delay₁, 2×delay₁, 4×delay₁, 8×delay₁], capped at max. Verify that subsequent calls match the exponential pattern and that the final delay does not exceed the configured maximum.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt",
+      "minimum_level": "Unit",
+      "justification": "Response parsing is pure logic after the response is received. A unit test can mock an HTTP response with 429 status and Retry-After header, verify the header is parsed correctly, and confirm the computed wait time matches the header value (or falls back to exponential backoff if missing). The failure (header not recognized, value misinterpreted, no retry on 429) is deterministic and testable with mocked HTTP.",
+      "test_description": "Mock the HTTP client to return a 429 response with Retry-After header set to N seconds. Mock the delay function to capture its argument. Call the library and verify delay() is invoked with approximately N seconds. Test edge cases: (1) missing Retry-After header (should fall back to exponential backoff), (2) invalid Retry-After value (should use fallback), (3) 429 vs other 4xx/5xx codes (only 429 should trigger retry logic).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently",
+      "minimum_level": "Unit",
+      "justification": "The retry flow (wait → resend → return result) is testable with mocked delay and HTTP client by verifying side effects. The failure modes (resend not called, resend before delay, result not returned to caller) can be caught by checking mock call order and return values. No real I/O or concurrency required; the flow is synchronous logic.",
+      "test_description": "Mock HTTP client: return 429 on first call, return 200 with success payload on second call. Mock delay function to track calls. Call library's call() method. Verify: (1) first HTTP call made, (2) delay() called exactly once, (3) second HTTP call made after delay (check call order via mock tracking), (4) caller receives the success result, not an error. Test failure case: verify that if resend is forgotten, delay is called but second HTTP call is missing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error",
+      "minimum_level": "Unit",
+      "justification": "Error type and retry counting are pure logic. A unit test can mock the HTTP client to always return 429, set maxRetries to N, and verify that after N attempts, a QuotaExhaustedError (not generic Error, not HTTP status, not thrown exception from HTTP layer) is raised. No real I/O, concurrency, or OS behavior required.",
+      "test_description": "Mock HTTP client to always return 429. Set maxRetries=3. Call library's call() method. Verify: (1) HTTP client called exactly 3 times, (2) QuotaExhaustedError is thrown (assert error.constructor.name or instanceof check), (3) error is not a generic Error and not the raw HTTP response. Test that the error is raised synchronously or as a rejected promise, not swallowed or wrapped.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error",
+      "minimum_level": "Unit",
+      "justification": "The termination condition (max retries reached) is pure logic. A unit test with mocked HTTP (always 429) and mocked/instant delay can verify the function completes and raises an error without entering an infinite loop. A test timeout catches infinite loop bugs. No real network, concurrency, or OS required; loop termination is deterministic logic.",
+      "test_description": "Mock HTTP client to always return 429. Mock delay to be instant (no waiting). Set maxRetries=2 and test timeout=5 seconds. Call library's call() method. Verify: (1) function completes within timeout (catches infinite loop), (2) QuotaExhaustedError is raised, (3) HTTP client called exactly maxRetries times (catches missing increment or broken condition). Repeat with maxRetries=10 to verify scaling.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Multiple concurrent callers interacting with shared quota state cannot be tested with a single unit call. The failure (independent quota per caller, or some callers bypass checks, or quota not actually shared) requires testing concurrent execution. Mocking the HTTP client is sufficient, but the quota bucket and async concurrency must be real. This is Integration: multiple components (concurrent callers + shared quota manager) working together.",
+      "test_description": "Create a real shared quota bucket with limit of 2 requests per second. Mock HTTP client to always return 429. Concurrently issue 3 async requests (A, B, C) via the library's call() method. Verify: (1) all 3 raise QuotaExhaustedError (not just 1 or 2), (2) the shared quota counter was decremented by all 3 (one quota, not three independent ones), (3) no request was able to bypass quota checks, (4) all requests waited for the shared quota, not independent quotas. Use a spy to track quota updates and confirm they come from a single source.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted",
+      "minimum_level": "Integration",
+      "justification": "FIFO queue ordering cannot be tested with a single request. Multiple concurrent requests must interact with a shared queue to reveal ordering failures (LIFO, random, or interleaved dispatch). Mocking the HTTP client is sufficient to trigger queuing (via 429 responses), but the queue and async concurrency must be real. This is Integration: multiple concurrent callers sharing a queue data structure.",
+      "test_description": "Create 3 requests with unique identifiers (A, B, C). Mock HTTP client to return 429 on all calls initially, then 200 after all 3 have queued. Concurrently submit all 3 requests in order A → B → C. Spy on the HTTP client to record the order in which requests are received. Verify dispatch order is A, B, C (not C, B, A or interleaved). Repeat test with different queue sizes and concurrency levels to catch timing-dependent reordering bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

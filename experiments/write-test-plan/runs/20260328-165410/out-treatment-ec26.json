@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The cron parser rejects invalid expressions (e.g., month 13, day 32, malformed syntax) with a descriptive error message.",
+      "minimum_level": "Unit",
+      "justification": "This is pure string parsing logic. The failure boundary is 'does the parser validate input and report errors clearly?' A unit test calling the parser with invalid inputs and checking for specific error messages catches all real failures. No external state, no I/O, no mocking required. The parser's only dependency is its validation rules, which live in code.",
+      "test_description": "Parametrized unit test: call parser with invalid cron expressions (month=13, day=32, hour=25, malformed tokens, too few fields) and verify each rejects with a descriptive error message naming the invalid field and expected range.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The next-run-time calculator returns correct timestamps for standard cron expressions, including edge cases like 'last day of month' and 'nearest weekday.'",
+      "minimum_level": "Unit",
+      "justification": "The failure boundary is 'does the calculator compute the next run time correctly given a fixed start time?' This is deterministic logic. We pass in a start timestamp (not rely on system.now()) and a valid cron expression; the calculator computes the next occurrence. Logic bugs (off-by-one month, wrong day-of-week wrapping, incorrect last-day-of-month computation) are caught by unit tests. Mocking or integration infrastructure would not help; the failure is in the algorithm itself.",
+      "test_description": "Parametrized unit test: for each cron pattern (e.g., `0 0 L * *` for last day, `0 0 ? * 5` for Fridays, `0 0 15 * *` for the 15th, `0 0 ? * 2#3` for third Monday), call calculator with multiple start times and verify next run time matches the expected correct value. Include boundary cases: start time one second before/after a valid run, start on month/year boundaries.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The overlap detector identifies when two schedules would fire within the configured minimum gap (e.g., 5 minutes) and reports the conflicting time windows.",
+      "minimum_level": "Unit",
+      "justification": "Detecting overlaps is pure comparison logic. Given two Schedule objects (which we construct), the detector compares their run times against a gap threshold. There is no external state, no I/O, no timing dependency. A unit test creating two schedules and calling the detector will catch logic failures (e.g., using > instead of >=, off-by-one gap calculations, missing conflict edge cases).",
+      "test_description": "Unit test: construct two Schedule objects with different cron expressions. Call overlap detector with various gaps (0 min, 5 min, 30 min). Verify: (1) overlapping schedules (firing within gap) are reported with correct conflict windows, (2) non-overlapping schedules pass, (3) edge cases (schedules firing at exactly gap boundary, simultaneous fires) are handled correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across a DST transition — a job scheduled for 2:30 AM handles the spring-forward gap and fall-back ambiguity correctly.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is 'does the scheduler correctly handle the clock discontinuity and ambiguity that DST introduces?' A pure mock timezone library would return static results and miss DST bugs. The scheduler must correctly use real, DST-aware datetime functions (e.g., zoneinfo.ZoneInfo, pytz). A unit test using real timezone objects can catch some bugs, but integration-level testing with real datetime arithmetic across actual DST transition dates ensures the scheduler's logic and the timezone library interact correctly. Many implementations silently pick wrong hours or crash on ambiguous times; only real timezone data exposes this.",
+      "test_description": "Integration test: for timezone America/New_York, schedule a job for 2:30 AM using a cron pattern like `30 2 * * *` (daily at 2:30 AM). Compute next run times around 2024-03-10 (spring forward: 2:00 AM → 3:00 AM, skips 2:30) and 2024-11-03 (fall back: 2:00 AM EDT → 1:00 AM EST, creates two 1:30s). Verify: (1) spring-forward produces 3:30 AM or next-day 2:30 AM (depending on scheduler intent, test documents choice), (2) fall-back chooses correct hour unambiguously, (3) computed next run is always after requested time.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.45,
+        "Integration": 0.45,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a scheduled job's computed next run time has already passed (e.g., system was down), the engine determines whether to skip or backfill based on the job's configured missed-run policy.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is 'does the engine correctly apply the missed-run policy when it detects a missed execution?' This depends on reading job configuration (the policy) and understanding job state (what time did it last run?). If job state is persistent (stored in DB, file, or config), a unit test with mocked storage could hide failures. The real failure is 'engine misreads state or applies policy wrong in the presence of actual persistence.' Integration testing with a real or in-process database ensures the engine correctly reads state, computes whether a run was missed, and applies the policy (skip N runs, backfill all missed, run immediately, etc.).",
+      "test_description": "Integration test: (1) Create a job with a cron expression and a missed-run policy (e.g., 'skip', 'backfill', 'run_once'). (2) Store job state showing the last execution was 2 hours ago. (3) Trigger the engine's check for missed runs at current time. (4) Verify the engine detects the miss, retrieves the policy, and executes the correct action (skips N runs / backlogs executions / runs immediately). (5) Verify job state is updated correctly after the action. Repeat with different policies and time gaps to ensure policy selection is correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.55,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

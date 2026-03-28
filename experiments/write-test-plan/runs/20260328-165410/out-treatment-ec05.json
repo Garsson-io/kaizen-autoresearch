@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by filename prefix",
+      "minimum_level": "Integration",
+      "justification": "While sorting logic could be unit-tested, catching real failures requires observing execution order against a real database. Mocks would pass even if bugs exist in how sorted migrations are actually sent to and executed by the database. The failure is only visible in real database state.",
+      "test_description": "Start with fresh PostgreSQL. Create three order-dependent migrations: 01-init.sql (create table), 02-add-column.sql (add NOT NULL column), 03-add-index.sql (create index on that column). Run migration runner once. Verify all three are in _migrations table and the final schema has the column and index in the correct dependency order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires Integration-level because execution order against a real database is the only way to catch bugs in how sorted migrations are dispatched to PostgreSQL.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run",
+      "minimum_level": "Integration",
+      "justification": "Idempotency must be verified by checking real metadata table state and real migration side effects. Mocks could incorrectly report 'migration skipped' while the actual database re-executes the migration. The real failure is: metadata table check is broken, and the migration runs twice.",
+      "test_description": "Apply a migration that increments a test counter column. Run migration runner once, verify counter = 1. Run migration runner again, verify counter still = 1 (not 2), and _migrations table shows the migration exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires Integration to test the actual metadata table behavior and verify the runner truly skips already-applied migrations against real PostgreSQL state.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back and no further migrations in the same run are attempted",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback semantics are database-level guarantees. Mocks can fake rollback; only a real database reveals if the transaction wrapping is broken. The real failure: transaction fails, actual changes persist, and subsequent migrations run on a corrupted state.",
+      "test_description": "Create three migrations: 01-create-table.sql, 02-add-not-null-constraint.sql, 03-insert-null.sql (violates constraint), 04-cleanup.sql. Run migration runner. Verify: constraint was added (02 ran), no rows in table (03 rolled back), 04 never ran, and _migrations shows only 01 and 02 applied.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires Integration-level because transaction rollback and the stop-on-failure behavior can only be verified against real PostgreSQL transaction semantics, not mocks.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start simultaneously against the same database, each migration is applied exactly once across both instances",
+      "minimum_level": "Integration",
+      "justification": "Race conditions require real database-level locking and transaction isolation. Mocks have no concurrency semantics and cannot reveal the failure: both runners see migration unapplied, both attempt insert into metadata, migration executes twice. Only real database prevents this.",
+      "test_description": "Create test PostgreSQL with one migration file. Instantiate two independent runner instances and start them concurrently (e.g., Promise.all) against the same database. Verify migration applied exactly once by checking: final database state is correct, _migrations table has one row for the migration (not two or duplicated entries).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires Integration-level database concurrency with real locks and transaction isolation. Cannot be caught with mocks or in-process async alone.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied",
+      "minimum_level": "Integration",
+      "justification": "The real failure: table creation is skipped, wrong table name, or migrations try to insert into non-existent table before schema creation. Mocks cannot reveal bugs in CREATE TABLE statement, permissions, or ordering of operations. Only real database shows the failure.",
+      "test_description": "Start with completely fresh PostgreSQL (no _migrations table). Run migration runner with at least one migration file. Verify: _migrations table exists after the run, contains exactly one row for the applied migration, and the migration's side effects are present in the database.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires Integration-level to test actual table creation, permissions, and the real ordering of CREATE TABLE before any INSERT into _migrations.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

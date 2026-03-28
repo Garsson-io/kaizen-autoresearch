@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The cron parser rejects invalid expressions (month 13, day 32, malformed syntax) with descriptive error messages",
+      "minimum_level": "Unit",
+      "justification": "Parsing is a pure function: string input → parsed object or exception. No I/O, no external state, fully deterministic. A unit test feeds invalid strings and verifies they raise appropriate exceptions with descriptive messages. This catches real failures (malformed crons silently accepted, vague errors) entirely at the function boundary.",
+      "test_description": "Create a parametrized unit test with invalid cron expressions (month 13, day 32, missing fields, extra fields, non-numeric values). Verify each raises a specific exception (e.g., InvalidCronExpression) with a message that explains what is invalid. Example: assert 'month must be 1-12' in str(exception).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The next-run-time calculator returns correct timestamps for standard cron expressions, including edge cases like 'last day of month' and 'nearest weekday'",
+      "minimum_level": "Unit",
+      "justification": "This is pure scheduling algorithm: (schedule object, start_time) → list of timestamps. No system clock dependency (start_time is passed in), no I/O. A mock-hide test: mocking `datetime` would hide algorithmic bugs if the algorithm relies on correct implementations of date arithmetic. Instead, pass known start times and verify exact output. Unit tests catch off-by-one errors, month-boundary bugs, and weekday-calculation errors. The real failure (job misses its scheduled time) is caught here.",
+      "test_description": "Unit test suite with fixed start times and known-correct next-run expectations. Example: start='2024-01-01 00:00 UTC', cron='0 12 * * *' (noon daily) → next runs are [2024-01-01 12:00, 2024-01-02 12:00, ...]. Test edge cases: cron='0 0 L * *' (last day of month) → verify it returns 2024-01-31, 2024-02-29, etc. Use real timezone objects (pytz/zoneinfo) to verify algorithm handles them, but don't mock the library itself.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The overlap detector identifies when two schedules would fire within the configured minimum gap (e.g., 5 minutes) and reports the conflicting time windows",
+      "minimum_level": "Unit",
+      "justification": "The overlap detection is pure algorithm: (schedule1, schedule2, min_gap) → bool/conflict_report. Assuming the detector calls the next-run-time calculator internally, a unit test can mock that calculator to return known timestamps, then verify the overlap logic itself (comparison operator, gap calculation, edge cases). Real failure: two overlaps are missed because the detector checks `gap < 5` instead of `gap ≤ 5`. Unit test with mocked times catches this. Integration testing is *recommended* to verify the full pipeline (calculator → detector) works together, but the *minimum* for this specific behavior's logic is Unit.",
+      "test_description": "Unit test with mocked next-run-time calculator. Mock the calculator to return: schedule1=[10:00, 10:05, 10:10], schedule2=[10:03, 10:08]. With min_gap=5min, verify the detector identifies 10:00-10:08 and 10:05-10:10 as conflicts. Test boundary cases: gap exactly equal to min_gap, schedules with no overlap, schedules that overlap every run. Verify the conflict report includes affected time windows.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across a DST transition — a job scheduled for 2:30 AM handles the spring-forward gap and fall-back ambiguity correctly",
+      "minimum_level": "Unit",
+      "justification": "DST handling is deterministic algorithm (not OS-dependent) if the engine uses a proper timezone library (pytz, zoneinfo). The real failure: a cron '30 2 * * *' (2:30 AM daily) is scheduled. On spring-forward night, 2:30 AM doesn't exist. The engine must either skip that run or substitute (e.g., 3:30 AM). Fall-back creates ambiguity (1:30 AM occurs twice). A unit test creates a timezone-aware datetime during the transition, calls the calculator, and verifies the output. No system clock mocking needed; use real timezone objects to let the library handle DST rules.",
+      "test_description": "Unit test with real timezone objects (e.g., `pytz.timezone('America/New_York')`). Create a start_time during spring-forward (e.g., 2024-03-10 02:00 EST→EDT transition). Call next-run-time calculator with cron='30 2 * * *'. Verify the next run is correctly computed (either skipped or adjusted according to engine's DST policy). Repeat for fall-back (e.g., 2024-11-03 02:00 EDT→EST). Verify ambiguous time is handled consistently (e.g., always 'first occurrence' or 'second occurrence').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a scheduled job's computed next run time has already passed (e.g., system was down), the engine determines whether to skip or backfill based on the job's configured missed-run policy",
+      "minimum_level": "Unit",
+      "justification": "The missed-run policy logic is pure: (computed_run_times, current_time, policy) → action (skip/backfill). No I/O, no side effects (the actual execution of backfilled runs is integration/system level). A unit test passes a job with a policy, provides a current_time that is past some computed run times, and verifies the engine returns the correct action. Real failure: engine applies skip policy but actually executes backfilled runs, or vice versa. Unit test catches the *decision logic* failure. Note: if the engine internally calls the calculator, mock it to return known missed run times; if current_time is taken from system clock, mock `datetime.now()` or pass it as a parameter.",
+      "test_description": "Unit test with mocked next-run-time calculator. Calculator returns: [10:00, 10:15, 10:30, 10:45, 11:00] AM. Set current_time=12:01 PM. Job has policy='skip'. Call engine with missed_run_policy='skip' → verify it returns 'skip all'. Repeat with policy='backfill' → verify it returns list of missed times [10:00, 10:15, 10:30, 10:45, 11:00] to be executed. Test policy='skip_except_last' → verify only 11:00 is returned. Verify the decision is based on the *policy*, not side effects.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

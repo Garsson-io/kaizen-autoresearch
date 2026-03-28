@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The core behavior depends on three things: (1) detecting missing required fields, (2) capturing correct row numbers, and (3) successfully routing to the DLQ. A Unit test with a mocked DLQ could pass by verifying that the mock was called with the right arguments, but would miss real failures: serialization errors, DLQ connection issues, or message format incompatibility. The DLQ write operation is the integration point where logic meets infrastructure. A pure in-process mock hides the contract between the pipeline and the queue. Minimum viable test: use testcontainers (e.g., RabbitMQ, AWS SQS) or an in-memory queue implementation that behaves like a real queue, so you catch serialization and queueing failures, not just that the right function was called.",
+      "test_description": "Create a CSV with one row missing a required field. Run the pipeline with a real or testcontainer DLQ. Assert: (1) validation rejects the row, (2) the DLQ contains exactly one message, (3) the message includes the original row number and original data, (4) no rows were written to the success table.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure data transformation function with no I/O, no external dependencies, and no side effects. The failure modes are all logic-level: wrong parsing logic, wrong output format, off-by-one errors in date components, missing edge cases (leap years, timezone handling). All of these are caught by input/output assertions on the function itself. There is no integration risk (no API contract, no serialization), no system risk (no OS behavior), and no reason a Unit test would pass while production fails. The transformation either works or doesn't, deterministically.",
+      "test_description": "Parametrized unit test with cases: (1) ISO 8601 '2024-03-28' → '2024-03-28', (2) US 'MM/DD/YYYY' '03/28/2024' → '2024-03-28', (3) European 'DD.MM.YYYY' '28.03.2024' → '2024-03-28', (4) edge case: leap year Feb 29, (5) invalid date raises appropriate error. Assert: output is always YYYY-MM-DD format, no exceptions on valid input, specific exception on invalid input.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "This behavior is fundamentally about resource exhaustion and timeout mechanics under realistic load — not about business logic. The failure modes are: (1) memory bloat (code loads entire CSV into memory instead of streaming), (2) timeout not firing (timeout logic is broken or doesn't propagate), (3) process hangs (infinite loop or deadlock under load). A Unit test with 1,000 rows in an in-memory buffer would pass even if the real code OOMs at 500k rows — mocking hides streaming vs. eager-loading decisions. An Integration test with a large file might still miss real timeout behavior if it uses mocked time. To catch real failures, you need: (1) a genuine 500k-row data source (testcontainer or fixture), (2) real process memory instrumentation (OS-level), (3) real timeout (not mocked), and (4) realistic I/O patterns that expose resource bugs. This requires System-level testing where the OS, process limits, and actual timers are live.",
+      "test_description": "Load a real or generated 500k-row CSV file. Run the pipeline with a configured timeout (e.g., 60s). Monitor process memory during execution. Assert: (1) pipeline completes before timeout fires, (2) peak memory usage stays below a configured threshold (e.g., 2GB for a reasonable environment), (3) timeout logic actually interrupts if processing would exceed it, (4) no zombie processes or resource leaks after completion or timeout.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The behavior is about retry logic under realistic error conditions. The core failures to catch: (1) no retries happen (code fails immediately), (2) retries happen but no backoff (hammers S3), (3) backoff exists but isn't exponential. A Unit test with a mocked S3 client that returns [503, 503, 200] and a mocked time (via freezegun or patch) can catch all three by verifying sleep() calls. However, the gap: the real S3 client behavior. If the test mocks HTTPError but the real S3 client raises a different exception, or if client-side retry logic interferes, the Unit test passes while production fails. Additionally, exponential backoff timing is subtle — a Unit test with mocked time passes if the code calls sleep() with [1, 2, 4], but what if the calculation is wrong (e.g., 2^n instead of 2^(n-1)) in a way that only shows up with real timing? Integration testing with a testcontainer (LocalStack for S3, or a real S3 mock library), without time mocking, catches these risks and validates that the real S3 client's exception handling works as expected.",
+      "test_description": "Set up a testcontainer S3 (LocalStack) or an S3 mock that can inject transient errors. Configure the pipeline to retry against this S3. Simulate S3 returning 503 three times, then 200 on the fourth attempt. Assert: (1) the pipeline retries and eventually succeeds, (2) the interval between retries increases exponentially (e.g., 1s, 2s, 4s), (3) the total time to success reflects the accumulated backoff, (4) the batch is not marked as failed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency on restart is fundamentally a database semantics problem, not a business logic problem. The failure modes are: (1) code doesn't check for existing rows before insert (unconditional INSERT), (2) UPSERT logic is broken, (3) transaction isolation is misconfigured, (4) the pipeline doesn't track checkpoint state correctly. A Unit test with a mocked database could verify that the code *intends* to use UPSERT, but would not test the actual PostgreSQL behavior. For example, if the code relies on a unique constraint and ON CONFLICT DO UPDATE, the real PostgreSQL behavior on constraint violation is different from a mock's behavior. If the code uses a transaction, the real transaction isolation level matters. A mock would need to perfectly replicate PostgreSQL's constraint and transaction semantics — which is fragile and often wrong. Minimum viable test: use testcontainers with a real PostgreSQL instance, run a pipeline, restart mid-batch, verify no duplicates appear. This catches the actual database behavior.",
+      "test_description": "Create a batch of 100 rows. Run the pipeline and halt mid-batch (after ~30 rows are written to PostgreSQL). Restart the pipeline with the same input. Assert: (1) the final table contains exactly 100 rows (no duplicates from the restarted batch), (2) rows written before the halt are present and unchanged, (3) rows written only on restart appear exactly once, (4) verify using a row count and a uniqueness constraint check (e.g., COUNT(*) = 100 and COUNT(DISTINCT row_id) = 100).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

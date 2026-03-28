@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in subdirectories of the watched root are processed, not only files in the root itself.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is whether the watcher recursively registered with the OS filesystem. A unit test mocking events for subdirectory files would always pass (you'd write the mock to send those events). The OS won't emit events for subdirectory files unless the watcher called fs.watch(root, { recursive: true }) or manually attached listeners to each subdirectory. You need a real temp filesystem with actual subdirectories and file writes to verify the watcher registered correctly.",
+      "test_description": "Create a real temporary directory structure with nested subdirectories. Configure the watcher to monitor the root. Write a file to a subdirectory (e.g., root/sub1/sub2/file.txt). Verify the file was processed by checking the output directory or processing log. Repeat for multiple nesting levels to catch partial-recursion bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic application logic: 'given two events for the same file within T seconds, suppress one.' There's no OS behavior, no real I/O, and no race condition here—just a dedup state machine. You can mock the event emitter, inject time (via a mock clock or injectable time dependency), send duplicate events, and verify the processing function is called only once. A unit test with mocks will not miss this failure because dedup logic doesn't depend on external systems.",
+      "test_description": "Mock the event emitter and time source. Send two 'arrival' events for the same file path at timestamps T and T+0.5 seconds (within the dedup window, say 5 seconds). Verify the processing function is called exactly once. Send a third event at T+10 seconds (outside the window) and verify it triggers processing again. Test with window boundary cases (at exactly T+window, should process).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the OS emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is the daemon not suppressing OS-level event duplication (e.g., multiple 'change' events when writing a single file, or 'rename'+'close' sequences). A mock event emitter could always return a predictable sequence, hiding the bug if the real OS emits events in a different pattern or timing. You need a real filesystem to trigger real OS events and observe if the daemon deduplicates them. However, System is not strictly necessary unless the behavior is timing-sensitive or OS-specific in ways a subprocess test would reveal.",
+      "test_description": "Write a file to a real temporary directory monitored by the watcher. Observe filesystem events using the same watcher mechanism (to see the actual OS event sequence). Verify that exactly one processing invocation occurs despite multiple events. Repeat with different file sizes and write patterns (small files, large files, very fast writes) to catch timing-sensitive dedup bugs. Run on the native filesystem, not a mock.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.55,
+        "System": 0.37,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is the watcher entering a broken state when the watched directory is deleted (ENOENT errors, invalid file descriptor, etc.). The daemon's error handling must gracefully recover. An Integration test can delete a real temp directory and verify the watcher code handles the error without crashing or permanently blocking. However, System (running the daemon as a subprocess) is also valuable because error handling logic might be in the main daemon loop rather than the watcher module itself, making System slightly higher confidence for catching real failures.",
+      "test_description": "Create a temp directory and configure the watcher to monitor it. Verify it's actively watching (by writing a test file). Delete the directory entirely. Verify the watcher doesn't crash, hang, or go into an invalid state. Recreate the directory with the same path. Write a new file. Verify the watcher detects it and processes it (no manual restart of the daemon required). Test the scenario where the directory is deleted for a prolonged period before recreation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.42,
+        "System": 0.55,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "The sorting logic itself is testable at Unit level, but the real failure is how the daemon uses the filesystem API. If the daemon relies on fs.readdirSync() order without sorting by creation timestamp, it will fail on filesystems where directory listing order doesn't match creation order. A mock filesystem might always return files in a sorted order, hiding the bug. You need a real filesystem to verify the daemon correctly sorts by mtime or birthtime, not by directory listing order.",
+      "test_description": "Create multiple files in a real temp directory with controllable creation timestamps (use fs.utimesSync or similar to set exact mtimes). Ensure creation order differs from filesystem listing order (may require multiple writes with delays or manual mtime adjustment). Trigger the watcher for all files simultaneously. Capture the processing order. Verify files were processed in creation-timestamp order, not filesystem listing order. Test on the actual filesystem being used in production.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.38,
+        "Integration": 0.57,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a race condition: the daemon reads an incomplete file because it wasn't notified that the write is still in progress, or the file wasn't locked. Mocking the 'file open' check will always pass unless the mock is written to model the race condition—and then you're testing the mock, not the code. You need a real filesystem to test the actual race: open a file, trigger the event (before closing), verify the daemon waits or skips, then close the file and verify the daemon processes the complete file. Integration suffices if you can control file handles; System is safer if handle detection is OS-specific.",
+      "test_description": "Open a file for writing in the test (keeping the handle open). Write some bytes but do not close. Trigger the watcher for that file (e.g., by closing and reopening, or via explicit event injection that simulates arrival before completion). Verify the daemon does not process the file yet or detects it is incomplete. Close the file. Verify the daemon now processes the complete file. Use fs.open/fs.write directly to control the write lifecycle. Test with multiple concurrent writes and with the daemon using filesystem locking or modification time checks to detect incomplete files.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.35,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

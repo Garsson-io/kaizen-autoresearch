@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves meaning, not word-for-word substitution",
+      "minimum_level": "System",
+      "justification": "This tests the actual neural model's output quality. A mock API returning a hardcoded response will never catch when the real API produces a bad translation—we'd only discover this failure in production. To catch it, you must call the actual neural translation service. Once you have real output, you can verify coherence through spot-checking against expected translations or using heuristics (sentence structure, word count, presence of key terms). This is a System-level dependency (external API call), not lower, because any mock completely hides the failure mode. If you wanted automated quality evaluation across all inputs, that would require an Agentic evaluation service, but spot-checking with real API output at System level is the production-realistic minimum.",
+      "test_description": "Call the real neural translation API with a diverse set of test inputs (e.g., technical text, conversational text, idiomatic phrases in source language). For each output, verify it preserves the semantic meaning (spot-check that key terms are translated correctly, sentence structure is grammatical, and the output is not a word-by-word literal substitution). Log failures for manual review.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires the real external API (System level), not a mock. Spot-checking manual verification or heuristics work at System; a true automated quality oracle would raise to Agentic.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.6,
+        "Agentic": 0.3,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: 'The service doesn't catch HTTP 503 errors' OR 'the service catches the error but doesn't invoke the fallback correctly.' A Unit-level mock that always succeeds would hide both. To catch this, you need (1) a controlled API mock that simulates a 503 response, and (2) the actual fallback lookup logic wired to a real or test SQLite database populated with fallback data. This requires Integration—multiple modules working together with real infrastructure (the database). You don't need the real neural API (that would be System); mocking the error is sufficient. You don't need an external evaluation (that would be Agentic).",
+      "test_description": "Mock the translation API to return a 503 status code. Populate a test SQLite database with known phrase/translation pairs. Call the service with a phrase that exists in the dictionary. Verify the service returns the stored fallback translation without raising an exception to the caller, and logs the fallback event.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses mocked API (Integration sufficient for error handling) and test database for fallback; does not require real neural API.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is: 'The database query is wrong, returns the wrong row, or the schema is broken.' A Unit-level test with a mocked database would never catch this—a mock can be told to return anything. To catch a real failure (e.g., query returns wrong phrase, join is broken, charset issue), you need the actual SQLite database with real schema and test data. This is Integration: local database operations wired together with the lookup logic. No external APIs or evaluation models needed.",
+      "test_description": "Set up a test SQLite database with a schema matching production (phrase text, target language, translation text, and any indexes). Populate it with known test phrases and their translations (e.g., 'Hello' → 'Hola'). Call the dictionary lookup function with a phrase that exists in the database. Assert that the returned translation matches the stored value. Also test edge cases: non-ASCII characters, phrases with punctuation, and missing phrases.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real database schema and query execution; mocking would hide query errors. Integration level is sufficient—no need for network calls or external services.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "This behavior has two parts: (1) computing edit distance (a pure function, testable at Unit), and (2) storing the metric (requires database operations, Integration). A Unit test can verify edit distance calculation in isolation ('abc' → 'ab' = 1 deletion). But the full behavior includes storage and retrieval—a mock database would always accept the insert, hiding schema violations, constraint failures, or write errors. To catch real failures in the storage pipeline, you need the actual SQLite database wired to the metric-recording code. Integration is minimum.",
+      "test_description": "For the calculation: Unit-test the edit distance function directly with known pairs (e.g., 'cat'/'cat'=0, 'cat'/'hat'=1, 'abc'/'ab'=1). For storage: Compute edit distance between a primary translation and a fallback translation; insert the metric record into a test SQLite database; retrieve it and verify the stored value matches the computed distance. Test boundary cases: identical strings (distance=0), completely different strings, and empty strings.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Full behavior requires database persistence to catch storage failures. Can split into Unit (edit distance calc) and Integration (storage), but minimum for the whole behavior is Integration.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background",
+      "minimum_level": "Integration",
+      "justification": "The failure modes are: (1) 'Service returns fallback instead of primary,' (2) 'Service blocks on the quality logging (synchronous instead of async),' or (3) 'Quality log is never written.' To catch (1), mock the primary API to return a known value, then verify the response matches it. To catch (2), measure response latency while logging is in progress. To catch (3), ensure the logging eventually reaches the database. This requires Integration: the service logic (call primary API), mock the API, use a real or test database for storing quality metrics, and verify the response without waiting for the background task. You don't need the real neural API or external evaluation (System/Agentic); mocking is sufficient because you're testing the orchestration logic, not the model's output.",
+      "test_description": "Mock the translation API to return a specific primary translation. Populate a test database with a matching fallback phrase. Call the service with the phrase. Assert the response is returned quickly with the primary translation (not fallback). Spawn a background thread or task that monitors the database; verify that within a timeout (e.g., 2 seconds), the quality metric (primary vs. fallback edit distance) is written to the database. This confirms the logging happens asynchronously and doesn't block the response.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses mocked API and test database; verifies response speed and background logging. Does not require real neural API or external services. Integration level is sufficient.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

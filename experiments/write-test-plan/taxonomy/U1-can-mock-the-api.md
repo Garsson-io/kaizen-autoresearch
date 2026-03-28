@@ -31,3 +31,13 @@ self_aware_note: Model often acknowledges the need for real AI in hedges then pi
 [run3] EC-25 b2 (Integration→Agentic): "Testing pattern detection requires the real risk model — mocking it to always return 'fraud=true' would pass even if the model is broken."
 [run3] EC-30 b3 (Integration→Agentic): "A unit test of the weighting formula alone could pass while the real system fails if browsing data retrieval is broken."
 [run3] EC-30 b5 (Integration→Agentic): "The failure mode is the algorithm defaulting to all categories from browsing history or lacking the diversity mechanism entirely."
+[run5] EC-04 b4 (System→Agentic): "The failure mode is: a real, typical document causes token usage to exceed the budget. Mocking the API to report arbitrary token counts cannot expose whether the REAL model response fits within the budget."
+[run5] EC-10 b4 (Unit→Agentic): "The failure is in internal logic: the code posts 5 inline comments but only adds 4 to the summary (or vice versa). This is verifiable by mocking the GitHub API."
+[run5] EC-10 b4 THINKING: ⚠ SELF-AWARE — model treated as pure logic/counting bug, missing that PR review LLM generates variable sets of comments each run
+[run5] EC-17 b2 (Integration→Agentic): "The failure boundary is whether the system queries the real KB and correctly identifies contradictions. A mock KB always returning 'no contradictions' would pass even if the LLM is broken."
+[run5] EC-19 b3 (Integration→Agentic): "The core behavior being tested is deterministic: does the refinement prompt include the test failure messages? This is a prompt-construction property testable by mocking the LLM."
+[run5] EC-21 b4 (Unit→Agentic): "Sarcasm detection is likely implemented via heuristic rules (e.g., 'positive word followed by negative-context pattern within N tokens') or a dedicated sentiment library."
+[run5] EC-21 b4 NOTE: Model assumes deterministic heuristic implementation — misses that the issue describes AI-based sarcasm detection. Prompt needs to flag LLM-based detectors.
+[run5] EC-25 b2 (System→Agentic): "Real failure: 'The risk model doesn't actually detect this fraud pattern.' If mocked to always return fraud=true, the test passes regardless of whether the real model works."
+[run5] EC-30 b3 (Unit→Agentic): "Tests ranking algorithm's weighting of browsing signal. Real failure: algorithm doesn't factor browsing history into scores, or browses-matching products aren't boosted."
+[run5] EC-30 b5 (Unit→Agentic): "Tests algorithm's diversification logic. Real failure: all results are from user's browsed categories. Testable at Unit with user fixture."

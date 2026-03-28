@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The traveling-salesman heuristic produces a route that is no more than 1.5x the length of the optimal route for inputs up to 20 stops.",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithm testing. The TSP heuristic is a single function: coordinates in → route out. No external I/O, no OS behavior, no modules to wire together. To catch real failures in algorithmic quality, I need to test with known problem instances where I can compute or reference the optimal/near-optimal route. This is entirely in-process. A mock of the heuristic would hide the real algorithmic failure (i.e., if the heuristic is actually bad, a mock wouldn't catch it). Real failures manifest as computation results exceeding the 1.5x bound, which synthetic test data can provoke.",
+      "test_description": "Unit test: Create TSP instances with 5–20 stops at known coordinates (various geometries: line, cluster, random uniform). Pre-compute or look up the optimal route length (or use a reference solution). Invoke the heuristic, compute its route length, and assert result ≤ 1.5 × optimal. Test different orderings (worst-case orderings should still be caught). Edge case: 1 stop (trivial), 2 stops (deterministic), 20 stops (near limit).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test remains at Unit: it's one function call with deterministic inputs, no external dependencies. The heuristic quality is verifiable purely from the output vs. known benchmarks.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The delivery time window estimates are computed correctly from the distance between consecutive stops and the configured average speed for the road type.",
+      "minimum_level": "Unit",
+      "justification": "This is pure formula computation: distance (from lat/lon coordinates) + road-type speed configuration → time. No external API, no filesystem, no subprocess. To catch real failures, I need to verify the formula is applied correctly with known coordinate pairs and known speeds. A stub speed configuration (in-memory, no database read) is sufficient. Mocking the distance calculation would hide failures in the distance formula itself (e.g., wrong haversine implementation), but I can test the full chain: coordinates → distance → time, all in-process with pre-calculated reference values.",
+      "test_description": "Unit test: Parameterized test data: (lat1, lon1, lat2, lon2, road_type, expected_distance_m, configured_speed_kmh, expected_time_minutes). Invoke the time-estimate function for each pair. Assert output matches expected_time_minutes (within floating-point tolerance). Include: highway vs. local roads (different speeds), very short distances (< 1 km), medium (10 km), long (100 km). Edge cases: same location (distance=0 → time=0), extreme speeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Remains Unit. The entire computation is deterministic and in-process. No integration with other systems is needed to test this formula.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount.",
+      "minimum_level": "Unit",
+      "justification": "This is pure validation logic: given total_estimated_time and remaining_shift_hours, compare them and compute excess. No I/O, no external dependencies. The validator is a single function (or a small module with clear boundaries). To catch real failures: test the boundary condition (total == remaining), both sides (total < remaining → pass; total > remaining → fail), and excess calculation (excess == total - remaining). All of this can be tested with synthetic numeric inputs passed directly to the function.",
+      "test_description": "Unit test: Parameterized test matrix: (total_time_minutes, remaining_shift_hours, expected_pass, expected_excess). Test: (120, 2.0, true, 0), (130, 2.0, false, 10), (120, 2.0, true, 0), (0, 1.0, true, 0), (61, 1.0, false, 1). Edge cases: negative times (invalid, but verify behavior), zero remaining hours, very large times. Assert validator returns correct pass/fail and excess value.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Remains Unit. This is a pure validation rule; no integration or external data needed.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address in the list fails geocoding (API returns no results), the service skips that stop and optimizes the remaining addresses, reporting which addresses were skipped.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires wiring together the geocoding module and the route optimizer. A Unit test on just the validator logic won't catch failures in the end-to-end flow: receiving a list of addresses, passing each to geocoding (some fail), collecting non-failed addresses, optimizing them, and reporting failures. The geocoding module is a separate component (whether it's an injected dependency, imported, or called via HTTP). Mock the geocoding API (simulating 'no results' for specific addresses), wire it into the optimizer, and verify the full pipeline. A pure Unit test of skip-logic alone (without actual geocoding calls) would miss failures like: incorrect filtering of failed addresses, wrong reporting format, or dropped/duplicated items in the remaining route. Integration testing with mocked geocoding catches these.",
+      "test_description": "Integration test: Mock the geocoding API to return 'no results' for a subset of input addresses. Input: list of 5 addresses, e.g., ['123 Main', '456 Oak', '789 Elm', '111 Main', '222 Birch']. Configure mock to fail on addresses #2 and #4. Execute the route optimization. Verify: (1) output route includes only addresses 1, 3, 5 (non-failed); (2) reported skipped list contains addresses 2, 4; (3) route computed for {1, 3, 5} is valid (respects order/time constraints). Test with multiple failure scenarios: first, middle, last, all-fail, none-fail.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Remains Integration. The test must verify the interaction between geocoding and routing. Mocking at the API boundary (not at the Unit level) is necessary to simulate the failure mode while keeping the test deterministic.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses in the input list are consolidated into a single stop with combined delivery items, not visited twice.",
+      "minimum_level": "Unit",
+      "justification": "This is pure data transformation: given a list of addresses with delivery items (some addresses repeated), deduplicate and sum the items per address. No external calls, no separate modules to wire. The logic is entirely in-process on data structures. To catch real failures, I need to verify: duplicates are removed, items are correctly summed, and the output contains exactly one stop per unique address. These are all verifiable with synthetic input lists and assertions on the output data structure.",
+      "test_description": "Unit test: Parameterized test cases with input lists containing duplicates. Example: [('123 Main', 2 items), ('456 Oak', 1 item), ('123 Main', 3 items), ('789 Elm', 1 item)] → expected output: [('123 Main', 5 items), ('456 Oak', 1 item), ('789 Elm', 1 item)]. Test: all duplicates, no duplicates, first/middle/last duplicates, three+ occurrences of same address. Verify: output length == unique_address_count, each address appears once, item sums are correct. Edge cases: empty list, NULL/blank addresses, zero items.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Remains Unit. No integration points needed; this is a self-contained transformation function.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

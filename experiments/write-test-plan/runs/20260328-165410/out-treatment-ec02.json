@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid HMAC signature request is rejected with 401 response and body is not enqueued",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is deterministic local crypto logic with no I/O dependencies. A mock queue allows us to verify the handler rejects invalid requests without forwarding them. The failure mode (accepting invalid signatures) is entirely caught at the function boundary.",
+      "test_description": "Unit test calling the webhook handler with valid and invalid HMAC-SHA256 signatures. Mock the persistent queue and verify: (a) invalid signature returns HTTP 401, (b) mock queue.enqueue is never called for invalid requests, (c) valid signature returns 200 and queue.enqueue is called once.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is persisted to queue before HTTP 200 response is sent to webhook sender",
+      "minimum_level": "Integration",
+      "justification": "While code order can be verified at Unit level with a mock, the real failure mode is subtle: async queue operations that don't await, or queue I/O latency that affects the ordering guarantee. Unit tests with synchronous mocks hide fire-and-forget async bugs. Integration with a realistic persistent queue (even in-memory but durable) catches async ordering violations.",
+      "test_description": "Integration test that calls the webhook handler with a real in-memory persistent queue (or a queue mock that simulates async durability). Use call-order spies to verify queue.enqueue is invoked and completes before the HTTP response status is set. Run 5+ times to catch async race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without blocking on downstream event processing completion",
+      "minimum_level": "Integration",
+      "justification": "A Unit test with a synchronous mock would pass even if the handler incorrectly awaits downstream processing. The real failure—blocking on downstream—only manifests when downstream is actually async. Integration testing with real or realistic async downstream (e.g., spawned task, async service) catches handlers that accidentally await.",
+      "test_description": "Integration test with a slow downstream processor (task that takes 500ms+). Call the webhook handler and measure wall-clock time to HTTP 200 response. Verify response arrives in <100ms while downstream processing continues in the background. Use a spy to confirm downstream.process() is still running after response is sent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "HTTP response arrives within 3 seconds wall-clock time even with slow concurrent downstream processing",
+      "minimum_level": "Integration",
+      "justification": "Unit tests cannot reveal concurrent-load failure modes: thread pool saturation, resource contention, database connection pool exhaustion, or other concurrency bugs. Performance under realistic concurrent load requires actual async concurrency, not mocked delays. Only Integration/System testing with real concurrent operations catches these.",
+      "test_description": "Integration test that enqueues 10 slow downstream tasks (each 5+ seconds). While those are running, measure wall-clock response time for a new incoming webhook request. Verify response is <3 seconds. Use concurrent task scheduling (Promise.all, async/await) to ensure realistic concurrency. Run 3+ iterations to catch race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate event IDs are not enqueued a second time (idempotency)",
+      "minimum_level": "Integration",
+      "justification": "Idempotency depends on persistent dedup state. A Unit test with a mock store would pass but misses real failures: race conditions on concurrent duplicate requests, incorrect dedup key logic, or missing database index. Integration testing with real persistent storage (even in-memory but surviving across calls) reveals actual idempotency bugs.",
+      "test_description": "Integration test that calls the webhook handler twice with identical event ID. Use a real persistent store (in-memory database, Redis, or filesystem) to track seen IDs. Verify: (a) first call enqueues the event, (b) second call does NOT enqueue the event, (c) the queue contains exactly 1 copy of the event. Test concurrent duplicate requests to catch race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Handler returns 503 with Retry-After header when persistent queue is full",
+      "minimum_level": "Unit",
+      "justification": "Error handling is testable at Unit level. Mock the queue to throw a 'queue full' error; verify the handler catches it and returns the correct HTTP status and headers. The failure (wrong status code, missing header) is caught at the function boundary.",
+      "test_description": "Unit test that mocks the persistent queue to throw a QueueFullError when enqueue() is called. Call the webhook handler with a valid request. Verify: (a) HTTP response status is 503, (b) Retry-After header is present with a valid retry delay (e.g., 60 seconds), (c) event is NOT enqueued.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit and rejects overflow",
+      "minimum_level": "System",
+      "justification": "This tests the queue's internal behavior, not the handler's. Mocking defeats the test purpose. If the queue is an external service (RabbitMQ, SQS, Kafka), this requires System-level testing against the real service. Even in-process queues need Integration testing with real capacity logic, not mocked.",
+      "test_description": "System/Integration test that instantiates the persistent queue with a configured capacity limit (e.g., 100 messages). Enqueue messages up to the limit, then attempt to enqueue beyond the limit. Verify the queue rejects the overflow (throws error, returns false, or blocks). Test both in-process and external queue scenarios separately if applicable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.5,
+        "System": 0.5,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

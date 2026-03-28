@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Integration",
+      "justification": "Thresholds are configurable—they're loaded from storage, not hard-coded. A unit test that mocks the threshold fetch always passes, hiding: threshold loading bugs, misconfigured values in storage, or wrong threshold applied to a given merchant category. The test must load real (or test-database) thresholds, construct a transaction exceeding one, and verify the scoring model produces the expected risk score. The failure boundary is whether the model correctly retrieves and applies the stored threshold, not just whether the score-calculation logic is mathematically correct.",
+      "test_description": "Create a test database with known merchant category thresholds (e.g., category 'grocery' has $500 limit). Insert a transaction with amount $600 in the grocery category. Call scoring_model.compute_score(transaction) and verify it returns a score indicating 'exceeds threshold'. Repeat with a transaction at $400 (below threshold) and verify it returns a score indicating 'within threshold'. Verify that misconfigured or missing thresholds are caught (e.g., if a threshold is deleted from storage, the model should either use a default or raise an error, not silently return a neutral score).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "This behavior depends on the risk model recognizing a *pattern* in context data (purchase history, geographic distance, device fingerprint). A unit test that mocks the risk model output always passes—it hides whether the model correctly extracts features, loads context data, or generates the right prediction given real transaction history. The test must populate a realistic transaction history for a user (e.g., 5 small purchases from 5 different countries in 2 hours), ensure the scoring model does *not* flag it (all under amount thresholds, no velocity rule violation), then call the risk model and verify it *does* flag it as fraud. If the risk model is LLM-based (which would make it non-deterministic), the test becomes Agentic, but the minimum for pattern detection is Integration: real context, real model.",
+      "test_description": "Set up a user with transaction history: 5 purchases of $50 each from merchants in 5 different countries within 2 hours (UK, Japan, Brazil, Australia, Canada). Verify scoring model does not flag (no single threshold exceeded, velocity check is within limits). Call risk_model.evaluate(user_id, recent_transactions) with real or test-fixture transaction context. Verify it returns fraud_probability > threshold, indicating pattern recognized. Repeat with a different user who made similar purchases over 1 week (not rapid)—verify risk model does not flag. This catches: incorrect feature extraction, missing context data, or risk model failing to generalize the pattern.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.5,
+        "System": 0.1,
+        "Agentic": 0.25,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "Velocity check requires querying transaction history from a data store and counting within a time window. A unit test that mocks transaction_history.get_user_transactions() always passes—it hides: timestamp parsing bugs, off-by-one errors in time window boundaries, incorrect filtering by user, or wrong database query logic. The test must insert real transactions into a test database, query them with a velocity check (e.g., 'transactions in last 1 hour'), and verify the count is correct. The failure boundary is whether the model correctly retrieves and filters real transaction data, not just whether a counter increments correctly.",
+      "test_description": "Populate a test database with 10 transactions for user 'alice': 5 in the last 30 minutes, 5 from 2 hours ago. Configure the velocity check window to 1 hour. Call scoring_model.velocity_check(user_id='alice', window='1h'). Verify it returns count=5 (only recent transactions). Test edge cases: transaction exactly at the 1-hour boundary (inclusive or exclusive?), millisecond-precision timestamps, timezone handling. Verify that transactions from other users are not counted. This catches: boundary bugs, timezone errors, query logic bugs, and data isolation issues.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review—the models operate as an OR gate, not AND.",
+      "minimum_level": "Integration",
+      "justification": "This tests the combined decision logic: if either model flags, hold. A unit test that mocks both models can verify the OR gate logic in isolation (risk=True, score=False → hold=True), but it misses integration failures: the models' outputs are misinterpreted (e.g., threshold comparison inverted), the decision combines them incorrectly, or the 'hold' flag is not propagated to the output. The test must call both real models with test data crafted so only the risk model flags, then verify the combined decision is 'hold for review'. If the risk model is LLM-based, this becomes Agentic, but the minimum is Integration: real model outputs combined correctly.",
+      "test_description": "Create a transaction: $100 purchase within normal velocity, no geographic anomaly. Configure scoring thresholds such that the scoring model does not flag (decision=false). Call risk_model.evaluate(transaction_context) and mock/configure it to return fraud_probability=0.92 (fraud detected). Call fraud_detection.decide(scoring_result=false, risk_result=true). Verify output includes decision='hold_for_review' and both model_scores are included. Repeat the reverse: risk_model returns fraud_probability=0.10 (not fraud), scoring_model flags due to threshold. Verify combined decision is still 'hold_for_review'. This catches: AND vs OR logic errors, threshold interpretation bugs, and decision output bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Integration",
+      "justification": "Output schema must include both risk_score and risk_model_probability. A unit test that mocks both models can verify the output schema (fields present, types correct) but misses: score calculation bugs, risk model probability not propagated correctly, null values in production data, or incorrect serialization. The test must call real models to obtain real scores and probabilities, then verify both are present in the output and have expected ranges. The failure boundary is whether the output includes correct, non-null values from both models, not just whether the schema is syntactically correct.",
+      "test_description": "Execute fraud_detection.evaluate(transaction) with real models. Verify output JSON includes: risk_score (numeric, range 0-100), risk_model_probability (numeric, range 0-1), source fields (e.g., flagged_by=['scoring_model'] or ['risk_model'] or both), reviewer_note or similar. Test that when scoring_model flags but risk_model doesn't, both scores appear with risk_model_probability < threshold. Test that null probabilities are never included (if risk model fails, either use a default or omit the field, but don't output null). Verify output is deserialized correctly by a reviewer UI (check JSON is valid, field names match schema).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

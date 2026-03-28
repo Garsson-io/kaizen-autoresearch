@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds the configured amount threshold for its merchant category",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is not just the threshold comparison logic — it's the **entire data pipeline**. A unit test mocking `threshold=1000` would pass even if the real configuration is malformed (unparsed from file/DB, string instead of number), or if the merchant category lookup fails. Real production failures include: config parsing errors, type conversion bugs (string threshold vs numeric), or merchant category not found. Only an integration test loading realistic configuration and transaction data through the full scoring path would catch these.",
+      "test_description": "Load configuration with merchant-category-specific thresholds (e.g., electronics → $1000, groceries → $5000) from a realistic config source (file, fixture, or DB). Create a transaction with amount=$1500 in electronics category. Invoke the scoring model end-to-end. Verify the risk score is non-zero and calculated correctly. Also verify that a transaction below threshold produces a lower score.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends on a **real ML model inference**. The risk model, given its description ('analyzes transaction context... to predict whether the transaction is fraudulent'), is almost certainly a trained model consuming features (merchant category, purchase history, device fingerprint). A pure in-process mock that always returns 'fraud' would mask the real failure: the model was never trained on this pattern, or the pattern is outside the model's feature space. Only invoking the **actual model artifact** (weights, inference engine, etc.) would reveal whether it truly detects this pattern. Mocking defeats the entire test purpose.",
+      "test_description": "Construct a realistic fraudulent pattern: 5 transactions of $30 each from different countries within 2 hours, same user, different merchants. Feed the pattern to the real risk model (with actual model artifact/weights), extracting features like merchant category, purchase velocity, and geographic variance. Verify the model returns fraud probability above the detection threshold. Run this test with the actual production or reference model, not a mock.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.3,
+        "System": 0,
+        "Agentic": 0.6,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in scoring model correctly counts transactions within the configured time window per user",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is in the **query/data-retrieval logic**, not the counting math. A unit test mocking `[tx1, tx2, tx3]` would pass even if the real query is broken: wrong time window (queries last 2 hours when config says 1 hour), wrong user filter (returns other users' transactions), or off-by-one in timestamp comparison. Real production failures include: inclusive vs. exclusive time boundaries, timezone conversion bugs, transactions from different users mixed in. Only an integration test with a real (in-memory) database, multiple users, and transactions spanning the time boundary would catch these.",
+      "test_description": "Set up an in-memory test database (SQLite, mock-mongo, etc.) with 5 transactions: 3 for user A within the configured time window (e.g., last 60 minutes), 2 for user A outside the window (older than 60 min), and 3 for user B within the window. Call the velocity check for user A. Verify it counts exactly 3 (not 5, not 2). Repeat with edge cases: transaction at exactly the window boundary (t=60min), and with different timezone offsets.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Transaction flagged by risk model but not scoring model is still held for review — OR gate, not AND",
+      "minimum_level": "Integration",
+      "justification": "The failure could be in two places: **(1) gate logic** — implemented as AND instead of OR, or **(2) data wiring** — risk model output is never passed to the gate, or dropped during data flow. A unit test of just the gate function (`if scoring_flag OR risk_flag`) would catch the logic error but miss the wiring error. Real production failure: risk model detects fraud, but the transaction is released anyway because the gate never sees the risk flag. Only an integration test wiring both model outputs together would catch both failure modes.",
+      "test_description": "Set up both models within the evaluation pipeline. Configure scoring model to return safe (risk_score=0.1) and risk model to return fraud (probability=0.95). Call the combined evaluation. Verify the transaction is held for review. Then swap: scoring=fraud, risk=safe. Verify it's still held. Finally, both safe: verify it's released (not held). This tests both the gate logic and the wiring.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both numeric risk score and risk model's fraud probability, so reviewer can see which model flagged the transaction",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the **response structure and data flow**. A unit test mocking the response formatter could pass with simple inputs, but would miss real failures: (1) one model's output never calculated, (2) field dropped during JSON serialization, (3) type mismatch (numeric vs. string), or (4) output not propagated through the pipeline. Real production failure: reviewer sees only the risk score (fraud probability missing), and can't understand why the transaction was flagged. Integration test running the full evaluation pipeline and inspecting the final response would catch all of these.",
+      "test_description": "Run the full transaction evaluation with both models configured to produce outputs (e.g., risk_score=0.65, fraud_probability=0.92). Capture the final response object or JSON. Verify it includes both fields with correct values and types. Verify neither field is null/undefined. Also test edge case: one model errors — verify the response still includes the other model's output (graceful degradation).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

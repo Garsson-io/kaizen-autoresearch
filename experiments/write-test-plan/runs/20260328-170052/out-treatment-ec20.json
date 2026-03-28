@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "The real failure here is twofold: (1) parsing edge cases in real manifest files (package.json, requirements.txt, etc.) or (2) the dependency resolver fails to correctly walk the transitive tree. A unit test with mocked file I/O and a mocked resolver could verify \"we call the resolver and include all returned deps\", but misses the failure where the resolver produces an incomplete or incorrect tree, or the parser chokes on real manifests. The infrastructure boundary is local—file parsing + dependency resolution wired together—not network or subprocess, so Integration (not System) is sufficient. The failure would be caught by testing against real manifest files and real language-specific dependency resolvers.",
+      "test_description": "Load a real package.json/requirements.txt with a known transitive chain (e.g., A depends on B, B depends on C). Extract all dependencies using the language-specific resolver. Assert that the result includes A, B, and C—not just the direct dependency A.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test description requires actual file I/O and real dependency resolution. A pure unit test with mocks would not catch real transitive resolution failures.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "System",
+      "justification": "The real failure is a malformed or incomplete query sent to the vulnerability API. If you mock the API with pre-filtered results (Unit/Integration), the code could construct a query that omits the version constraint entirely, and the test would still pass because the mock accepts it. Only hitting a *real* vulnerability database API reveals whether your query is correctly formatted and whether the API's response actually respects version constraints. Alternatively, if the scanner uses a real but free/open-source vulnerability API (e.g., NVD, Snyk), the test should hit that real endpoint. This is an external dependency (API call), not a local subprocess, so System is the right boundary.",
+      "test_description": "Query a real vulnerability database (or test instance) for a specific package+version constraint (e.g., 'lodash ^4.17.0'). Verify that results include only CVEs affecting versions matching that range, not all lodash CVEs. Assert that a separate query for 'lodash ^1.0.0' returns different (older) CVEs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A mocked API would hide query construction failures. Real API call is necessary.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "This is pure deterministic logic: given a list of CVE objects with severity and CVSS fields, sort and verify order. No I/O, no external dependencies, no nondeterminism. A unit test with a hardcoded list of CVE objects (using real model classes, not mocks) will deterministically catch sorting errors. There is no failure mode that would slip past a unit test but be caught by integration—sorting logic either works or doesn't.",
+      "test_description": "Create a list of CVE objects with mixed severities (Critical CVSS 9.8, High CVSS 7.5, Medium CVSS 5.0, Critical CVSS 9.1, Low CVSS 2.0). Call the sorting function. Assert the result is ordered: [Critical 9.8, Critical 9.1, High 7.5, Medium 5.0, Low 2.0].",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test is entirely local and deterministic. It does not need external infrastructure.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.025,
+        "Agentic": 0.0125,
+        "Workflow": 0.0125
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is file corruption: you modify package.json to bump 'lodash', but accidentally also change the version of 'express', or lose a comment, or mess up JSON formatting. A unit test with an in-memory manifest object could test the logic, but would miss file format edge cases (YAML indentation, JSON comments, leading whitespace). You must test with actual file I/O—reading a real manifest, modifying it, and verifying the output file is byte-correct for all entries except the one changed. This requires integration of parsing + modification + serialization, all local to the filesystem.",
+      "test_description": "Load a real package.json with 5 dependencies (including lodash ^4.17.0). Modify only lodash to ^4.17.21. Read the file back. Assert lodash version is ^4.17.21, all other 4 dependencies are unchanged, JSON structure is valid, and no extra whitespace or formatting changes appear elsewhere.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing with in-memory objects would not catch file serialization bugs. Real file I/O is required.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "The real failure is: the diff is malformed, or the PR is created on the wrong branch, or the API call fails due to authentication/permissions. A unit test with a mocked GitHub API could verify the code *calls* the API with the right parameters, but would not catch: malformed diff payload, branch name syntax errors, or API version incompatibilities. You must make a *real* GitHub API call (or at least to a real GitHub instance, possibly a test org) to verify the PR actually appears with the correct single-file diff. This is an external HTTP API call to a third-party service, not a local subprocess—System boundary.",
+      "test_description": "Create a test repository on GitHub (or use a test org). Modify a manifest file locally, generate a diff bumping one dependency. Call the actual GitHub API (using real credentials) to create a PR with that diff. Verify the PR exists, has the correct branch name, and the diff shows only one dependency version change.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocking GitHub API hides payload/auth errors. Real API call required.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic semver logic: given two version strings (e.g., '1.2.3' and '2.0.0'), determine if the transition is a major bump. No I/O, no external calls, no nondeterminism. A unit test with string literals will catch all failure modes (wrong major detection, wrong minor/patch detection, parse errors on edge cases like '1.2.3-rc.1'). Any bug in semver logic will fail the unit test; no higher level is needed.",
+      "test_description": "Test semver comparison with version pairs: ('1.2.3', '2.0.0') → major=true, ('1.2.3', '1.3.0') → major=false, ('1.2.3', '1.2.4') → major=false, ('0.1.0', '1.0.0') → major=true. Assert all results match expectations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Semver comparison is pure logic. No infrastructure needed.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is: breaking change is detected, but PR is created anyway (logic bug), or the flag is not surfaced (output bug), or both are implemented but not wired together correctly. A unit test with a mocked PR-creation API could verify \"PR creation is not called when breaking_change=true\" and \"flag appears in output\", catching the core logic. However, if PR creation is asynchronous, or if the flag-setting happens in a different code path, a unit test might miss the wiring failure. Integration testing (wiring together detection → skip decision → flag output, with a mocked GitHub API call) ensures the entire flow works. The boundary is local (in-process), not a real API call to GitHub, so Integration (not System) is sufficient.",
+      "test_description": "Create a manifest with a breaking-change dependency bump (e.g., 1.x → 2.0.0). Run the scanner in a test environment. Assert: (1) the output contains a review flag indicating breaking change, (2) the PR creation mock is never called (or the PR branch is not created), and (3) the scanner does not attempt to push to the repository.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Wiring between detection and skip logic requires integration testing. Can mock GitHub API, but need real flow logic.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    }
+  ]
+}

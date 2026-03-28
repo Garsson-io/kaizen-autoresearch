@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature (parameter names, types, return type) matches the specification in the natural language description.",
+      "minimum_level": "Agentic",
+      "justification": "The correctness of the generated signature depends on what the real LLM produces. A mock LLM could be configured to always return matching signatures, hiding the real failure case: the LLM generates code with wrong parameter names, types, or return types due to misunderstanding the spec or prompt ambiguity. A unit test that mocks the LLM and validates our signature-extraction logic catches failures in *parsing*, not in *generation*. We need the real LLM to verify it actually understands and respects the interface specification in practice.",
+      "test_description": "Call the real LLM with a function specification (e.g., 'write a function that takes (name: str, age: int) and returns bool'). Extract the generated code's signature from the LLM output and parse it. Verify that parameter names, types, and return type match the specification. Repeat with 3–5 different specifications to catch cases where the LLM misinterprets or ignores type constraints.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases either on the first attempt or after one or more refinement iterations.",
+      "minimum_level": "Agentic",
+      "justification": "Whether the generated code passes the test suite depends on the quality of the LLM's implementation. A mock LLM could always generate correct code, hiding the real failure: the LLM produces buggy code that fails tests. Unit tests with mocked LLM responses test the *test-execution infrastructure* but not whether the real LLM can generate code that actually works. The failure we're protecting against in production is: 'the LLM generated code that fails all test cases and the service did not detect/report this correctly.' To catch this, we need the real LLM generating realistic code and the test suite actually executing it.",
+      "test_description": "Call the real LLM to generate an implementation for a moderately difficult function (one that benefits from test-driven refinement). Provide the test suite. Execute the tests against the generated code. If tests fail, verify the service passes the failure output to the LLM for refinement. Repeat the loop and track whether the code passes by the final attempt. Success is defined as tests passing within the attempt limit.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages (including test names, assertion errors, stack traces) in the prompt sent to the LLM for the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is about the *deterministic plumbing* of prompt construction, not LLM correctness. We're testing: 'Does the service capture test failure output and include it in the next LLM prompt?' This is purely a control-flow and string-assembly problem. A unit test can mock both the first LLM call (to return failing code) and the second call (to inspect what prompt was sent). The logic is not probabilistic; either the error message appears in the prompt or it doesn't. A real LLM is not needed to verify this behavior. Mocking the LLM allows us to inject specific failure outputs and verify they are correctly threaded into the next prompt.",
+      "test_description": "Mock the LLM's first call to return code that fails a specific test (e.g., 'AssertionError: expected 5, got 0'). Capture the error message. Mock the second LLM call. Verify the prompt passed to the second call contains the exact error message from the first failure. Test with multiple failure message formats (stack traces, assertion errors, timeout errors) to ensure the plumbing is robust.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After 3 failed attempts, the service stops iterating and returns a structured error object containing all three attempts and their corresponding test results.",
+      "minimum_level": "Unit",
+      "justification": "This is pure control logic: count attempts, enforce a stop condition, aggregate results into a response object. The loop-termination behavior is deterministic and does not depend on LLM behavior. A unit test can mock the test executor to always return 'failed,' run the loop, and verify it stops at exactly 3 attempts (not 2, not 4). We can also mock the LLM to return different code each time and verify the final error response includes all three attempts and their test outputs. Mocking does not hide any real failure here because the control flow is deterministic.",
+      "test_description": "Mock the LLM to return different code on each call. Mock the test executor to always fail. Run the loop and verify: (1) loop runs exactly 3 times, (2) on the 3rd failure, service returns without attempting a 4th call, (3) the error response includes an array of 3 attempts, each with generated code and test results, (4) error response has expected structure (e.g., 'attempts: [{code, test_results}, ...]').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop—generate, test, refine (incorporating failure feedback), test again—successfully produces a working implementation for a function that a single LLM call typically fails to implement correctly.",
+      "minimum_level": "Agentic",
+      "justification": "This is an end-to-end test of the loop's effectiveness on hard cases. The behavior is: 'Does the refinement loop actually help the LLM produce correct code when a single call would fail?' This depends on the real LLM's ability to learn from test feedback and iteratively improve. A mock LLM could be configured to fail on first try and succeed on retry, but that would be affirming the loop's happy path without testing the real failure mode: 'the LLM receives the failure feedback but does not actually improve.' Only the real LLM can tell us whether it uses the test failure information to generate better code. We must call the real LLM, pick a function that is known to be difficult (one it typically fails on first try), run the loop, and verify the final output passes all tests. This proves the loop has real value beyond just 'collecting attempts.'",
+      "test_description": "Select a function specification that the LLM model typically fails on in a single attempt (benchmark this beforehand or choose based on model limitations). Call the real LLM once to generate code without any test feedback—verify it fails tests. Then run the full loop: generate, test, include failures in the next prompt, refine, test again, repeat up to 3 times. Verify that the final attempt produces code that passes all tests. Track the progression to confirm improvement across attempts (e.g., each attempt either passes more tests or fixes previously broken tests).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.15
+      }
+    }
+  ]
+}

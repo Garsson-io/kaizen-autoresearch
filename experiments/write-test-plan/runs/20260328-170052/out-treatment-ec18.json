@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them",
+      "minimum_level": "Unit",
+      "justification": "This is pure grouping logic: given a set of in-memory log objects with a trace_id field, partition them by key. No I/O, no real infrastructure needed. A mock could miss this only if the grouping function has bugs in hash collision handling or type coercion—but those are logic bugs, not infra-related. The phrase 'regardless of which microservice' describes the *input variety*, not an infra requirement.",
+      "test_description": "Create a collection of mock log objects with various trace_ids (including edge cases like unicode, nulls, very long IDs) and sources (service-A, service-B, etc.). Call the grouping function and verify: (1) each group contains only entries with matching trace_id, (2) no entries are lost, (3) group structure is correct even with identical trace_ids from different services.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.93,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services",
+      "minimum_level": "Unit",
+      "justification": "This is sorting logic with a tolerance constraint. The clock skew is *in the log data* (timestamps written by different services at slightly different wall times), not something requiring real system clocks. A unit test can create in-memory entries with artificially-offset timestamps and verify the ordering algorithm handles the 500ms tolerance correctly (e.g., treating within-500ms entries as simultaneous, or applying a secondary sort key). Real clock synchronization across services is a deployment concern, not a logic failure.",
+      "test_description": "Create log entries with timestamps that include realistic clock skew: one entry from service-A at time T, another from service-B at time T+300ms, another at T-200ms, etc. Call the timeline ordering function and verify that: (1) the output is ordered despite skew, (2) entries within 500ms are handled consistently (whether grouped, sorted by tiebreaker, or flagged), (3) boundary cases (exactly 500ms, exactly -500ms) are correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report",
+      "minimum_level": "Unit",
+      "justification": "This is statistical analysis: compute percentile, compare to threshold, flag if exceeded. Pure logic. A unit test can create in-memory latency arrays (e.g., a baseline of 100ms and a spike of 400ms) and verify the spike detector fires correctly. The assumption is the baseline is available (either passed as a parameter or pre-loaded). If the baseline must be sourced from a real time-series database with real clock synchronization, that would push to Integration. But the core behavior—spike detection—is algorithmic.",
+      "test_description": "Create in-memory latency datasets with known characteristics: (1) a baseline of 100 entries at ~100ms each (p99 = 101ms), (2) a spike of 10 entries at ~400ms (raising p99 to 400ms = 4x baseline). Call the spike detection function with the baseline parameter and the spiked dataset. Verify it flags the spike. Include boundary cases: spike at exactly 3x (should flag), at 2.99x (should not flag).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported",
+      "minimum_level": "Integration",
+      "justification": "The parsing logic itself (try-catch, increment counter) could be unit-tested in isolation. But the phrase 'without crashing the pipeline' implies testing the full pipeline end-to-end. A unit test of just the JSON parser might miss downstream integration failures: exceptions not propagating correctly, state not being updated, or the pipeline continuing but in a corrupted state. A mock parser could pass all unit tests yet fail when wired into the real pipeline with real concurrency or message flow. The *failure boundary* is the interaction between error handling and the rest of the system.",
+      "test_description": "Create a mock or test input stream (e.g., a list or in-memory queue) with mixed valid and malformed JSON entries: valid entries, null bytes, truncated JSON, non-UTF-8, deeply nested objects, etc. Feed the entire stream into the full processing pipeline (not just the parser in isolation). Verify: (1) malformed entries are skipped gracefully, (2) valid entries are processed, (3) the skipped count is accurate and reported, (4) the pipeline continues processing after encountering malformed data, (5) no unhandled exceptions propagate.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind",
+      "minimum_level": "Integration",
+      "justification": "Performance under load requires testing with real I/O patterns, real concurrency, and real timing. A unit test of the parsing function with in-memory data won't catch bottlenecks in file reading, JSON parsing, memory allocation, or buffer management. A mock might represent 10K entries, but processing them in microseconds on the test thread is not representative. An integration test with a local file or in-memory queue, wired into the full tool with real buffering and concurrency, can measure throughput and verify no drops. System testing (real network I/O, real subprocess) would be even more realistic but is not strictly necessary if the bottleneck is local processing. The minimum is Integration: real I/O patterns + real concurrency on local infrastructure.",
+      "test_description": "Prepare a test input with 100K+ log entries (local file or in-memory queue). Run the tool against this input while measuring throughput, monitoring for dropped entries (via checksums or sequence numbers), and tracking end-to-end latency. Verify the tool sustains ≥10K entries/sec for at least 10 seconds without: (1) dropping or skipping entries, (2) accumulating unbounded queue depth or latency (falling behind), (3) excessive memory growth or CPU usage. Include concurrent sinks (e.g., multiple output streams) to simulate real parallel processing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.5,
+        "System": 0.46,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

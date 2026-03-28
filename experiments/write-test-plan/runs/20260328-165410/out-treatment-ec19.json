@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure boundary is whether the real LLM, given a natural language function description, actually generates code with a matching signature. Mocking the LLM would hide the core failure mode: the LLM generating invalid or mismatched signatures. The signature correctness depends entirely on what the real LLM produces, not on orchestration or infrastructure.",
+      "test_description": "Call the code generation service with a detailed natural language description that specifies exact parameter names, types, and return type. Parse the generated code to extract the function signature. Verify the extracted signature (parameter names, parameter types, return type) exactly matches the specification in the description. Run this test multiple times with different function descriptions to account for LLM non-determinism and catch failures where the real LLM generates mismatched signatures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.94,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is whether the real LLM can generate code that passes the provided test suite. This depends entirely on what the LLM generates — whether it produces correct logic, handles edge cases, avoids syntax errors, etc. Mocking the LLM to always return passing code would hide whether the real LLM is capable of this. The non-determinism and variability in outcomes come from the LLM's generation, not from the service's refinement loop (which is tested separately in Behavior 5).",
+      "test_description": "Call the code generation service with a function description and a test suite. Verify that the service executes the generated code against the provided tests and returns either a passing implementation or a structured failure after up to 3 attempts. Run the generated code directly to confirm it passes the test suite. Test with various function descriptions to ensure the LLM can reliably generate working code. Run the test multiple times to account for LLM non-determinism.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.03,
+        "System": 0.02,
+        "Agentic": 0.92,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a data-flow issue: 'does the service correctly extract failure messages from test execution and pass them in the next refinement prompt?' This is not about what the LLM generates, but about whether the service's components (test runner, failure extraction, prompt construction, LLM refinement loop) are wired together correctly. We can test this by mocking the LLM to deterministically fail on attempt 1, running (real or mocked) tests to produce failure output, then mocking the LLM on attempt 2 to capture the prompt it receives. If failure messages are missing, truncated, or malformed, the captured prompt will reveal it. This requires integration-level testing of the service's internal data flow.",
+      "test_description": "Configure the service with a function description that will cause the first LLM attempt to generate code that fails provided tests (either via real LLM, or by mocking the LLM to return known-failing code). Verify the first attempt fails. Mock the LLM's second attempt (or subsequent attempts) and capture the prompt argument passed to it. Assert that the captured prompt contains the failure messages from the first attempt (e.g., test names, assertion failures, stack traces). Verify that critical failure information is not truncated, escaped incorrectly, or lost. Test with multiple types of test failures (assertions, exceptions, timeouts) to ensure all are included.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in service orchestration and error construction: 'does the service correctly count attempts, stop at 3, and include all attempt data in the error structure?' This is testable with mocked components — mock the LLM to always return syntactically valid but test-failing code, mock the test runner to report failures. The failure boundary is not the LLM's behavior, but the service's loop control and error formatting logic. By integrating these mocked components, we verify that the service makes exactly 3 calls, collects all results, and formats them correctly. A Unit test could mock these individually; Integration is more realistic and catches wiring bugs.",
+      "test_description": "Configure the service to guarantee failures on all attempts (mock LLM to return code that fails tests, or use function description that reliably fails). Call the service and allow it to exhaust all 3 attempts. Verify that the service makes exactly 3 LLM calls (no more). Verify the returned error response includes all 3 attempts with their full data (generated code, test output, timing). Validate the error structure against the expected schema (e.g., attempts is an array of length 3, each entry has code, test_results, timestamp). Attempt to make a 4th call and verify it does not happen — the service stops at 3.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "The real failure is whether the refinement loop actually converges: 'when the real LLM receives feedback about what went wrong, does it generate improved code on subsequent attempts?' This is fundamentally a multi-step agentic behavior. Attempt 1's code informs the prompt for Attempt 2, which informs Attempt 3. Testing convergence requires running the full loop with a real LLM multiple times because: (1) you need the real LLM to see if it improves given feedback, (2) you need multiple attempts so the service has a chance to refine, (3) non-determinism means you must run it multiple times to validate convergence, (4) mocking the LLM would hide whether the refinement strategy actually works with a real model.",
+      "test_description": "Select a function description that is known to be difficult for a single LLM call (e.g., a complex algorithm, recursive logic, or one with many edge cases). Call the code generation service with this description and provided test cases, allowing the full loop to run (up to 3 attempts) with the real LLM. Verify that either: (a) the service returns a passing implementation (validate by running the generated code against tests), OR (b) the service returns a structured error after 3 failed attempts. Run the test multiple times (at least 5-10) to account for LLM non-determinism and confirm the loop reliably converges. Track per-attempt metrics: code length, test pass rate, error types — verify that later attempts show improvement (fewer test failures, different code structure), demonstrating that refinement with feedback actually happens.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

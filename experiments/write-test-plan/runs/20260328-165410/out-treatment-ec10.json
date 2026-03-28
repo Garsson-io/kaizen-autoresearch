@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Integration",
+      "justification": "Line-number mapping between file diffs and changed-line identification is a real boundary. Unit tests with mocked diffs risk missing line-number off-by-one errors and position-mapping bugs that only surface with realistic GitHub diff format. MOCK-MISS: A simple mock diff could hide bugs in how the code extracts changed line ranges. An integration test using realistic or actual GitHub diff output (with proper diff headers, context lines, hunk boundaries) is the minimum to catch these failures.",
+      "test_description": "Create a test file with mixed content (some lines unchanged, some changed). Construct a realistic GitHub diff output showing the modification. Feed it to the review input parser. Assert that the code identifies exactly the changed lines (e.g., lines 5-8 modified) and does not attempt to analyze lines 1-4 or 9-20 which are outside the diff. Verify by checking that analysis requests include only the line range corresponding to the diff hunks.",
+      "plan_consistent": true,
+      "plan_consistent_note": "An integration test that uses realistic diff format and verifies line ranges matches the minimum level; unit tests with overly simplified mock diffs would likely pass even if real GitHub diffs exposed bugs in range parsing.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "System",
+      "justification": "This behavior involves a real HTTP call to GitHub's API to post comments at specific line positions. REAL-INFRA: The failure boundary is the actual GitHub API, which requires a real network call. MOCK-MISS: A mocked GitHub API could pass even if the code specifies line numbers in a way GitHub doesn't understand (e.g., 0-indexed vs 1-indexed, or using the wrong position type for diff comments). System-level testing against the real GitHub API (or a realistic integration environment) is the only way to catch position-mapping failures that would fail in production.",
+      "test_description": "Arrange: Create a real or staged pull request with known code changes. Identify a specific line in the diff view (e.g., line 42 in the modified file, which appears at position 5 in the diff). Act: Call the review automation to post an inline comment. Assert: Verify that the comment is posted on the correct line in the GitHub PR UI (visible at the right position in the diff). Check the GitHub API response confirms the comment is attached to the correct commit_id and position. Repeat with multiple line positions to verify no off-by-one errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A system-level test hitting the real GitHub API is the only way to verify that line positions are correctly translated and accepted by GitHub. Integration tests with mocked GitHub behavior could pass even if real GitHub rejects or misinterprets the position values.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.65,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends entirely on what a real LLM actually identifies in code. MOCK-HIDE: A mocked LLM would always return a predetermined response, hiding real cases where the LLM misses the bug or identifies a different bug. LLM-DEP: The same buggy code might be identified as problematic in one LLM run and missed in another (non-determinism is expected). Only a real LLM making a real API call can verify that the automation succeeds at the actual task of defect identification.",
+      "test_description": "Arrange: Prepare a PR with a known introduced bug (e.g., off-by-one error in a loop, missing null check, hardcoded credentials, race condition). Act: Run the review automation with a real LLM (not a mock) against this PR. Assert: Verify that the findings returned include at least one comment identifying a defect. The defect description should reference the specific bug type (e.g., 'missing null check' for a null-reference bug, 'off-by-one in loop bounds' for an array access bug). Run the test multiple times to ensure the LLM consistently identifies the defect (or accept variability as inherent to LLM behavior and record the rate of success).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic level matches the failure boundary: LLM correctness. A unit test or integration test using a mocked LLM would always pass, defeating the test's purpose. Only real LLM invocation tests whether the automation actually identifies real defects.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.1,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Integration",
+      "justification": "This is a consistency check between two outputs (inline comments and summary). MOCK-MISS: A unit test with mocked LLM and mocked comment posting could miss bugs in how the code wires them together. For example, the summary generation might drop findings due to an indexing bug, or the comment posting might filter findings in a way the summary doesn't. An integration test that runs the full sequence (LLM identifies findings → comments posted → summary generated) with realistic data is needed to catch such wiring failures. The bug is not in the LLM or GitHub API, but in the automation's orchestration logic.",
+      "test_description": "Arrange: Use a real LLM (or deterministic mock if consistent output is acceptable) to generate 3-5 findings for a sample PR. Act: Run the full automation: (1) generate findings, (2) post each as an inline comment, (3) generate the summary. Capture the findings list and summary text. Assert: For each finding in the findings list, verify that a corresponding inline comment was posted (check the comment collection or API call log). For each comment posted, verify that it appears in the summary. Assert that no findings appear in the summary without a matching comment, and no posted comments are missing from the summary. Test both the happy path (all findings → all comments → all in summary) and edge cases (0 findings, 1 finding, duplicate findings).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is appropriate: multiple modules wired together (findings generation, comment posting, summary generation), no real external API calls needed (can use mocks for GitHub if necessary), but requires realistic data flow to catch orchestration bugs. A unit test of each component in isolation would miss the integration failure.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.62,
+        "System": 0.18,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "This is a full agent pipeline with multiple real dependencies: (1) read a real PR diff (system boundary, real GitHub API), (2) LLM identifies findings (agentic boundary, non-deterministic), (3) post inline comments (system boundary, real GitHub API), (4) post summary (system boundary, real GitHub API). MOCK-MISS: Mocking any of these layers could hide failures. For example, mocking the LLM could pass even if the LLM in production misses bugs; mocking GitHub could pass even if comment posting fails in production. REAL-INFRA and LLM-DEP and MULTI-STEP all apply: real network calls, real LLM, multiple steps wired together. A workflow-level test that exercises the real end-to-end pipeline is the minimum to catch failures that would occur in production.",
+      "test_description": "Arrange: Prepare a real (or staging) PR with committed changes and a known defect. Act: Invoke the full review automation without mocks (real LLM, real GitHub API, real PR reading). Capture the sequence: (1) diff fetched, (2) findings generated, (3) inline comments posted, (4) summary posted. Assert: (1) The automation completes without error. (2) At least one inline comment is posted to the PR at a valid position. (3) A summary comment is posted to the PR. (4) The summary references all posted findings. (5) No findings are lost or duplicated in the pipeline. Run the test end-to-end on a real or staging PR to verify the full workflow succeeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Workflow level matches the failure boundary: a production failure in this automation would manifest as a broken end-to-end sequence. Integration or system tests in isolation could pass while the workflow fails due to unexpected interactions between the LLM, GitHub API, and automation logic. Only a full workflow test exercises all real dependencies and their interactions.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.15,
+        "Agentic": 0.2,
+        "Workflow": 0.55
+      }
+    }
+  ]
+}

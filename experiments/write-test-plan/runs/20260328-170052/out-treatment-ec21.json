@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-21",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Keyword-frequency analyzer assigns correct sentiment when review contains only configured positive/negative words",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic logic: given word lists, thresholds, and a review string, compute a sentiment score via keyword counting and comparison. No I/O, no dependencies, no non-deterministic behavior. A Unit test directly exercises the analyzer with controlled input (word lists, review text) and verifies the output sentiment matches expectation. The real failure — a bug in the counting or threshold logic — is directly catchable at Unit level. Mocking wouldn't hide this; the logic is self-contained.",
+      "test_description": "Create test cases: (1) review with only positive words → assert positive sentiment, (2) review with only negative words → assert negative sentiment, (3) review with no keywords → assert neutral. Use configured word lists (positive: ['great', 'excellent'], negative: ['bad', 'terrible']) and thresholds (e.g., >50% positive → positive sentiment).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Explanation analyzer produces reasoning that references specific phrases from the original review, not generic boilerplate",
+      "minimum_level": "Agentic",
+      "justification": "The problem states the analyzer 'interprets the review in context and produces natural language reasoning' — language that strongly indicates LLM-based or ML-model generation, not templating. To test 'interprets in context': (1) A mock would always return whatever we program it to, hiding failures where it actually produces generic output or ignores context. (2) A real LLM has non-deterministic output quality — running 100 times might sometimes ground in the review, sometimes hallucinate templates. (3) The failure mode ('explanation doesn't actually understand the review, just uses templates') is only catchable by running the real semantic analyzer. Integration alone isn't reliable for this: one test run passing doesn't guarantee consistent semantic behavior.",
+      "test_description": "Call explanation analyzer with a review like 'The API response time got worse after the update, costing us 2 hours of debugging.' Run the real analyzer. Verify: (1) explanation mentions specific phrases from input ('API response time', 'worse', 'debugging') — not generic phrases like 'customer had an experience' or 'there was an issue'. (2) Over multiple runs with the same input, explanations consistently ground in the review text, not generic boilerplate. (3) If the sentiment driver is time cost, explanation should cite the time impact mentioned.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.75,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When review contains mixed signals (equal positive/negative keywords), sentiment score reflects configured tie-breaking rule",
+      "minimum_level": "Unit",
+      "justification": "This is conditional logic: count positive and negative keywords, compare counts, apply the configured tie-breaking rule. If counts are equal and rule is 'favor positive', return positive sentiment. Deterministic, no I/O, no LLM. The real failure — applying the wrong rule logic or not respecting configuration — is directly testable at Unit level. We provide the tied keyword counts and the rule configuration, verify the output sentiment matches the rule. No mocking needed; we test the logic directly.",
+      "test_description": "Test case: review with exactly 3 positive words and 3 negative words. Configure tie-breaking rule = 'favor_positive'. Assert sentiment = positive. Then configure rule = 'favor_negative'. Assert sentiment = negative. Then configure rule = 'neutral_on_tie'. Assert sentiment = neutral. Verify each rule is applied correctly when counts are equal.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Explanation for sarcastic review (e.g., 'Great, another broken feature') correctly identifies negative intent despite positive surface words",
+      "minimum_level": "Agentic",
+      "justification": "Sarcasm detection is a semantic understanding problem. The real failure: 'The system sees the positive word great and scores it positive, missing that the statement is actually negative mockery.' Mocking would hide this — a mock always returns what you tell it. Sarcasm requires: (1) understanding context (broken feature + great = irony), (2) recognizing pragmatic intent (mockery, frustration). These are non-deterministic LLM/ML tasks. Running a real sarcasm detector 100 times with edge-case reviews will show variable success rates — some runs catch the sarcasm, some miss it. To reliably test this, we need Agentic level (real semantic model) and ideally multiple runs to verify consistency.",
+      "test_description": "Call explanation analyzer and sentiment analyzer with sarcastic reviews: (1) 'Great, another broken feature' → assert sentiment = negative, explanation identifies frustration/sarcasm (not 'customer liked the feature'). (2) 'Oh wonderful, the app crashed again' → assert sentiment = negative, explanation notes repeated failure and sarcasm. (3) Run each case 5–10 times with real analyzer. Verify: sentiment is consistently negative and explanation recognizes the sarcasm, not the surface-level positive words.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.85,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Both sentiment score and explanation are returned together in single response, with explanation referencing same sentiment direction as score",
+      "minimum_level": "Integration",
+      "justification": "This is an orchestration test: two analyzers must both run, both complete, and results must be combined into one response. The real failure modes: (1) Only score returned, explanation missing (coordination failure). (2) Both computed separately but at different times, stale data (timing/consistency failure). (3) Score says positive but explanation says negative (semantic mismatch). For #1–2, Integration level is sufficient — wire both analyzers, call the service, verify both outputs present. For #3, if explanations are LLM-based (from behavior 2), the mismatch could be non-deterministic (sometimes consistent, sometimes contradictory). However, the stated behavior is about 'outputs returned together' and 'direction consistent' — achievable at Integration with real components. Plan_consistent: A well-designed Integration test calls the full service, verifies orchestration, and spot-checks direction consistency. If the explanation quality is LLM-driven and non-deterministic, you'd escalate to Agentic; but the behavior as stated is testable at Integration.",
+      "test_description": "Call service endpoint with a review. Verify: (1) response contains both 'sentiment_score' (e.g., positive) and 'explanation' fields. (2) If score is positive, explanation text mentions positive/favorable aspects (search for keywords: 'good', 'helpful', 'satisfied'). If score is negative, explanation mentions negative/critical aspects ('problem', 'broken', 'frustrated'). (3) Run with 3–5 diverse reviews (mixed sentiment, sarcastic, clear cases). Verify both fields always present and direction matches in all cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0.2,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

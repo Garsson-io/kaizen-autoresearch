@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is: code doesn't call one of the three sources, or fails to pass fetched data to the summary generator. This is a wiring issue entirely within the script — we can catch it by mocking all three sources to return known data, then asserting that the summary-generation function receives all three datasets. No real HTTP, filesystem, or LLM involved. Mocks won't hide this failure because we're testing the data flow, not source reliability.",
+      "test_description": "Mock the metrics endpoint, issue tracker API, and deployment log to return fixed test payloads. Patch the summary-generation function to capture its input. Call the main script and assert that summary-generation received all three datasets with the mocked values present.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is: the script crashes or produces an incomplete report when one source fails. We can catch this by mocking one source to raise an exception (timeout, 404, etc.) while mocking the other two to succeed. Then assert that the script completes and the report structure includes a 'data unavailable' marker. This is pure error handling in the script — no real infrastructure needed. Mocks are sufficient because we're testing the exception path, not source reliability under load.",
+      "test_description": "Mock two data sources to return success. Mock the third to raise an HTTP timeout exception. Run the script and assert: (1) it does not raise an exception, (2) the report is generated, (3) the report contains a 'data unavailable' note for the failed source's section.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is: the LLM-based summary generator hallucinates values, omits critical metrics, or misrepresents the input data. Mocking the LLM to always return a correct response defeats the test — a mock can pass while the real LLM fails. The correctness of the narrative depends on the real LLM's behavior, which is non-deterministic and may fail differently each run (hallucinating different wrong values). We cannot catch this without calling the real LLM with test data and evaluating the output.",
+      "test_description": "Construct test data with specific, easily-recognizable key metrics (e.g., 'deployment count: 7', 'critical issues: 2'). Call the real summary-generation LLM (or a test instance) with this data. Retrieve the generated narrative and verify that it contains or accurately reflects these key values. Run multiple times to catch non-deterministic failures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.06,
+        "System": 0.05,
+        "Agentic": 0.82,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "System",
+      "justification": "The failure mode is: email is not actually transmitted, authentication to the SMTP server fails, the message is malformed in a way the real server rejects, or delivery hangs. Mocking SMTP hides these real failures — a mocked SMTP library will always appear to succeed. We need to exercise the real SMTP protocol against a real mail server (test instance) to catch authentication issues, malformed headers, message encoding problems, and transmission timeouts. Pure in-process mocks cannot simulate real SMTP server behavior.",
+      "test_description": "Set up a test email service (AWS SES test sandbox, local mailhog, or MailerSend test account). Configure the script to use the test service credentials. Run the script end-to-end: collect data from mocked sources, generate report, send via real SMTP. Verify the email was received by the test service with correct recipient, subject, and body intact.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.12,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "The failure modes are: (1) report not saved when email fails, (2) saved report file is corrupted or lost, (3) the retry logic doesn't actually attempt to resend, (4) the retry succeeds but the script has no way to clean up the saved file. Testing the single-run save logic is Unit. But testing the full 'save and retry on next run' cycle requires two script invocations with shared state (the saved file). Mocking the file I/O operations could hide real filesystem issues (permissions, path problems, file encoding). We need Integration: mock the email service to fail, verify the file is written, then simulate the next run by calling the script again and verify it reads the file and retries.",
+      "test_description": "Create a temporary directory for saved reports. Configure the script to use this directory. Mock the email service to raise an exception on first invocation. Run the script and assert a report file was created in the directory. Mock the email service to succeed on retry. Manually invoke the script's retry logic (or call the main function a second time) and assert: (1) the saved file was read, (2) delivery was attempted, (3) the file was deleted/marked as sent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

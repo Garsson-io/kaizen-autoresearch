@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "System",
+      "justification": "Speaker label preservation is an external API contract. A mock speech-to-text service could always return labels in the correct format, but wouldn't verify that the real production service actually includes speaker labels or preserves them correctly across multi-speaker audio. The real failure boundary is at the speech-to-text API call itself—fields might be missing, malformed, null when populated, or incorrectly attributed. We must call the real service with multi-speaker audio to catch these failures. This is a System-level boundary because it crosses into real HTTP and external service behavior.",
+      "test_description": "Upload a real multi-speaker meeting recording (minimum 3 speakers, clear speech) to the production speech-to-text API. Parse the response and verify: (1) speaker label fields exist in the output (e.g., speaker_id, speaker_name, or similar), (2) every utterance/segment has a speaker label assigned, (3) speaker labels are distinct across different speakers, (4) labels remain consistent for the same speaker throughout the recording. Verify the service doesn't drop, conflate, or anonymize speaker information.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test calls the real API with real audio, which directly validates the speaker label preservation contract. Mocking this step would miss API regressions, service schema changes, or field omissions.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.82,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "Extracting action items with correct attendee attribution is fundamentally an LLM behavior. Mocking the LLM to always return complete and correct action items would hide real failures: the production model might miss attendees, conflate owners, hallucinate items, or fail to recognize task assignments in specific contexts. The LLM output is non-deterministic—the same transcript run multiple times can produce different action item sets depending on temperature, context window, or model version. Only real LLM calls reveal whether the production model actually achieves this behavior consistently. Integration testing with mocked summaries would give false confidence that the system works when it actually doesn't.",
+      "test_description": "Build a test corpus of meeting transcripts with ground-truth labels documenting which attendees have action items (and which don't). Call the real LLM-based summarization service with each transcript. Extract the action items from the structured output. Verify: (1) every GT-labeled attendee has at least one action item in the summary, (2) no spurious action items are created for attendees without assignments, (3) action item text is non-empty and coherent. Run each transcript multiple times (5-10 runs) to detect non-deterministic failures where the model occasionally omits an attendee's items.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Calling the real LLM with ground-truth test cases is the only way to validate that the model consistently extracts all assignees' action items. Mocks would always pass.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.09,
+        "Agentic": 0.82,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "Whether decisions are categorized into the correct output field is an LLM categorization task. Mocking the summarization step to always place decisions in the 'decisions' field would hide real failures: the production model might conflate decisions with action items, embed them in narrative text, skip them, or misunderstand what constitutes a decision in context. LLM output is non-deterministic—categorization can vary across runs. Only calling the real LLM reveals whether it reliably separates decisions from other summary content. This is Agentic, not System, because the failure boundary is the LLM's reasoning, not external infrastructure.",
+      "test_description": "Prepare test transcripts with ground-truth decision statements clearly marked (from a manually annotated corpus). Call the real LLM summarizer with each transcript. Parse the structured output and verify: (1) all GT-marked decisions appear in the 'decisions' field, (2) decisions do not appear in the narrative, action items, or other fields, (3) the 'decisions' field is non-empty when decisions exist in the transcript. Run multiple times to catch non-deterministic categorization failures where the model sometimes misplaces or skips decisions.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real LLM calls with ground-truth decision labels will catch categorization failures that mocks would never expose.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.87,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior requires testing a multi-step orchestrated pipeline: detect file length → split audio → transcribe each segment (real API) → summarize each segment (real LLM) → merge results. While chunking logic is deterministic and could be tested at Integration with mocked APIs, real failures only emerge when merging actual, non-deterministic LLM summaries. Real transcripts have semantic continuity—action items reference decisions from earlier chunks, speaker contexts carry across segments. Merging mock summaries would never expose: duplicate decisions in merged output, conflicting speaker attributions, orphaned action items, or lost context. The merging logic itself is deterministic, but its correctness depends on real API and LLM outputs that have semantic dependencies. This is inherently Workflow because it requires coordinated execution of multiple agentic steps to reveal real failures.",
+      "test_description": "Obtain or record a real meeting longer than 60 minutes with 3+ speakers covering multiple topics with cross-references (e.g., 'As John decided earlier...'). Run the full pipeline: verify the service detects length > 60 min and splits into segments, verify each segment is transcribed via the real speech-to-text API, verify each segment is summarized via the real LLM, verify the final merged summary is coherent by checking: (1) no duplicate decisions or action items, (2) speaker references remain consistent across the merge, (3) action items are ordered logically, (4) cross-references (e.g., action items mentioning earlier decisions) remain intact, (5) all segments' content is represented in the final summary. Inspect the merged output manually and/or use semantic similarity to verify no information was lost.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing the full orchestration with real APIs and LLM outputs is essential. Mocked segment results would never expose merging failures caused by semantic conflicts or lost context between real summaries.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.09,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.66
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline—upload audio, transcribe, summarize, deliver structured output—completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "This is the canonical end-to-end system test covering the entire orchestrated pipeline from audio submission through structured output delivery. It encompasses multiple agentic steps (real speech-to-text, real LLM summarization) and all infrastructure boundaries (upload, storage, API calls, response formatting). Lower-level tests can verify individual steps in isolation but would miss orchestration failures: timeouts between steps, state loss due to async delays, malformed intermediate outputs causing cascading failures, API unavailability, incomplete delivery, or missing output fields. The test must exercise the full uninterrupted pipeline with a real meeting recording and no manual intervention to catch real production failures in automation, error handling, and end-to-end coordination. This is Workflow because it requires multiple agentic steps executed in coordinated sequence.",
+      "test_description": "Obtain a real, production-quality meeting recording (various audio quality, background noise, accents, 3+ speakers, 20-90 minutes). Trigger the full pipeline via the standard entry point (upload API, file submission, etc.). Verify: (1) upload succeeds without errors, (2) transcription completes without timing out and produces speaker-labeled output, (3) summarization completes and produces action items, decisions, and attendee attributions (run once, verify structure), (4) structured output is delivered in the expected format (JSON response, saved file, database record, etc.), (5) output schema matches specification (all required fields present, no unexpected nulls), (6) no timeouts, errors, or manual intervention prompts, (7) log all intermediate outputs and verify no data corruption between steps. Repeat with varying file sizes (short, long, edge case) and speaker counts to stress the pipeline.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing the full automated pipeline from submission to delivery with real infrastructure and real audio catches orchestration, state management, and end-to-end failures that component tests would miss.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.1,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

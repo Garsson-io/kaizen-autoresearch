@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "This is purely a filename parsing and sorting problem. The failure—migrations applied in wrong order—would be caught at the Unit level by testing the sort logic in isolation. A mock filesystem is sufficient to expose if the code does string sort instead of numeric sort, or if the filename prefix extraction is incorrect. No transactional or concurrent behavior is required.",
+      "test_description": "Unit test with mocked filesystem. Provide filenames like ['01-init.sql', '02-schema.sql', '11-indexes.sql'] and verify the code sorts them as numeric [01, 02, 11] not string [01, 02, 11]. Test edge cases like single vs. multi-digit prefixes to ensure numeric parsing is correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "While you could mock the DB query, a real failure occurs when: (1) the code queries the wrong table, (2) the metadata write is incorrect, or (3) the code checks but still re-applies anyway. A mock would pass all these cases if configured incorrectly. You need a real database to verify the end-to-end transactional behavior: first run applies and records the migration, second run queries and sees it's recorded, and the migration is genuinely skipped (no duplicate changes). Transactional semantics and actual metadata table state are only testable against real infrastructure.",
+      "test_description": "Integration test with a real database (Docker PostgreSQL or in-memory SQLite). Run the migration runner on a single migration file. Verify it was applied and recorded in `_migrations`. Run the runner again on the same file. Verify: (1) the migration is not executed a second time (check the idempotent result or logs), (2) `_migrations` still contains exactly one entry for that migration. The test must verify the actual database state, not mocked behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.83,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "A mock DB can be configured to throw an error, but you cannot verify that rollback *actually occurred*—you're just verifying the error-handling path exists. The real failure is that corrupted data persists after a failed migration. Only a real database can demonstrate that the transaction was rolled back and the pre-migration state is restored. You must execute an actual failing migration (e.g., one that violates a constraint) and query the database to prove no trace of the partial changes remain.",
+      "test_description": "Integration test with a real database. Set up a schema with an existing table. Create a migration file that will fail (e.g., attempt to add a duplicate column, or insert data that violates a constraint). Create a second migration file that should run after the first. Run the migration runner with both files. Verify: (1) the database state is unchanged after the failed migration (query the table and confirm the schema is as it was before), (2) the second migration is never attempted (check `_migrations` has no entry for it, or verify the runner stopped after the first failure). This requires real database and transaction semantics.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.87,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "The spec explicitly says 'two instances', which means separate processes. While in-process async/await against a shared database *might* trigger race conditions if the code uses DB-level locking, it would miss failures related to process-specific semantics or session state. The real failure—two processes both applying the same migration—can only be reliably reproduced with actual concurrent processes competing for the database. You need the full production scenario: process spawning, startup synchronization, real database locking, and OS-level behavior to expose timing bugs.",
+      "test_description": "System test that spawns two Node.js processes (or threads), both running the migration runner against the same PostgreSQL database. Use a synchronization mechanism (e.g., a named pipe or shared lock file) to ensure both processes start at approximately the same time. Provide a set of migration files. Let both processes run concurrently. Verify: (1) each migration is recorded exactly once in `_migrations` (no duplicate entries), (2) both processes complete without error or deadlock, (3) the final database schema is correct (all migrations applied exactly once). This requires actual concurrent access patterns and real database locking behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.35,
+        "System": 0.6,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with a mocked DB could verify the code makes a CREATE TABLE call, but wouldn't catch real failures: the CREATE TABLE statement is malformed, the table is created with the wrong columns/schema, or the table is created *after* migrations are applied. You need a real database to verify the schema is correct, the table exists with proper structure, and migrations succeed (which implicitly proves the table was created first). You don't need concurrent processes, so Integration is sufficient.",
+      "test_description": "Integration test with a real, completely empty database (fresh PostgreSQL instance or cleared SQLite file). Run the migration runner with a single migration file that depends on the `_migrations` table (e.g., uses a CHECK or INSERT that would fail if the table structure is wrong). Verify: (1) the `_migrations` table exists after the run, (2) the table schema matches the expected structure (correct columns, types, constraints), (3) the migration was actually applied (not skipped), (4) the runner completed without error. The fact that migrations succeeded proves the `_migrations` table was created before they ran.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.87,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}
