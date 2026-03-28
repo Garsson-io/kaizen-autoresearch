@@ -10,6 +10,7 @@
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
 #   ./run-eval.sh -j 5                               # max 5 parallel probes (default: 10)
+#   ./run-eval.sh --no-latest                        # skip updating runs/latest symlink (explore mode)
 #
 # Final line of output: "SCORE: <0.0-1.0>" (machine-readable for agents)
 
@@ -24,6 +25,7 @@ ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)
 OUT_DIR="$SCRIPT_DIR/runs/$RUN_TS"
 MAX_PARALLEL=5
+NO_LATEST=false
 # Auto-detect corpus from corpus/*.md files (sorted)
 CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)
 if [[ -z "$CORPUS_CSV" ]]; then
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --corpus)    CORPUS_CSV="$2";   shift 2 ;;
     --single)    CORPUS_CSV="$2";  shift 2 ;;  # alias: run just one task for fast debug
     -j)          MAX_PARALLEL="$2"; shift 2 ;;
+    --no-latest) NO_LATEST=true; shift ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -149,35 +152,29 @@ if [[ $failed -gt 0 ]]; then
 fi
 echo "  All $TOTAL probes done in ${TOTAL_TIME}s."
 
-# Update latest symlink (remove first in case it became a directory)
-rm -rf "$SCRIPT_DIR/runs/latest"
-ln -s "$RUN_TS" "$SCRIPT_DIR/runs/latest"
-echo "  Run saved: runs/$RUN_TS (symlinked as runs/latest)"
+# Update latest symlink — skip in explore mode (--no-latest)
+if [[ "$NO_LATEST" != "true" ]]; then
+  OUT_BASENAME=$(basename "$OUT_DIR")
+  rm -rf "$SCRIPT_DIR/runs/latest"
+  ln -s "$OUT_BASENAME" "$SCRIPT_DIR/runs/latest"
+  echo "  Run saved: $OUT_DIR (symlinked as runs/latest)"
+else
+  echo "  Run saved: $OUT_DIR (explore mode — latest not updated)"
+fi
 
 echo ""
 echo "=== Scoring ==="
-npx tsx "$SCRIPT_DIR/scripts/score.ts" \
+# --json routes the human-readable table to stderr (visible in terminal) and emits
+# structured JSON to stdout, which we capture and re-emit as METRICS_JSON for verify.ts.
+METRICS_JSON=$(npx tsx "$SCRIPT_DIR/scripts/score.ts" \
   --output-dir "$OUT_DIR" \
-  --gt-dir "$GT_DIR"
-
-# Extract SCORE and LOSS from scoring output
-SCORE_OUTPUT=$(npx tsx "$SCRIPT_DIR/scripts/score.ts" \
-  --output-dir "$OUT_DIR" \
-  --gt-dir "$GT_DIR" 2>/dev/null)
-
-AVG=$(echo "$SCORE_OUTPUT" | grep "TOTAL" | tail -1 | grep -oP '[0-9]+\.[0-9]+' | head -1)
-LOSS=$(echo "$SCORE_OUTPUT" | grep "LOSS" | tail -1 | grep -oP '[0-9]+\.[0-9]+' | head -1)
-
-if [[ -n "$AVG" ]]; then
-  SCORE=$(echo "scale=4; $AVG / 100" | bc)
-  echo ""
-  echo "SCORE: $SCORE"
-fi
-if [[ -n "$LOSS" ]]; then
-  echo "LOSS: $LOSS"
-fi
+  --gt-dir "$GT_DIR" \
+  --json)
+echo ""
+echo "METRICS_JSON: $METRICS_JSON"
 
 # Append run stats (cost, time, tokens) to run-stats.jsonl
 echo ""
 echo "=== Run Stats ==="
-npx tsx "$SCRIPT_DIR/scripts/run-stats.ts" --append-log --run "$RUN_TS" 2>/dev/null || echo "  (no .log files — stats skipped)"
+OUT_BASENAME=$(basename "$OUT_DIR")
+npx tsx "$SCRIPT_DIR/scripts/run-stats.ts" --append-log --run "$OUT_BASENAME" 2>/dev/null || echo "  (no .log files — stats skipped)"

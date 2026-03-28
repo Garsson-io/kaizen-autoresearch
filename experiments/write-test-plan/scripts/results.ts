@@ -36,7 +36,7 @@ function printTable(results: IterationResult[]) {
   };
 
   console.log(
-    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"LOSS".padStart(7)} ${"SCORE".padStart(6)} ${"DELTA".padStart(7)} ${"IDEA".padEnd(26)} DESCRIPTION`
+    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"LOSS".padStart(7)} ${"SCORE".padStart(6)} ${"Δloss".padStart(7)} ${"IDEA".padEnd(26)} DESCRIPTION`
   );
   console.log("-".repeat(110));
 
@@ -94,7 +94,13 @@ function printSummary(results: IterationResult[]) {
   if (keeps.length > 0) {
     console.log(`\nKept changes:`);
     for (const k of keeps) {
-      console.log(`  [${k.iteration}] +${k.delta} — ${k.idea_id}: ${k.description}`);
+      const dStr =
+        k.delta !== null
+          ? k.delta < 0
+            ? `${k.delta.toFixed(1)}`
+            : `+${k.delta.toFixed(1)}`
+          : "—";
+      console.log(`  [${k.iteration}] ${dStr} loss — ${k.idea_id}: ${k.description}`);
     }
   }
 }

@@ -59,7 +59,7 @@ done
 - `$EXPERIMENT_DIR/leaderboard.md` — iteration summary and learnings
 - `$TREATMENT_FILE` — current best prompt
 - All files in `$EXPERIMENT_DIR/prompts/` — all prompt variants for comparison
-- `autoresearch-results.tsv` (if exists) — raw iteration log
+- `$EXPERIMENT_DIR/autoresearch-results.jsonl` — raw iteration log; view with `npx tsx $EXPERIMENT_DIR/scripts/results.ts --summary` (shows loss + score)
 
 ### 5. Compose the discussion comment
 
@@ -71,23 +71,38 @@ Write the comment body to a temp file (to avoid shell escaping issues with speci
 ### Config
 - **Scope**: <treatment file path>
 - **Verify**: <verify command from program.md>
-- **Metric**: <metric from program.md>
-- **Baseline score**: <iter 0 score>
+- **Metric**: weighted cross-entropy loss (lower is better)
+- **Baseline loss**: <iter 0 loss>
+- **Best loss**: <lowest loss across all iterations>
+- **Total improvement**: <baseline loss − best loss>
 - **Iterations**: <count>
 - **Keeps / Discards**: <counts>
 
+### Score Sub-metrics (best iteration)
+
+| Sub-metric | Weight | Baseline | Best | Δ |
+|------------|--------|----------|------|---|
+| Sufficiency (predicted ≥ GT minimum) | 55% | <val> | <val> | <Δ> |
+| Precision (distance to GT minimum) | 20% | <val> | <val> | <Δ> |
+| Consistency (test_description matches level) | 15% | <val> | <val> | <Δ> |
+| Structure (output schema compliance) | 10% | <val> | <val> | <Δ> |
+| **Total score%** | 100% | <val> | <val> | <Δ> |
+| Critical miss rate (System+ under-predicted) | — | <k/n> | <k/n> | — |
+
 ### Iteration Summary
 
-| Iter | Score | Delta | Status | Hypothesis |
-|------|-------|-------|--------|-----------|
+| Iter | Loss | Δ Loss | Status | Hypothesis |
+|------|------|--------|--------|-----------|
 | ... |
+
+(Loss is the primary metric. Score% sub-metrics above are for diagnostic value — sufficiency, precision, and critical miss rate reveal *where* the model is failing.)
 
 ### Treatments Attempted
 
 For each experiment commit, use collapsible details with the diff:
 
 <details>
-<summary>Iter N: <commit message> — <status> (<score>)</summary>
+<summary>Iter N: <commit message> — <status> (loss: <loss>, Δ: <delta>)</summary>
 
 (the diff from git show)
 
@@ -123,7 +138,7 @@ Print the returned comment URL.
 Replace any detailed run section with a one-line link to the discussion comment:
 
 ```markdown
-**[Autoresearch run N report](<comment_url>)** — <iterations> iterations, <keeps> keeps, baseline <score>
+**[Autoresearch run N report](<comment_url>)** — <iterations> iterations, <keeps> keeps, baseline loss: <loss>
 ```
 
 Commit and push.

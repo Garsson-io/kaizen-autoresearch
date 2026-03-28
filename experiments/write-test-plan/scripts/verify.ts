@@ -22,6 +22,8 @@ const EVAL_DIR = EXP_DIR;
 const VerifyResult = z.object({
   score: z.number().min(0).max(100),
   loss: z.number().min(0),
+  /** Experiment-specific sub-metrics from the scorer (keys are scorer-defined) */
+  metrics: z.record(z.string(), z.number()).optional(),
 });
 
 const args = process.argv.slice(2);
@@ -49,22 +51,42 @@ if (mockValue !== undefined) {
   }
 }
 
-const scoreMatch = raw.match(/SCORE:\s*([\d.]+)/);
-if (!scoreMatch) {
-  console.error("No SCORE line found in run-eval.sh output");
-  console.error("--- last 500 chars ---");
-  console.error(raw.slice(-500));
-  process.exit(1);
+// Prefer structured METRICS_JSON line (emitted by score.ts --json via run-eval.sh)
+const metricsJsonMatch = raw.match(/^METRICS_JSON:\s*(.+)$/m);
+
+let score: number;
+let loss: number;
+let metrics: Record<string, number> | undefined;
+
+if (metricsJsonMatch) {
+  let parsed: { score?: number; loss?: number; metrics?: Record<string, number> };
+  try {
+    parsed = JSON.parse(metricsJsonMatch[1]);
+  } catch {
+    console.error("Failed to parse METRICS_JSON line");
+    console.error(metricsJsonMatch[1]);
+    process.exit(1);
+  }
+  score = parsed.score ?? 0;
+  loss = parsed.loss ?? 0;
+  metrics = parsed.metrics;
+} else {
+  // Legacy fallback: parse separate SCORE: and LOSS: text lines
+  const scoreMatch = raw.match(/SCORE:\s*([\d.]+)/);
+  if (!scoreMatch) {
+    console.error("No SCORE line or METRICS_JSON found in run-eval.sh output");
+    console.error("--- last 500 chars ---");
+    console.error(raw.slice(-500));
+    process.exit(1);
+  }
+  const lossMatch = raw.match(/LOSS:\s*([\d.]+)/);
+  score = parseFloat(scoreMatch[1]) * 100;
+  loss = lossMatch ? parseFloat(lossMatch[1]) : 0;
 }
-
-const lossMatch = raw.match(/LOSS:\s*([\d.]+)/);
-
-const score = parseFloat(scoreMatch[1]) * 100;
-const loss = lossMatch ? parseFloat(lossMatch[1]) : -1;
 
 let result: z.infer<typeof VerifyResult>;
 try {
-  result = VerifyResult.parse({ score, loss: Math.max(0, loss) });
+  result = VerifyResult.parse({ score: Math.min(100, Math.max(0, score)), loss: Math.max(0, loss), metrics });
 } catch (err) {
   console.error(`Validation failed: ${err}`);
   process.exit(1);

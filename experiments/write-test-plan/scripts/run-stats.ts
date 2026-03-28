@@ -11,6 +11,7 @@
 
 import { readdirSync, readFileSync, existsSync, appendFileSync, realpathSync } from "fs";
 import { join, basename } from "path";
+import { fileURLToPath } from "url";
 
 interface ProbeStats {
   task: string;
@@ -46,7 +47,7 @@ interface RunSummary {
   mcp_servers: number;
 }
 
-function parseLog(logPath: string): ProbeStats | null {
+export function parseLog(logPath: string): ProbeStats | null {
   const content = readFileSync(logPath, "utf8");
   const lines = content.split("\n").filter((l) => l.trim());
 
@@ -159,6 +160,7 @@ function buildSummary(probes: ProbeStats[], runDirName: string): RunSummary {
   };
 }
 
+function main() {
 const args = process.argv.slice(2);
 const runArg = args.includes("--run") ? args[args.indexOf("--run") + 1] : undefined;
 const showAll = args.includes("--all");
@@ -227,3 +229,6 @@ if (showAll) {
     printSummary(probes, runDir);
   }
 }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

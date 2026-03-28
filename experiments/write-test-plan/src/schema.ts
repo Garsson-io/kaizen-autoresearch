@@ -14,6 +14,14 @@ import { z } from "zod";
 export const Level = z.enum(["Unit", "Integration", "System", "Agentic", "Workflow"]);
 export type Level = z.infer<typeof Level>;
 
+/** Ordered list of all levels, lowest to highest. */
+export const LEVELS = Level.options;
+
+/** Map from level name to its ordinal index (Unit=0 … Workflow=4). */
+export const LEVEL_INDEX: Record<string, number> = Object.fromEntries(
+  LEVELS.map((l, i) => [l, i])
+);
+
 export const BehaviorOutput = z.object({
   /** Integer matching the behavior number in the issue (1-based) */
   behavior_id: z.number().int().min(1).max(10),
@@ -95,6 +103,8 @@ export const IterationResult = z.object({
   loss: z.number().nullable(),
   /** Change from previous best (negative = improved for loss) */
   delta: z.number().nullable(),
+  /** Experiment-specific sub-metrics captured at eval time (keys are scorer-defined) */
+  metrics: z.record(z.string(), z.number()).optional(),
   /** baseline | keep | discard | crash | no-op | hook-blocked */
   status: z.enum(["baseline", "keep", "discard", "crash", "no-op", "hook-blocked"]),
   /** One-sentence description of what was tried */
@@ -139,6 +149,24 @@ export const RunStats = z.object({
   mcp_servers: z.number().int(),
 });
 export type RunStats = z.infer<typeof RunStats>;
+
+/**
+ * One row in explore-log.jsonl — result of one variation in a pre-screening explore run.
+ * Stored separately from IterationResult to avoid polluting autoresearch-results.jsonl.
+ */
+export const ExploreResult = z.object({
+  timestamp: z.string(),
+  idea_id: z.string(),
+  variation: z.string(),       // e.g. "v1-anti-lazy", "v2-role-anchor"
+  run_dir: z.string(),         // relative path, e.g. "runs/explore/role-anchor-v2-20260328-163118"
+  tasks: z.array(z.string()), // subset used, e.g. ["ec-04","ec-10"]
+  baseline_loss: z.number(),
+  variation_loss: z.number(),
+  delta: z.number(),           // variation_loss - baseline_loss (negative = better)
+  prompt_diff: z.string(),
+  winner: z.boolean(),
+});
+export type ExploreResult = z.infer<typeof ExploreResult>;
 
 export const GroundTruthBehavior = z.object({
   behavior_id: z.number().int().min(1).max(10),

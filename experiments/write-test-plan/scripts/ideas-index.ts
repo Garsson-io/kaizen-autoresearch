@@ -12,6 +12,8 @@
 
 import { readdirSync, readFileSync } from "fs";
 import { join, basename } from "path";
+import { fileURLToPath } from "url";
+import { PATHS } from "./paths.js";
 
 interface IdeaFrontmatter {
   id: string;
@@ -28,7 +30,7 @@ interface IdeaFrontmatter {
   file: string;
 }
 
-function parseFrontmatter(content: string): Record<string, unknown> {
+export function parseFrontmatter(content: string): Record<string, unknown> {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return {};
 
@@ -79,7 +81,7 @@ function parseFrontmatter(content: string): Record<string, unknown> {
   return result;
 }
 
-function loadIdeas(dir: string): IdeaFrontmatter[] {
+export function loadIdeas(dir: string): IdeaFrontmatter[] {
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && f !== "README.md")
     .sort();
@@ -208,24 +210,26 @@ function printByTarget(ideas: IdeaFrontmatter[]) {
   }
 }
 
-// Main
-import { PATHS } from "./paths";
-const ideas = loadIdeas(PATHS.ideas);
-const flag = process.argv[2];
+function main() {
+  const ideas = loadIdeas(PATHS.ideas);
+  const flag = process.argv[2];
 
-switch (flag) {
-  case "--json":
-    printJson(ideas);
-    break;
-  case "--table":
-    printTable(ideas);
-    break;
-  case "--by-status":
-    printByStatus(ideas);
-    break;
-  case "--by-target":
-    printByTarget(ideas);
-    break;
-  default:
-    printYaml(ideas);
+  switch (flag) {
+    case "--json":
+      printJson(ideas);
+      break;
+    case "--table":
+      printTable(ideas);
+      break;
+    case "--by-status":
+      printByStatus(ideas);
+      break;
+    case "--by-target":
+      printByTarget(ideas);
+      break;
+    default:
+      printYaml(ideas);
+  }
 }
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

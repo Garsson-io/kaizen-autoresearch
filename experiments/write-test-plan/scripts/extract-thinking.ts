@@ -17,7 +17,9 @@
 
 import { readdirSync, readFileSync, existsSync, realpathSync } from "fs";
 import { join, basename } from "path";
+import { fileURLToPath } from "url";
 import { PATHS, getRunDir } from "./paths.js";
+import { LEVELS } from "../src/schema.js";
 
 interface BehaviorThinking {
   task: string;
@@ -31,7 +33,6 @@ interface BehaviorThinking {
   self_aware_evidence: string | null;
 }
 
-const LEVEL_ORDER = ["Unit", "Integration", "System", "Agentic", "Workflow"];
 const AGENTIC_KEYWORDS = [
   "non-deterministic", "nondeterministic", "varies", "vary", "different results",
   "real model", "real LLM", "real AI", "model output", "LLM output",
@@ -44,7 +45,7 @@ const WORKFLOW_KEYWORDS = [
   "step depends on", "feeds into", "output of step",
 ];
 
-function extractThinkingFromLog(logPath: string): string {
+export function extractThinkingFromLog(logPath: string): string {
   if (!existsSync(logPath)) return "";
   const content = readFileSync(logPath, "utf8");
   const blocks: string[] = [];
@@ -66,7 +67,7 @@ function extractThinkingFromLog(logPath: string): string {
   return blocks.join("\n\n");
 }
 
-function extractBehaviorThinking(
+export function extractBehaviorThinking(
   thinking: string,
   behaviorId: number,
   behaviorDesc: string,
@@ -104,15 +105,15 @@ function extractBehaviorThinking(
   return lines.slice(startIdx, endIdx).join("\n").trim();
 }
 
-function checkSelfAware(
+export function checkSelfAware(
   thinkingExcerpt: string,
   predicted: string,
   gt: string | null,
 ): { selfAware: boolean; evidence: string | null } {
   if (!gt || predicted === gt) return { selfAware: false, evidence: null };
 
-  const gtIdx = LEVEL_ORDER.indexOf(gt);
-  const predIdx = LEVEL_ORDER.indexOf(predicted);
+  const gtIdx = LEVELS.indexOf(gt);
+  const predIdx = LEVELS.indexOf(predicted);
   if (predIdx >= gtIdx) return { selfAware: false, evidence: null }; // over-predicted, not under
 
   const lower = thinkingExcerpt.toLowerCase();
@@ -152,14 +153,14 @@ function loadGT(taskId: string): Record<number, string> {
   return map;
 }
 
-function getDirection(predicted: string, gt: string): "correct" | "under" | "over" {
+export function getDirection(predicted: string, gt: string): "correct" | "under" | "over" {
   if (predicted === gt) return "correct";
-  const predIdx = LEVEL_ORDER.indexOf(predicted);
-  const gtIdx = LEVEL_ORDER.indexOf(gt);
+  const predIdx = LEVELS.indexOf(predicted);
+  const gtIdx = LEVELS.indexOf(gt);
   return predIdx < gtIdx ? "under" : "over";
 }
 
-function processRun(runDir: string): BehaviorThinking[] {
+export function processRun(runDir: string): BehaviorThinking[] {
   const results: BehaviorThinking[] = [];
   const files = readdirSync(runDir).filter((f) => f.endsWith(".json")).sort();
 
@@ -235,7 +236,7 @@ function printTaxonomyLines(results: BehaviorThinking[], runLabel: string) {
   }
 }
 
-// Main
+function main() {
 const args = process.argv.slice(2);
 const runArg = args.includes("--run-dir") ? args[args.indexOf("--run-dir") + 1]
              : args.includes("--run") ? args[args.indexOf("--run") + 1]
@@ -274,3 +275,6 @@ if (jsonOut) {
   console.log(`Run: ${runDirName} — ${results.length} behaviors, ${errors.length} errors, ${sa.length} self-aware`);
   printTable(results, selfAwareOnly);
 }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

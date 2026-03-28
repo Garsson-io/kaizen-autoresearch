@@ -25,6 +25,8 @@ export const PATHS = {
   scripts: join(EXP_DIR, "scripts"),
   src: join(EXP_DIR, "src"),
   results: join(EXP_DIR, "autoresearch-results.jsonl"),
+  exploreLog: join(EXP_DIR, "explore-log.jsonl"),
+  exploreRuns: join(EXP_DIR, "runs", "explore"),
   leaderboard: join(EXP_DIR, "leaderboard.md"),
   metaFailures: join(EXP_DIR, "meta-failures.md"),
   justificationTaxonomy: join(EXP_DIR, "justification-taxonomy.md"),

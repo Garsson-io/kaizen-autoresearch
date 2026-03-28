@@ -21,21 +21,19 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { ProbeOutput, GroundTruth } from "../src/schema.js";
+import { ProbeOutput, GroundTruth, LEVEL_INDEX } from "../src/schema.js";
 
 function parseFile(path: string): unknown {
   const raw = readFileSync(path, "utf-8");
   return path.endsWith(".json") ? JSON.parse(raw) : parseYaml(raw);
 }
 
-const LEVEL_INDEX: Record<string, number> = {
-  Unit: 0, Integration: 1, System: 2, Agentic: 3, Workflow: 4,
-};
+export { LEVEL_INDEX } from "../src/schema.js";
 const ROW_WEIGHT: Record<string, number> = {
   Unit: 1, Integration: 2, System: 3, Agentic: 4, Workflow: 4,
 };
 
-function sufficiency(pred: string, gt: string): number {
+export function sufficiency(pred: string, gt: string): number {
   const diff = LEVEL_INDEX[pred] - LEVEL_INDEX[gt];
   if (diff >= 0) return 1.0;
   if (diff === -1) return 0.4;
@@ -43,7 +41,7 @@ function sufficiency(pred: string, gt: string): number {
   return 0.05;
 }
 
-function precision(pred: string, gt: string): number {
+export function precision(pred: string, gt: string): number {
   const dist = Math.abs(LEVEL_INDEX[pred] - LEVEL_INDEX[gt]);
   if (dist === 0) return 1.0;
   if (dist === 1) return 0.65;
@@ -99,7 +97,7 @@ function loadAndValidate<T>(path: string, schema: z.ZodType<T>): T {
   return result.data;
 }
 
-function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof GroundTruth>): ScoreResult {
+export function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof GroundTruth>): ScoreResult {
   if (output.task_id !== gt.task_id) {
     throw new Error(`task_id mismatch: output=${output.task_id} gt=${gt.task_id}`);
   }
@@ -166,29 +164,33 @@ function fmt(n: number, decimals = 1): string {
   return `${(n * 100).toFixed(decimals)}%`;
 }
 
-function printResult(r: ScoreResult) {
-  const dir = (d: "exact" | "over" | "under") => d === "exact" ? "✓" : d === "over" ? "↑" : "✗";
-  console.log(`\n── ${r.task_id} / ${r.condition} ──`);
-  console.log(`  Sufficiency : ${fmt(r.sufficiency)}`);
-  console.log(`  Precision   : ${fmt(r.precision)}`);
-  console.log(`  Consistency : ${fmt(r.consistency)}`);
-  console.log(`  Structure   : ${fmt(r.structure)}`);
-  console.log(`  TOTAL       : ${fmt(r.total)}`);
-  console.log(`  LOSS        : ${r.total_loss.toFixed(2)}`);
-  console.log(`  Under/Over  : ${r.under_test_count} under, ${r.over_test_count} over`);
-  if (r.critical_total > 0) {
-    console.log(`  Crit-miss   : ${r.critical_miss_count}/${r.critical_total} System+ behaviors missed`);
-  }
-  console.log(`\n  ${"ID".padEnd(4)} ${"Predicted".padEnd(14)} ${"GT".padEnd(14)} ${"Suff".padEnd(7)} ${"Prec".padEnd(7)} ${"Cons".padEnd(6)} Wt`);
-  for (const row of r.rows) {
-    const pred = `${row.predicted} ${dir(row.direction)}`;
-    console.log(`  ${String(row.behavior_id).padEnd(4)} ${pred.padEnd(14)} ${row.ground_truth.padEnd(14)} ${fmt(row.suff).padEnd(7)} ${fmt(row.prec).padEnd(7)} ${fmt(row.cons).padEnd(6)} ${row.weight}`);
-  }
+
+/**
+ * Build a metrics object from a list of ScoreResults.
+ * Keys are experiment-defined (whatever this scorer computes); consumers treat them as opaque.
+ */
+export function buildMetrics(results: ScoreResult[]): Record<string, number> {
+  if (results.length === 0) return {};
+  const avg = (key: keyof ScoreResult) =>
+    results.reduce((s, r) => s + (r[key] as number), 0) / results.length;
+  const sumLoss = results.reduce((s, r) => s + r.total_loss, 0);
+  const critMiss = results.reduce((s, r) => s + r.critical_miss_count, 0);
+  const critTotal = results.reduce((s, r) => s + r.critical_total, 0);
+  return {
+    sufficiency: avg("sufficiency"),
+    precision: avg("precision"),
+    consistency: avg("consistency"),
+    structure: avg("structure"),
+    critical_miss_rate: critTotal > 0 ? critMiss / critTotal : 0,
+    loss: sumLoss,
+    score: avg("total") * 100,
+  };
 }
 
 function main() {
   const args = process.argv.slice(2);
   const get = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
+  const jsonMode = args.includes("--json");
 
   const outputFile = get("--output");
   const gtFile = get("--gt");
@@ -196,6 +198,10 @@ function main() {
   const gtDir = get("--gt-dir");
 
   const results: ScoreResult[] = [];
+  // In --json mode, send human-readable display to stderr so stdout carries only JSON
+  const display = jsonMode
+    ? (...args: unknown[]) => process.stderr.write(args.map(String).join(" ") + "\n")
+    : (...args: unknown[]) => console.log(...args);
 
   if (outputFile && gtFile) {
     const output = loadAndValidate(outputFile, ProbeOutput);
@@ -222,27 +228,51 @@ function main() {
     process.exit(1);
   }
 
-  for (const r of results) printResult(r);
+  for (const r of results) {
+    const dir = (d: "exact" | "over" | "under") => d === "exact" ? "✓" : d === "over" ? "↑" : "✗";
+    display(`\n── ${r.task_id} / ${r.condition} ──`);
+    display(`  Sufficiency : ${fmt(r.sufficiency)}`);
+    display(`  Precision   : ${fmt(r.precision)}`);
+    display(`  Consistency : ${fmt(r.consistency)}`);
+    display(`  Structure   : ${fmt(r.structure)}`);
+    display(`  TOTAL       : ${fmt(r.total)}`);
+    display(`  LOSS        : ${r.total_loss.toFixed(2)}`);
+    display(`  Under/Over  : ${r.under_test_count} under, ${r.over_test_count} over`);
+    if (r.critical_total > 0) {
+      display(`  Crit-miss   : ${r.critical_miss_count}/${r.critical_total} System+ behaviors missed`);
+    }
+    display(`\n  ${"ID".padEnd(4)} ${"Predicted".padEnd(14)} ${"GT".padEnd(14)} ${"Suff".padEnd(7)} ${"Prec".padEnd(7)} ${"Cons".padEnd(6)} Wt`);
+    for (const row of r.rows) {
+      const pred = `${row.predicted} ${dir(row.direction)}`;
+      display(`  ${String(row.behavior_id).padEnd(4)} ${pred.padEnd(14)} ${row.ground_truth.padEnd(14)} ${fmt(row.suff).padEnd(7)} ${fmt(row.prec).padEnd(7)} ${fmt(row.cons).padEnd(6)} ${row.weight}`);
+    }
+  }
 
   if (results.length > 1) {
     const avg = (key: keyof ScoreResult) =>
       results.reduce((s, r) => s + (r[key] as number), 0) / results.length;
     const sumLoss = results.reduce((s, r) => s + r.total_loss, 0);
-    console.log(`\n══ AGGREGATE (${results.length} tasks) ══`);
-    console.log(`  Sufficiency : ${fmt(avg("sufficiency"))}`);
-    console.log(`  Precision   : ${fmt(avg("precision"))}`);
-    console.log(`  Consistency : ${fmt(avg("consistency"))}`);
-    console.log(`  TOTAL       : ${fmt(avg("total"))}`);
-    console.log(`  LOSS        : ${sumLoss.toFixed(2)}`);
+    display(`\n══ AGGREGATE (${results.length} tasks) ══`);
+    display(`  Sufficiency : ${fmt(avg("sufficiency"))}`);
+    display(`  Precision   : ${fmt(avg("precision"))}`);
+    display(`  Consistency : ${fmt(avg("consistency"))}`);
+    display(`  TOTAL       : ${fmt(avg("total"))}`);
+    display(`  LOSS        : ${sumLoss.toFixed(2)}`);
 
     const byCond: Record<string, ScoreResult[]> = {};
     for (const r of results) (byCond[r.condition] ??= []).push(r);
     for (const [cond, rs] of Object.entries(byCond)) {
       const t = rs.reduce((s, r) => s + r.total, 0) / rs.length;
       const l = rs.reduce((s, r) => s + r.total_loss, 0);
-      console.log(`  ${cond}: ${fmt(t)} (loss: ${l.toFixed(2)})`);
+      display(`  ${cond}: ${fmt(t)} (loss: ${l.toFixed(2)})`);
     }
+  }
+
+  if (jsonMode) {
+    const metrics = buildMetrics(results);
+    console.log(JSON.stringify({ score: metrics.score, loss: metrics.loss, metrics }));
   }
 }
 
-main();
+import { fileURLToPath } from "url";
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();
