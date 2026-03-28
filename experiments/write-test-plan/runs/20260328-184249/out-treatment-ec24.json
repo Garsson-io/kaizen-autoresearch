@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests the output quality of the NMT API (a real ML model). A mock that always returns 'coherent translation' doesn't verify whether the actual API produces coherent, meaning-preserving output. The real failure—the API produces poor quality translations—can only be caught by calling the real NMT API and validating semantic fidelity. The correctness of the translation depends on what the actual neural model produces, not on the service's handling of it.",
+      "test_description": "Call the real NMT API with a diverse test corpus (idioms, context-dependent phrases, technical terms, edge cases in source language). For each translation, measure semantic preservation using automated metrics (BLEU score, embedding-based similarity to reference translations, BERTScore) or human expert review against criteria: grammatical coherence, meaning preservation, no word-for-word literal translation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.03,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The phrase 'transparently falls back without returning an error to the caller' requires verifying end-to-end behavior: API error → service orchestration → caller receives valid result. While the core logic (catch 503, call fallback) could be tested at Unit level with mocks, a pure mock-based unit test could hide the real failure: the fallback might not actually return a valid translation (database misconfigured, fallback logic broken). Testing the service with a mock API + a real or realistic fallback ensures the implicit contract (caller gets a usable result) is satisfied. This is two modules (service + fallback) wired together.",
+      "test_description": "Set up a test with mock HTTP client configured to return 503 status for the API endpoint. Set up a test SQLite database with a few test phrase translations. Call the service with a phrase that has a fallback translation. Verify: (1) service returns the fallback translation to the caller, (2) no error is raised or returned to the caller, (3) HTTP client was attempted first (spy on API call attempt), (4) fallback was called after API failed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires testing the fallback's correctness against actual database data. A mock that always returns 'correct translation' doesn't test the real fallback logic: the SQL query, the database schema match, handling of phrase variants, encoding issues, or missing phrases. The real failure—the fallback returns wrong translation or crashes on malformed data—requires wiring the fallback to a real test SQLite database and verifying results against seeded test data.",
+      "test_description": "Create a test SQLite database with a schema matching production (phrase, translation, language_pair columns). Populate with known test data: (phrase='hello', translation='hola'), (phrase='goodbye', translation='adiós'), etc. Call the fallback service with each phrase and verify the returned translation exactly matches the seeded value. Also test edge cases: phrase not in database (should return None or empty), special characters in phrase, encoding variants.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Unit",
+      "justification": "Edit distance is a deterministic function—no randomness, no I/O dependencies beyond mocking the storage layer. The real failure (edit distance computed incorrectly, e.g., 'hello' vs 'hallo' gives wrong distance, or metric not passed to storage) can be caught by providing fixed inputs (mock primary='hello', mock fallback='hallo'), computing edit distance, and verifying the result (distance=1) is stored via a spy on the storage call. Mocking the storage layer and the translator outputs is sufficient; no real database or I/O is required.",
+      "test_description": "Create unit tests with parametrized (primary_output, fallback_output, expected_distance) tuples, e.g., ('hello', 'hallo', 1), ('cat', 'dog', 3), ('', 'hello', 5). Mock both translator calls to return these fixed outputs. Call the quality tracking module. Verify: (1) edit distance is computed correctly, (2) a spy on the storage layer confirms the metric was passed with correct values, (3) edge cases handled (empty strings, identical strings, completely different strings).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is about the service's orchestration logic: choosing which translator result to return and triggering logging. No ML model output is being validated (that's behavior 1), and no real dependencies need integration—both translators can be mocked to return fixed values. The real failure (service returns fallback instead of primary, or logging is not triggered) is caught by mocking both translators, verifying the returned value matches the primary mock, and spying on the logging call to confirm it was invoked with the correct inputs.",
+      "test_description": "Mock primary translator to return 'translated text A' and fallback translator to return 'translated text B'. Call the service with both available. Verify: (1) returned result equals 'translated text A' (primary), (2) a spy on the logging layer confirms quality comparison was logged (edit distance between A and B), (3) the logging call was not blocking (implementation detail: code structure shows async or deferred call; can verify via spy timestamp if async). Test edge case: identical primary and fallback outputs (edit distance=0, still logged).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

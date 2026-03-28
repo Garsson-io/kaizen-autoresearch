@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is pure delay calculation with no I/O. A mock API client returning rate-limit errors combined with fake timers (jest.useFakeTimers) exposes delays that violate the 2× progression or exceed the cap. No network, filesystem, or external system needed.",
+      "test_description": "Mock the API to return rate-limit errors (429). Use fake timers to advance time without waiting. Configure max retries to 5. Trigger retry sequence and verify delays follow: T, 2T, 4T, 8T, 16T (or capped at configured max). Assert delay is capped at maximum even if formula would exceed it.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Retry logic correctly identifies rate-limit response and extracts wait time before next attempt",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection is response-header parsing (status code 429, Retry-After header). A Unit test with a mock that includes realistic response objects (status, headers dict) catches parsing bugs. No real HTTP needed if the mock faithfully represents response structure.",
+      "test_description": "Mock API responses with 429 status and Retry-After header in different formats (seconds, HTTP-date). Verify the client correctly extracts wait time in milliseconds. Test edge cases: missing Retry-After (should use default), malformed values (should use fallback), case-insensitive header lookup.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After wait, client resends original request and returns successful result transparently to caller",
+      "minimum_level": "Unit",
+      "justification": "Request state preservation and response return are testable at Unit with a mock that tracks request mutations and response payloads. The failure boundary is whether the original request survives retry and the success result is returned unchanged. No network simulation required if mock accurately represents request/response identity.",
+      "test_description": "Mock API to fail once (429) then succeed on second attempt. Verify the retried request is identical to the original (same method, path, body, headers). Verify the caller receives only the success response without seeing the intermediate error. Test idempotency: confirm POST requests are not double-submitted.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After configured maximum retries, client returns typed QuotaExhaustedError, not generic error",
+      "minimum_level": "Unit",
+      "justification": "Error handling and retry counting are pure logic. Mock the API to always return rate-limit, set max retries small (e.g., 3), and verify it stops after that count and returns the correct error type. No I/O or external system needed.",
+      "test_description": "Configure library with max_retries=3. Mock API to always return 429. Call the client and verify it terminates after exactly 3 retries. Assert the thrown/returned error is of type QuotaExhaustedError. Verify the error message includes context (attempt count, total wait time).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain terminates correctly and does not loop indefinitely before surfacing error",
+      "minimum_level": "Unit",
+      "justification": "Liveness guarantee (no infinite loop) can be caught at Unit level by wrapping the call in a timeout or iteration limit. If the code hangs, even a mock will hang. Fake timers verify state progresses through retry attempts. No external system needed to detect the failure.",
+      "test_description": "Mock API to return rate-limit errors up to the max-retry limit. Wrap the call in a timeout guard (e.g., 5 seconds) to detect infinite loops. Verify the error surfaces after the final retry before timeout fires. Assert retry counter increments correctly and state is not lost or stuck between attempts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Concurrent requests from multiple async callers draw from same shared quota bucket without isolation",
+      "minimum_level": "Integration",
+      "justification": "Race conditions in quota tracking are probabilistic and hard to catch reliably at Unit level. Real async execution (Promise.all) with mocked HTTP can miss timing-dependent races where two callers both read stale quota. Integration with a mock HTTP server that controls request ordering and interleaving provides deterministic test conditions and reliably exposes quota-sharing bugs.",
+      "test_description": "Submit 10 concurrent requests using Promise.all while quota is exhausted or limited. Mock HTTP to return rate-limit after the 5th successful call. Track which calls succeed/fail. Verify all 10 callers correctly observe the shared quota (no caller 'steals' from another). Assert exactly 5 succeed and the rest are rate-limited. Confirm quota updates are atomic under high concurrency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Multiple waiting requests dispatched in FIFO order (original submission order)",
+      "minimum_level": "Unit",
+      "justification": "Queue ordering is testable at Unit level with real async (Promise.all) and a mock HTTP client that intercepts and tracks dispatch order. No external server needed to verify FIFO. The failure boundary is in-process queue semantics, not network timing.",
+      "test_description": "Submit 10 requests concurrently while quota is blocked. Mock HTTP client to intercept and log each dispatched request in order. After quota becomes available, verify requests are dispatched in exact FIFO order (submission order, not priority or random). Test edge case: requests that fail and retry should maintain original position in queue.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

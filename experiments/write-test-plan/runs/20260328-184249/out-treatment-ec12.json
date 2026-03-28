@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Schema validation correctly identifies missing required fields and rejects those rows, writing them to the dead-letter queue with their original row numbers preserved.",
+      "minimum_level": "Integration",
+      "justification": "A unit test of the schema validator alone cannot verify that (a) rejected rows actually flow into the DLQ system, (b) row numbering is preserved end-to-end, or (c) invalid rows don't contaminate valid output. Real failure: invalid rows either aren't caught, reach the wrong destination, or lose row identity. Integration testing with mocked S3 input and an actual (or in-memory) DLQ implementation will catch failures in validation, DLQ delivery, and row-number tracking.",
+      "test_description": "Create a CSV with 10 rows: 5 with all required fields, 5 with missing critical fields. Parse via the pipeline with mocked S3 and in-memory DLQ. Verify (1) exactly 5 rows reach DLQ, (2) each DLQ row preserves its source row number, (3) valid rows are not in DLQ, (4) invalid rows don't reach the normalized output table.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing end-to-end rejection flow requires multiple components wired together (validator + DLQ writer); unit validation alone misses DLQ integration and row numbering.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date transformation accepts multiple input formats (ISO 8601, MM/DD/YYYY, DD/MM/YYYY) and consistently outputs a single canonical format (YYYY-MM-DD or equivalent).",
+      "minimum_level": "Unit",
+      "justification": "Date conversion is pure logic with no external I/O, non-determinism, or infrastructure dependencies. Real failure: conversion logic is broken or incomplete for certain formats. A unit test can exhaustively cover all input variants and edge cases (leap years, month boundaries, invalid dates) and verify output is canonical. No integration, mocking, or resource constraints can hide a conversion failure.",
+      "test_description": "Write a parametrized unit test with 12+ inputs: ISO 8601 (2025-12-31, 2025-03-15T14:30:00Z), US (12/31/2025), European (31/12/2025), edge cases (02/29/2024 leap year, 1/1/2025 single-digit). Assert all convert to YYYY-MM-DD. Test rejection of invalid formats ('13/01/2025', 'not-a-date') and out-of-range dates (32/01/2025).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure transformation function requires no infrastructure; unit test directly catches all conversion failures.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The pipeline processes a CSV file containing 500,000 rows in a single batch without exceeding configured memory limits or timeout thresholds, completing within SLA.",
+      "minimum_level": "System",
+      "justification": "Memory exhaustion and timeout failures are inherently OS-level resource concerns; they only surface under realistic load with actual process constraints. Real failures: memory leak under load, inefficient streaming causing OOM, timeout exceeded due to slow processing. A unit or integration test on a small dataset would pass even if the real pipeline leaks memory or inefficiently streams large files. Only a system test with a realistic 500k-row CSV and monitored resource constraints (memory limits, wall-clock timeout) can catch these failures.",
+      "test_description": "Generate or load a 500k-row CSV matching the production schema. Run the full pipeline in an isolated environment with configured memory limits (e.g., 2GB heap) and a realistic timeout (e.g., 30 minutes). Monitor memory usage and processing time. Verify (1) processing completes within timeout, (2) peak memory stays below limit, (3) all rows processed (none skipped), (4) no memory exhaustion errors or partial failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Resource exhaustion and timeout failures only surface under realistic load; small-scale mocked tests cannot reproduce actual memory or timing constraints.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The pipeline handles transient S3 errors (HTTP 503) gracefully by retrying with exponential backoff and continuing batch processing after retries succeed, rather than failing the entire batch on the first error.",
+      "minimum_level": "Integration",
+      "justification": "Retry behavior depends on the integration between S3 client behavior and the pipeline's error-handling logic. Real failure: the pipeline fails the batch on the first 503 instead of retrying, or retry backoff timing is wrong. A unit test of retry logic in isolation (mocking S3 calls) cannot verify that the S3 client integration actually retries; a system test against real S3 is unnecessary overhead. Integration testing with a mocked S3 API (via moto or localstack) that simulates transient 503 responses will catch failures in retry triggering, exponential backoff, and batch continuation.",
+      "test_description": "Mock S3 to return 503 on the first 3 requests, succeed on the 4th. Run the pipeline against a small CSV (~100 rows). Verify (1) the pipeline retries (not failing immediately), (2) exponential backoff is applied (delays increase between retries), (3) the batch completes successfully after recovery, (4) all rows are processed, (5) errors are logged for observability.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Retry behavior requires testing S3 client integration; unit tests of retry logic alone miss the interaction between client and pipeline.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If the pipeline is restarted after writing some rows but before completing the batch, subsequent runs do not insert duplicate rows into PostgreSQL, maintaining data integrity through idempotency.",
+      "minimum_level": "Integration",
+      "justification": "Duplicate detection and idempotency depend on actual PostgreSQL transaction semantics, primary key constraints, and upsert logic. Real failure: restarted pipeline duplicates rows because restart logic doesn't skip already-written rows, or primary key constraints are missing. A unit test of write logic cannot verify database constraint enforcement; a mocked database always behaves correctly and hides real failures. Integration testing with a real (or containerized test) PostgreSQL instance will catch failures in transaction boundaries, constraint enforcement, and checkpoint-resume logic.",
+      "test_description": "Set up a test PostgreSQL instance with the target schema. Write 50 rows via the pipeline checkpoint, then kill the process at mid-batch (~25 rows written). Restart and complete the batch. Query the database and verify (1) all 50 rows from the full batch are present, (2) no row appears more than once (duplicates = 0), (3) row counts match schema expectations. Test with actual idempotency mechanisms (INSERT ... ON CONFLICT, unique constraints).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Database idempotency depends on actual PostgreSQL semantics (ACID, constraints, transactions); mocked or unit tests miss real duplicate-handling failures.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    }
+  ]
+}

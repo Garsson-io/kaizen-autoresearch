@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "System",
+      "justification": "The real failure is whether the actual speech-to-text API provides speaker labels in its response format, and whether our code correctly extracts them. A mock would return whatever we hardcode, masking both API contract issues (API doesn't support speaker labels) and code extraction bugs. We must call the real S2T API (e.g., Google Cloud Speech-to-Text, AWS Transcribe) to verify the response includes speaker information and our parsing handles it correctly.",
+      "test_description": "Given a meeting audio file with multiple speakers, send it to the real speech-to-text API with speaker diarization enabled. Verify the API response includes speaker labels or speaker ID/name mappings. Confirm our code correctly parses the response structure and extracts speaker information (not null/empty) for each transcript segment. Validate that speaker labels are preserved and available for downstream attribution in the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real S2T API call to verify both the API contract (speaker labels are present) and our extraction logic. Unit/Integration tests with mocks would not catch API format changes or missing speaker label support.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is LLM non-determinism: on some runs the LLM might miss an action item, drop an attribution, or misunderstand who was assigned a task. A mock LLM would always return a complete, correct summary—it would hide the real problem that the live LLM sometimes fails. This is a single LLM call (summarization), not a workflow. Testing with the real LLM reveals non-determinism that a mock completely masks.",
+      "test_description": "Call the real LLM API with a meeting transcript containing explicit task assignments to named attendees (e.g., 'Alice will write the PR review by Friday'). Verify the returned summary contains an action_items field with at least one item attributed to each responsible attendee. Run the test multiple times with identical input to detect non-determinism: confirm the LLM consistently extracts all action items and correctly attributes them, even as LLM output phrasing varies.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real LLM calls with repetition to catch non-deterministic failures. A mock LLM would always pass; Integration-level tests would hide the real problem.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.03,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the \"decisions\" section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is LLM non-determinism in placement and extraction: the LLM might bury decisions in narrative text instead of populating the decisions field, or might miss certain decisions on some runs. A mock LLM would always place decisions correctly in the structured field. This is a single LLM call. Only real LLM behavior reveals whether it consistently extracts decisions into the correct field.",
+      "test_description": "Call the real LLM API with a meeting transcript containing explicit decisions (e.g., 'The team decided to migrate to Postgres by Q2', 'We agreed to hire two engineers'). Verify the returned summary has a decisions field that captures all stated decisions, not buried in narrative. Run multiple times with identical input to ensure the LLM consistently extracts and places decisions correctly, even as output phrasing varies.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real LLM and multiple runs to detect non-determinism in decision extraction and placement. Integration/mock tests would not reveal failures.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.03,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "The real failure is in multi-step orchestration with real LLM non-determinism: splitting logic might be correct, but when we feed segment summaries to the LLM for merging, the LLM might produce incoherent output, lose information, or hallucinate. This requires multiple agentic steps in sequence (summarize segment 1, summarize segment 2, merge summaries into one coherent output). A mock LLM would always produce perfect merges. Testing against real S2T and real LLM reveals whether the merged output is truly coherent and captures the full meeting narrative.",
+      "test_description": "Provide a meeting audio file longer than 60 minutes to the service. Verify the service splits the audio into segments (e.g., 15-minute chunks), calls the real S2T API on each segment, calls the real LLM to summarize each segment individually, then calls the real LLM a second time to merge the segment summaries into a single coherent output. Verify the final merged summary is logically coherent (not just concatenated), captures all decisions and action items from the full meeting without duplication, and represents the entire meeting as a unified narrative.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires multiple real LLM calls in sequence to verify merging logic and coherence. Unit/Integration tests with mocks would not reveal whether the real LLM can merge segment summaries coherently.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "The real failure is any break in the end-to-end chain: file upload fails, S2T API authentication or response format changes, LLM summarization times out or produces invalid JSON, structured output schema mismatches, or unhandled errors require manual intervention. This is a workflow of multiple steps, including agentic steps (LLM summarization). Only by running the full pipeline with real external APIs (S2T, LLM) can we catch integration failures, API contract changes, rate limiting, malformed responses, and sequencing errors that mocks would hide.",
+      "test_description": "Execute the complete end-to-end pipeline with a real meeting recording: upload audio file → call real S2T API → call real LLM for summarization → generate and deliver structured output. Verify the output conforms to the expected JSON schema (includes transcript, summary, action_items, decisions, attendee attributions). Confirm the process completes without errors, user prompts, or timeouts. Validate the output is immediately deliverable (e.g., returned as valid JSON in an API response). Test with real external APIs to catch authentication failures, rate-limit issues, API contract mismatches, and orchestration errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real external APIs and multiple sequential steps. Integration-level mocks would not reveal API authentication failures, contract changes, or LLM non-determinism in the full pipeline.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.9
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is a deterministic hash/key function with no external dependencies. The real failure (collision or non-determinism) happens within the function boundary. While comprehensive input coverage is needed, the test infrastructure is pure computation—no mocking needed. A unit test with 100+ representative parameter combinations (edge cases: empty values, special characters, numeric-vs-string ordering, identical params in different orders) is sufficient to catch algorithmic bugs.",
+      "test_description": "Create a cache key generator, call it with 100+ representative query parameter combinations including edge cases (empty values, special characters, numeric vs string parameters, identical parameters in different orders), verify that: (1) identical parameter sets always produce identical keys, (2) different parameter sets never collide, (3) key generation is deterministic (same input → same key every time).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "The behavior depends on *both* correct code logic AND correct configuration. A unit test that mocks the freshness rule (e.g., 'user_profile=5min') would pass even if the actual config file/database says 'user_profile=10min'. The real failure is a config-code mismatch that only appears when testing against actual configuration. Integration testing with real config sources (file, database, or config service) is needed to catch when code and configuration diverge.",
+      "test_description": "Load actual freshness configuration from the config source (file, database, or service), create cache entries for different data categories (e.g., user_profile, product_catalog, order_history), verify that: (1) each entry's TTL matches the configured freshness rule for its category, (2) TTL is computed correctly (e.g., current_time + rule_ttl = expiration_time), (3) configuration changes update future TTL computations, (4) missing category configurations fall back to default TTL correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'actual memory pressure doesn't trigger the strategy switch correctly'. Mocking memory measurement would hide real memory behavior (Python object overhead, reference counting, garbage collection). You cannot reliably test memory pressure with stubs because you're mocking the exact thing you want to verify. The test must populate a cache with real objects and watch actual memory growth until the threshold is exceeded.",
+      "test_description": "Create an in-memory cache with configurable capacity and memory threshold, add entries with real memory overhead until exceeding the configured memory threshold, verify that: (1) eviction strategy switches from LRU to LFU when memory exceeds the threshold, (2) strategy switch happens exactly when threshold is crossed (not before, not after), (3) new entries added after the switch use the LFU strategy, (4) eviction behavior changes demonstrably after the switch (verify that LFU evicts differently than LRU would).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "System",
+      "justification": "The real failure is 'when a real database write happens, does it actually trigger cache invalidation?'. This requires a subprocess or real database connection (not an in-memory mock or stub). Mocking either the database or the cache invalidation would hide the integration failure: the cross-system coordination between PostgreSQL writes and cache invalidation. The behavior explicitly mentions 'underlying PostgreSQL table', indicating that the test must exercise real database write semantics and verify the invalidation response.",
+      "test_description": "Set up a test PostgreSQL database instance with a table and associated cache for that table's data, perform actual INSERT/UPDATE/DELETE operations on the table via the application's database layer, verify that: (1) corresponding cache entries are invalidated immediately after the write, (2) only affected rows' cache entries are invalidated (unrelated cache entries remain), (3) cache invalidation happens synchronously or with a guaranteed propagation delay, (4) multiple concurrent writes invalidate the correct entries without race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'access tracking doesn't correctly record recency or frequency, so eviction removes the wrong entry'. A unit test that injects a synthetic cache state ('entry A is LRU, entry B is recent, entry C is most recent') can test the eviction algorithm. But the failure that matters is 'does normal cache operation (get, set) correctly update recency/frequency tracking?'. Mocking access tracking would pass even if the cache's internal accounting is broken. Integration testing with a real cache and realistic access patterns catches when access tracking fails to record actual usage.",
+      "test_description": "Create a cache with actual entries, populate it to or above capacity, simulate realistic access patterns (some entries accessed frequently over time, others accessed once and then rarely), verify that: (1) under LRU strategy, the least-recently-used entry is evicted, (2) under LFU strategy, the least-frequently-used entry is evicted, (3) eviction removes exactly the expected entry(ies) and respects batch size limits, (4) access tracking during normal cache operations (get, set) correctly updates recency/frequency counters to reflect actual usage.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

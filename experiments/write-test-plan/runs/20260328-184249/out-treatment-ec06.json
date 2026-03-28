@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Daemon correctly watches subdirectories (not just root) for new files",
+      "minimum_level": "System",
+      "justification": "The failure is at the OS/filesystem boundary: the watcher is misconfigured (missing `recursive: true` flag or using the wrong library), and the operating system does not emit events for files placed in subdirectories. Mocking `fs.watch` would pass trivially without ever testing whether the real OS actually watches subdirectories. Real filesystem state and live OS watcher behavior are both required to catch this failure.",
+      "test_description": "Create a temporary directory structure with subdirectories. Start the daemon watching the root directory. Write a file to a subdirectory and verify it is processed. Write another file to the root and verify it is also processed. Confirm both files are picked up and processed correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem structure and real OS watcher behavior.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Daemon deduplicates processing requests for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is pure in-process application logic: given two filesystem events for the same path within the time window (e.g., within 100ms), only one processing request should be triggered. No real filesystem state, I/O, or OS behavior is involved. The deduplication cache/set can be tested in isolation by simulating events and verifying the deduplication logic works correctly.",
+      "test_description": "Simulate two filesystem events for the same file path with timestamps 50ms apart (within a 100ms deduplication window). Verify that only one processing request is triggered. Then simulate a third event 150ms later and verify it is processed separately. Test with various time windows and verify the boundary is respected.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is purely in-process logic, no filesystem or OS behavior needed.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Daemon deduplicates multiple filesystem events emitted by the OS for a single file write and processes the file exactly once",
+      "minimum_level": "System",
+      "justification": "The real failure occurs at the OS/filesystem level: different operating systems emit 1–4 filesystem events for a single file write (e.g., 'created', 'changed', 'changed' due to metadata updates). Artificially injecting exactly two events into a mocked watcher tests the mock, not the real OS behavior or timing edge cases. Real OS watcher behavior with actual filesystem operations is required to discover race conditions, timing sensitivities, and OS-specific event patterns that could cause duplicate processing.",
+      "test_description": "Create a temporary directory and start the daemon watching it. Write a file to the directory and wait for it to be completely processed. Verify that exactly one processing occurs despite the OS emitting multiple filesystem events. Repeat with files of different sizes and monitor that no duplicate processing happens. If possible, test on multiple OS variants to observe different event patterns.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real OS watcher emitting real filesystem events.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Daemon resumes watching a directory that is removed and then recreated while the daemon is running, without requiring a restart",
+      "minimum_level": "System",
+      "justification": "This behavior requires real filesystem operations (rmdir, rm, mkdir) and real OS watcher error handling. The daemon must detect ENOENT or WATCH_ERROR when the watched directory disappears, clean up gracefully, enter a retry/recovery mode, and reattach when the directory is recreated. Mocking these operations would hide timing race conditions, OS-specific error handling, and recovery logic failures that only surface with real filesystem state changes. Real filesystem operations and live OS watcher behavior are mandatory.",
+      "test_description": "Start the daemon watching a temporary directory and write a file to it to verify normal operation. While the daemon is running, remove the entire directory (rm -rf). Verify the daemon detects the removal and handles it gracefully (logs error, enters retry state, or similar). Then recreate the directory with the same path. Verify that the daemon automatically resumes watching the new directory and processes files written to it, all without manual restart or intervention.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem operations and OS watcher error recovery.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps (mtime or ctime)",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the ordering logic: the daemon must retrieve the list of file paths, stat each to obtain mtime/ctime, sort by timestamp, and process in order. Real filesystem metadata (actual mtime/ctime values) is required to test this correctly; filesystem timestamp precision varies by OS and filesystem type. However, the file watcher events themselves can be mocked or manually triggered—actual OS event ordering is not part of the ordering failure boundary. Integration-level testing with real filesystem timestamps is sufficient to catch ordering logic failures.",
+      "test_description": "Create a temporary directory. Write multiple files and deliberately set their modification times to be different (e.g., using `touch -t` to set timestamps 1 second apart in the past, ensuring clear ordering). Start the daemon watching the directory. Trigger processing or wait for the daemon to detect all files. Verify that files are processed in mtime order, not in alphabetical or filesystem-event order. Test with at least 3–5 files to confirm consistent ordering.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem timestamps but not necessarily real OS watcher event ordering.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Daemon does not process files that are still being written to until writing is complete",
+      "minimum_level": "System",
+      "justification": "The real failure occurs when the daemon receives a filesystem event for an incomplete file and either processes partial/corrupted content, crashes on invalid data, or blocks indefinitely. Detecting incomplete writes requires checking OS-level file state: mtime stability (debouncing), file size changes, or OS file locks. Mocking a 'stable' file would always pass without testing incomplete write detection. Real write operations and OS file-state behavior are required to catch edge cases like very slow network writes, buffering delays, or OS-specific file-locking semantics.",
+      "test_description": "Create a temporary directory and start the daemon watching it. Open a file and write partial content (or use a script to slowly append data over several seconds). Verify that the daemon does not process the incomplete file during writing. Once writing completes (or an explicit completion signal occurs), verify the daemon then processes the complete file. Test with various write patterns: small quick writes, large slow writes (e.g., 5-second write), and rapid repeated small writes to stress the stability detection.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real write operations and real OS file-state observation.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0.01,
+        "Workflow": 0.07
+      }
+    }
+  ]
+}
