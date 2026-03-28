@@ -18,8 +18,9 @@ a real failure — not just to verify happy-path logic.
     Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
-- **SELF-CHECK** (plan_consistent): After deciding each level, does your
-  test_description actually require that level, or would it pass at a lower one?
+- **SELF-CHECK** (plan_consistent): After deciding each level, ask: could a
+  real failure slip through a test at this level because you mocked or
+  simplified the dependency? If yes → raise the level.
 
 Issue (task_id: {{TASK_ID}}):
 ---
