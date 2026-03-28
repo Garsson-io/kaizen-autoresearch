@@ -22,6 +22,11 @@ a real failure — not just to verify happy-path logic.
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
 
+- **REJECTION-GATE**: If during your reasoning you considered a level higher than
+  your final choice and rejected it, state the specific behavior text that
+  disqualifies the higher level. If you cannot point to concrete disqualifying
+  evidence from the behavior description, keep the higher level.
+
 Issue (task_id: {{TASK_ID}}):
 ---
 {{ISSUE_BODY}}
