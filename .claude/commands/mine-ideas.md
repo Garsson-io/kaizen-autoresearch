@@ -27,45 +27,47 @@ Before generating anything, read:
 - All files in `$IDEAS_DIR/` — existing ideas (to avoid duplicates)
 - `$EXPERIMENT_DIR/prompts/treatment.md` — current prompt being optimized
 
-### 3. Extract all justifications with verdicts
+### 3. Extract justifications AND thinking blocks
 
-For each output file in `$RUNS_DIR/`, pair each behavior's prediction with its ground truth and classify as correct/under/over:
+Use the extract-thinking tool to get both layers of reasoning:
 
 ```bash
-for f in $RUNS_DIR/out-treatment-*.json; do
-  task=$(jq -r '.task_id' "$f")
-  gt_base=$(echo "$task" | tr '[:upper:]' '[:lower:]')
-  gt_file="$GT_DIR/${gt_base}.json"
-  [ -f "$gt_file" ] || continue
+# Full error analysis with thinking + self-aware detection
+$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts
 
-  jq -r --slurpfile gt "$gt_file" '
-    .behaviors[] as $b |
-    ($gt[0].behaviors[] | select(.behavior_id == $b.behavior_id)) as $g |
-    [.task_id, ($b.behavior_id|tostring), $b.minimum_level, $g.ground_truth_level,
-     (if $b.minimum_level == $g.ground_truth_level then "correct"
-      elif (["Unit","Integration","System","Agentic","Workflow"] | index($b.minimum_level)) < (["Unit","Integration","System","Agentic","Workflow"] | index($g.ground_truth_level)) then "under"
-      else "over" end),
-     $b.justification] | @tsv
-  ' "$f"
-done
+# Just the self-aware contradictions (model knew and overrode)
+$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --self-aware-only
+
+# Lines ready to append to taxonomy/
+$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --taxonomy-lines
+
+# Machine-readable for deeper analysis
+$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --json
 ```
+
+The tool pairs each behavior's structured output (justification, predicted level) with the model's internal thinking from the .log file. It automatically flags ⚠ SELF-AWARE cases where thinking contains correct reasoning the model overrides.
 
 ### 4. Classify reasoning patterns
 
-Read ALL the extracted justifications. For each under-prediction and over-prediction, identify the **reasoning pattern** — the recurring logical move the model makes that leads to the wrong answer.
+Read the extract-thinking output. For each error, you have TWO sources:
+- **Justification** (from output JSON): what the model said publicly — often post-hoc rationalization
+- **Thinking** (from .log file): what the model actually reasoned — often contains the correct answer
+
+Focus especially on **⚠ SELF-AWARE** cases: these reveal that the model KNOWS the right answer but its framing/structure causes it to pick wrong. The fix for self-aware failures is in prompt framing, not in teaching the model new facts.
 
 Look for:
-- **Recurring excuses** in under-predictions: "can mock this", "pure logic", "no I/O needed", "infrastructure concern not model quality"
-- **Recurring mistakes** in over-predictions: "might miss edge case", "safer to test at higher level", "looks AI-related"
-- **Self-aware failures**: model acknowledges the correct level in parentheticals or hedges, then picks wrong
-- **Correct reasoning patterns**: what logical moves lead to correct answers? These are worth preserving.
+- **Recurring excuses** in justifications: "can mock this", "pure logic", "no I/O needed"
+- **Thinking contradictions**: thinking says "mock would hide this" but justification says "mock is sufficient"
+- **Self-aware patterns**: what percentage of each error type is self-aware? High self-awareness means the definition is fine but the framing suppresses correct reasoning
+- **Correct reasoning patterns**: what logical moves lead to correct answers? Preserve these.
 
 Group into named patterns (e.g. U1, U2, O1) with:
 - A short name (e.g. "can mock the API")
 - Which tasks/behaviors exhibit it
 - The predicted→GT confusion pair
 - Frequency and score impact (frequency × row weight)
-- Representative quotes from justifications
+- Representative quotes from BOTH justification and thinking
+- Self-aware count: N/M errors in this pattern are self-aware
 
 ### 5. Quantify and rank
 
@@ -81,18 +83,19 @@ Also compute:
 
 ### 6. Update taxonomy/ folder (APPEND-ONLY)
 
-The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. Each line in the body is one occurrence from one run. **NEVER delete old lines — only append new ones.**
+The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. **NEVER delete old lines — only append.**
 
-For each pattern file:
+Use the taxonomy-lines output as a starting point:
+```bash
+$EXPERIMENT_DIR/scripts/run.sh extract-thinking.ts --taxonomy-lines
+```
+
+This gives pre-formatted lines with justifications, thinking excerpts, and ⚠ SELF-AWARE flags. For each pattern file:
 1. Determine the current run number (count previous `[runN]` prefixes, increment)
-2. **Append** new lines for occurrences in this run, prefixed with `[runN]`
+2. **Append** the taxonomy-lines output for occurrences in this pattern
 3. Update frontmatter `description` and `note` if the pattern's character changed
-4. Create new `.md` files for newly discovered patterns
-
-The line count across runs shows persistence:
-- Same task+behavior in `[run1]` and `[run2]` → pattern is stable, prompt didn't fix it
-- A task+behavior stops appearing → the prompt change worked for that case
-- Compare excuses across runs for the same behavior to see how reasoning evolved
+4. Update `self_aware` and `self_aware_note` in frontmatter with the self-aware count
+5. Create new `.md` files for newly discovered patterns
 
 Also update `$EXPERIMENT_DIR/justification-taxonomy.md` with summary counts and key insights.
 
