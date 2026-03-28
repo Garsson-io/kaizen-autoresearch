@@ -92,6 +92,8 @@ Run **`/mine-ideas write-test-plan`** after each bounded run or manual stop. Thi
 - ✓ Reorder key questions to promote Agentic/Workflow checks
 - ✗ Rewrite the whole prompt — too many variables, can't diagnose
 - ✗ Add generic "think carefully" language — no signal value
+- **✗ NEVER remove or reword an existing section in the same iteration as adding something new.** Removals and additions are separate hypotheses. If you want to replace A with B, first add B alongside A. Only remove A in a separate iteration if the addition worked.
+- Consider naming key sections/bullets in the prompt (e.g. `[MOCK-CHECK]`, `[SELF-CHECK]`) so changes can reference specific components without ambiguity.
 
 ### After achieving ≥75% on round 1
 Run adversarial rounds and update `leaderboard.md`:
