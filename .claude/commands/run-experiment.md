@@ -8,7 +8,7 @@ argument-hint: "<experiment-name> [--iterations N]"
 
 Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional `--iterations N` (default: unbounded).
 
-## Read these files before doing anything
+## You MUST read these files and follow their instructions
 
 | File | Why |
 |------|-----|
