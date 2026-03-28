@@ -85,7 +85,9 @@ LOOP:
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
-  8. SCORE — compare to baseline. If improved > 1.5 noise threshold → keep. Same or worse → git revert.
+  8. SCORE — compare loss to baseline. Any decrease in loss → keep. Same or increase → git revert.
+     NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
+     Until then, treat any loss decrease as signal. Update this after the first confirmation run.
   9. LOG — append to autoresearch-results.tsv. Update idea status (kept/rejected/no-op).
   10. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
   11. GOTO 1
