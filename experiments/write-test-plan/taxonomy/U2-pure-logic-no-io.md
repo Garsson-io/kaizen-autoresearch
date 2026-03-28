@@ -26,3 +26,8 @@ description: Model classifies multi-module wiring as pure function logic testabl
 [run2] EC-18 b3: "The failure mode is in the detection logic: p99 calculation incorrect. A Unit test with mock latency data can verify."
 [run2] EC-25 b4: "The flagging decision is pure in-process logic: (scoring_flagged OR risk_flagged) → held_for_review."
 [run2] EC-25 b5: "Output structure and field assembly is pure in-process logic with no I/O."
+[run3] EC-01 b2 (Unit→Integration): "Path resolution is deterministic logic that runs before any file I/O."
+[run3] EC-01 b3 (Unit→Integration): "The merge logic (environment variable priority over file value) is a pure data transformation with no I/O side effects."
+[run3] EC-01 b4 (Unit→Integration): "Error message construction is in-process logic."
+[run3] EC-04 b5 (Unit→Integration): "The failure mode is missing retry logic on rate-limit errors. Testable at Unit level: mock the API to raise a rate-limit error."
+[run3] EC-09 b5 (Unit→Integration): "The behavior is about loader control flow: which plugins are initialized after one fails."
