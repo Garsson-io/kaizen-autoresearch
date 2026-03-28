@@ -1,7 +1,7 @@
 ---
 id: infra-probe-question
 title: Add Think line under REAL-INFRA — "would an in-process fake catch this failure?"
-status: trying
+status: kept
 effort: low
 expected_impact: high
 targets:
