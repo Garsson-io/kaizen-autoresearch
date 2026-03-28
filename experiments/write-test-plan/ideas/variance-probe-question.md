@@ -1,7 +1,7 @@
 ---
 id: variance-probe-question
 title: Replace LLM-DEP with concrete variance probe -- "100 runs, same input, same output?"
-status: proposed
+status: kept
 effort: low
 expected_impact: high
 targets:

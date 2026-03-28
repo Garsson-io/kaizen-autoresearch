@@ -24,11 +24,13 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 
 **GT revision** (2026-03-27): Corrected 5 behaviors where GT was Integration but model correctly identified as Unit (EC-18 b1/b2/b3, EC-25 b4/b5). Pure algorithmic operations (trace ID grouping, timestamp sorting, p99 computation, boolean OR gate, output formatting) are Unit-testable — no module wiring needed. Scores below this line use revised GT and are not comparable to scores above.
 
-| # | Condition | Score (r1) | r2 | r3 | Δ | Commit | Change |
-|---|-----------|-----------|----|----|---|--------|--------|
-| 3 | treatment | **91.0%§** | — | — | — | — | re-scored existing run 2 outputs against revised GT, 30-task corpus |
+| # | Condition | Loss | Score (r1) | Δ loss | Commit | Change |
+|---|-----------|------|-----------|--------|--------|--------|
+| 3 | treatment | — | **91.0%§** | — | — | re-scored existing run 2 outputs against revised GT |
+| 15 | treatment | **454.16** | 86.4% | — | — | loss baseline — first run with calibrated probabilities |
+| 16 | treatment | **447.92** | 84.4% | **-6.24** | 23e85af | variance-probe-question: 100-runs thought experiment under LLM-DEP |
 
-§30-task full corpus (EC-01 through EC-30), revised GT.
+§30-task full corpus (EC-01 through EC-30), revised GT. Loss available from iteration 15+.
 
 ---
 
