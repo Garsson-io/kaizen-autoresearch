@@ -28,3 +28,47 @@ Parse `.log` files from each run and report per-probe and aggregate stats: time,
 ### 9. Verify --strict-mcp-config works on all probes
 
 Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-task run completes without errors with the stripped flags.
+
+---
+
+## Codex Iteration Loop (5 iterations)
+
+### Iteration 1/5 (current)
+- [x] MINE — extract-thinking / taxonomy lines from latest run
+- [x] DIAGNOSE — summarize dominant misses and impacted tasks
+- [x] META — update/check meta-failures against this run
+- [x] IDEATE — choose one atomic edit hypothesis
+- [x] EDIT + RUN + SCORE — added Agentic disambiguation line; run `20260328-195648`, loss `306.79`
+- [x] LOG — append iteration result with model + metrics
+
+### Iteration 2/5
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE
+- [x] LOG
+
+### Iteration 3/5
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE
+- [x] LOG
+
+### Iteration 4/5
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE
+- [x] LOG
+
+### Iteration 5/5
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE
+- [x] LOG

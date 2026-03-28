@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed inside subdirectories of the watched root directory are processed, not only files in the root.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is whether the watcher (chokidar/fs.watch) is configured for recursive watching. A mock filesystem could easily return files from subdirs without the watcher actually recursing into them. The failure boundary is OS-level directory watching behavior, not just the algorithm.",
+      "test_description": "Create test directory structure with root and nested subdirectories, place a file in a subdirectory while daemon is running, verify the daemon processes the file from the subdir. Also test that files in the root are still processed (integration of both paths).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem with actual directory nesting and real fs.watch/chokidar events emitted from subdirectories.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Integration",
+      "justification": "While the dedup algorithm itself (timeout check) could be Unit tested with mocked time, the real failure is a race condition: two concurrent events both see the dedup miss because they arrive within a narrow time window before either updates the dedup state. Testing with real concurrency and async event handling is essential to catch this.",
+      "test_description": "Trigger the daemon to receive two processing requests for the same file path in rapid succession (within the configured window), verify only one processing actually occurs. Test both: (a) two sequential events that are within window, and (b) two sequential events outside window (to verify dedup window boundary works correctly).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test must use real async event delivery to expose race conditions that mocked time and mocked concurrency would hide.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is non-deterministic OS behavior: chokidar/fs.watch often emits multiple events (create, change, close) for a single file write depending on OS buffering. A mock event emitter could be controlled to emit exactly 3 events, but wouldn't expose the real timing and coalescing behavior. Integration test with real filesystem ensures we handle actual OS event sequences.",
+      "test_description": "Write a file to the watched directory and monitor processing. Trigger the scenario where OS emits multiple events (either by real filesystem behavior or by hooking the event emitter to simulate realistic OS multi-event sequences). Verify the file is processed exactly once despite multiple events. Measure processing count via output file creation or processing log.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real filesystem write operations and real fs.watch events are necessary; mocking the event emitter would bypass the core failure scenario.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is recovery logic: the watcher may throw an error when the directory is deleted, and the code must re-establish watching when the directory is recreated. A mock of fs.watch that throws an error and a mock recovery handler could pass without testing if the actual watcher (or retry logic) works correctly. Need real filesystem state changes to expose failures in error handling and re-watching logic.",
+      "test_description": "Start the daemon watching a real directory. Delete the directory while watching is active. Verify the daemon detects the error and stops processing (or enters error state). Recreate the directory. Verify the daemon resumes watching the new directory and processes new files placed there without requiring a restart. Check via daemon logs and file processing.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real filesystem operations (mkdir, rmdir) and real watcher behavior are required to test the recovery path.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps (mtime or atime).",
+      "minimum_level": "Integration",
+      "justification": "The sorting algorithm could be Unit tested in isolation, but the real failure is whether concurrent file arrivals are processed in timestamp order. When multiple files are written concurrently (within milliseconds), the daemon must sort them by real filesystem timestamps before processing. Real concurrent writes with real filesystem timestamps expose whether the sorting is applied at the right point in the pipeline.",
+      "test_description": "Create multiple files with intentionally different creation timestamps (using touch or fs.utimes to set mtime). Trigger the daemon to process them concurrently or in rapid succession. Verify the output files (or processing log) show they were processed in mtime order, not arrival order. Include edge case: files with identical mtimes.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem timestamps and concurrent/rapid file arrivals to catch the failure of timestamp-based ordering not being applied.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is the daemon processing a partially-written file. Common detection methods are file size stability checks or file lock detection. A mock of fs.stat returning different file sizes could pass without testing if the actual size-stability detection works in practice with real file writes and the timing of when events fire relative to write completion.",
+      "test_description": "Open a file for writing in the watched directory (but do not close it immediately), triggering a file arrival event while the write is in progress. Verify the daemon does not process the file until the write is complete. Test the size-stability detection: write data in chunks with delays between them, and verify the daemon waits for stable size before processing. Check that the output file is correctly transformed (implying the full input was read).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real file writes in progress and real filesystem size checks are required; mocking file size changes would not catch the timing issue of when arrival events fire.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

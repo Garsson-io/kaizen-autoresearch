@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Data from all three sources (metrics endpoint, issue tracker API, deployment log) is collected and passed to the summary-generation function",
+      "minimum_level": "Unit",
+      "justification": "The failure here is orchestration: 'did we forget to call a source' or 'did we lose one source's data along the way'. These are caught by mocking each source and verifying the aggregated data structure is built correctly and passed to the summary function. In-process mocks with realistic response shapes are sufficient—the real APIs' validity is tested separately (behavior 2).",
+      "test_description": "Unit test: Mock all three data sources to return valid but distinct test data (e.g., metrics_source returns [0.5, 0.7], issue_tracker returns ['BUG-123', 'FEAT-456'], deployment_log returns ['v1.2.3']), call the report-generation orchestration layer, and assert the summary-generation function is called with a combined data structure containing all three sets of values in their expected fields.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting",
+      "minimum_level": "Integration",
+      "justification": "Testing graceful degradation requires simulating realistic failure modes that unit mocks can underspecify: timeouts, malformed responses, rate-limit errors, partial data corruption. A mock that simply raises an exception tests the error path, but real APIs fail in subtler ways. Integration-level test doubles (or a test instance of each API) expose whether the code's timeout behavior, retry logic, and fallback message-generation actually work when real network conditions are involved.",
+      "test_description": "Integration test: Set up test doubles or mock servers for each data source configured to fail in distinct ways (metrics endpoint times out after 5s, issue tracker returns 503, deployment log returns malformed JSON). Call the report-generation script and verify: (1) all three sections appear in the report, (2) metrics section shows 'data unavailable (timeout)', (3) issue-tracker section shows 'data unavailable (service error)', (4) deployment-log section shows 'data unavailable (parse error)', and (5) the script exits normally with status code 0.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data",
+      "minimum_level": "Agentic",
+      "justification": "The LLM's output varies across runs given the same input (temperature > 0, model variation, etc.). Mocking the LLM to return a fixed string hides the real failure modes: hallucination, numeric misrepresentation, omission of key values, or off-by-one errors in quoted metrics. To detect these, the test must call a real LLM (or a deterministic test double if one is available, e.g., a fixture model with frozen weights and zero temperature). The behavior is specifically about what the LLM produces, not about orchestration.",
+      "test_description": "Agentic test: Call the live LLM summary-generation function with a fixed test dataset (e.g., 3 metrics [95.2%, 3.1s, 42 deployments], 5 issues [2 critical, 3 medium], deployment log [v1.2.3 succeeded, v1.2.2 failed]). Collect the narrative text and assert: (1) the summary contains '95.2%' or 'ninety-five point two' (not '80%' or '95.0%'), (2) it names both critical and medium issues or clearly states the count, (3) it references both the successful and failed deployment, and (4) no hallucinated metrics or issues appear (validate against the input data).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.1,
+        "Agentic": 0.9,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report—from data collection through email delivery—reaches the configured recipient's inbox correctly",
+      "minimum_level": "System",
+      "justification": "This is an end-to-end delivery test. Real failure modes include: SMTP connection failures, recipient-list misconfiguration, email routing/spam filtering, and persistence of the email state. To catch these, the test must use real or high-fidelity SMTP infrastructure (a test SMTP server, or a mailbox service like Mailhog). You can mock the three data sources and the LLM (to avoid flakiness and external dependencies), but actual email delivery to a real or test mailbox is required.",
+      "test_description": "System test: Stand up a test SMTP server (e.g., Mailhog or MailCatcher) and configure the script to use it. Mock the three data sources with valid test data and mock the LLM to return a fixed summary. Run the scheduled script. Poll the test SMTP server's mailbox and verify: (1) exactly one email is delivered, (2) the recipient address matches the configured recipient list, (3) the subject line is correctly formatted, (4) the email body contains the LLM-generated summary text, and (5) the Timestamp header reflects the script's execution time (within 1 minute).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run",
+      "minimum_level": "System",
+      "justification": "Testing this fallback requires real file system operations (write, read, verify file existence and contents) and realistic email-service failure modes (connection refused, timeout, SMTP error). A unit mock that raises an exception verifies the error path, but misses failures like: permission denied on the temp directory, disk full, or retry-file corruption. The behavior also implies scheduled re-execution, which involves OS-level scheduling or state persistence—integration-level mocks won't expose these issues.",
+      "test_description": "System test: Configure the script to write retry files to a temp directory. Use a mock or unreachable SMTP server (e.g., localhost:9999) to simulate email-service unavailability. Run the report-generation script. Verify: (1) the script does not crash or log a fatal error, (2) a retry file is written to the configured temp directory with the report content, (3) the retry file is named with a timestamp and is readable, (4) on the next scheduled run (or manually triggered), the script re-attempts SMTP delivery using the retry file, and (5) once SMTP succeeds, the retry file is deleted or marked as delivered.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

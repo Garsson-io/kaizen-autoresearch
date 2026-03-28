@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields (name, DOB, insurance ID) are validated before downstream processing; missing fields produce a clear error listing all missing items",
+      "minimum_level": "Unit",
+      "justification": "This is pure input validation logic with no I/O or external dependencies. A mock couldn't miss this failure—the validation function takes a dict and returns success/error based on local logic. Any bug in the logic (e.g., checking name but not insurance ID) would be caught by unit tests alone.",
+      "test_description": "Call patient validation function with objects missing each field individually and in combinations; assert error messages enumerate exactly which fields are missing; verify non-missing valid inputs pass validation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "DOB validation rejects future dates, dates >150 years ago, and non-date strings",
+      "minimum_level": "Unit",
+      "justification": "Pure date validation logic. No external state, no I/O. The boundary conditions are deterministic: a date is either future or not, either valid or not. Unit tests with parametrized edge cases will catch any logic error.",
+      "test_description": "Parametrized unit tests: submit future dates (tomorrow, next year), dates >150 years ago (1750-01-01), non-dates (\"not-a-date\", \"2024-13-01\"), and valid dates (1990-06-15). Assert rejection for invalid, acceptance for valid. Use datetime.now() to avoid hardcoded dates.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The insurance eligibility check sends the correct patient ID and plan code to payer API and correctly interprets 'eligible' vs 'not eligible' vs 'pending' responses",
+      "minimum_level": "Integration",
+      "justification": "While the HTTP call itself is System-level, the critical test is whether the function correctly interprets the *actual* API response format. A unit test with a mocked response could hide real failures: if the real API returns {eligibility_status: \"eligible\"} but the code looks for {eligible: true}, unit mocks wouldn't catch it. Integration with recorded or contract-based HTTP responses verifies the interpretation logic against realistic payloads.",
+      "test_description": "Integration test using HTTP mocking (e.g., responses library) to simulate payer API. Test three branches: call check_insurance_eligibility(patient_id, plan_code), mock server returns realistic {eligibility_status: \"eligible\"} payload, assert function extracts and returns correct enum. Repeat for \"not_eligible\" and \"pending\". Verify request body includes correct patient ID and plan code before calling mock.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When payer API is unreachable, system marks eligibility as 'pending' and continues intake rather than blocking",
+      "minimum_level": "System",
+      "justification": "Testing the system's reaction to *actual* network failure (timeout, connection refused, HTTP 5xx). A unit test with a mocked exception won't catch: retry logic that depends on real timeouts, thread interruption handling, or whether the real HTTP library throws the exception type the code expects. Must trigger actual network failure behavior.",
+      "test_description": "System test: configure payer endpoint to an invalid/unreachable host (e.g., 192.0.2.1:9999 or mock server that closes connection). Call check_insurance_eligibility; assert no exception is raised to caller; assert eligibility status is set to \"pending\"; assert intake process continues (scheduling/triage not blocked). Log messages confirm error was caught.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "AI symptom triage correctly assigns high urgency to symptom combinations indicating emergency conditions (e.g., chest pain + shortness of breath)",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real medical reasoning model produces. Mocking the LLM to always return 'high urgency' for this combination passes the test but hides real failures: model fine-tuning errors, training data bias, prompt ambiguity, or model degradation. The test must call the actual model to verify it performs the medical reasoning correctly.",
+      "test_description": "Agentic test: call real medical reasoning model (or test/staging deployment, not a mock) with input symptoms (chest pain, shortness of breath); assert response.urgency_level == \"high\"; no mocking of LLM response. Test additional emergency combinations (severe abdominal pain + vomiting, altered consciousness + seizure activity) to verify pattern recognition. Log model response for manual clinician audit.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Symptom triage produces natural language explanation of urgency assessment that a clinician can review, not just a numeric score",
+      "minimum_level": "Agentic",
+      "justification": "Whether the model *actually* generates coherent, clinically useful explanations can only be tested with a real model call. Mocking to return 'High urgency: cardiac event likely' would pass a unit test but hide: prompt not asking for explanation, fine-tuning removing the field, model producing gibberish, or response truncation. Real model validation is necessary.",
+      "test_description": "Agentic test: call real medical reasoning model with diverse symptom sets; assert response.explanation is non-empty string (>20 chars); verify explanation mentions symptoms or clinical reasoning (e.g., contains 'chest' or 'cardiac' for chest pain input); assert explanation is not a repeat of urgency_level enum; verify not just a boilerplate. Inspect 3+ responses manually to confirm clinical coherence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Appointment is scheduled in first available slot matching urgency level — high urgency gets same-day, medium gets within 48 hours",
+      "minimum_level": "Integration",
+      "justification": "The scheduling logic depends on real database state and time calculation. A unit test with mocked calendar slots could pass even if the code has the urgency levels reversed, uses wrong time zone, or doesn't match real availability. Must verify against actual calendar DB with realistic slots and time constraints.",
+      "test_description": "Integration test: populate real calendar DB with time slots (e.g., today at 2pm, 4pm; tomorrow at 9am, 11am; day after at 10am). Call schedule_appointment(patient_id, urgency='high'); assert returned slot is today (same-day); call with urgency='medium'; assert slot is within 48 hours. Verify used slots are actually from DB, not hardcoded. Test boundary: call high-urgency with no same-day availability; verify next available (tomorrow morning) is assigned.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Scheduling does not double-book a time slot when two patients are processed concurrently",
+      "minimum_level": "System",
+      "justification": "Double-booking is a race condition that only manifests under real concurrency with actual database transaction semantics. Unit tests with mocked DB and serial execution cannot trigger it. Must run actual concurrent processes/threads hitting the shared calendar DB to expose lost updates and isolation violations.",
+      "test_description": "System test: spawn two concurrent threads/processes; each calls schedule_appointment(patient_id, urgency='high') on same day with one available same-day slot in DB; verify exactly one patient gets the slot, other receives next-available (e.g., next day); run 10+ iterations to catch intermittent race conditions. Assert DB constraints (unique slot assignment) are enforced. Check transaction logs confirm no duplicate bookings.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Confirmation message includes patient name, appointment time, provider name, and preparation instructions appropriate to visit type",
+      "minimum_level": "Integration",
+      "justification": "The confirmation step must pull correct data from multiple real tables (patients, providers, visit_type_instructions). Unit tests with mocked DB lookups could pass even if provider table is empty, visit_type mapping is broken, or template has wrong field keys. Integration verifies real data joins work.",
+      "test_description": "Integration test: complete booking workflow (validate → schedule with real DB); generate confirmation message; assert confirmation.patient_name matches booked patient; assert appointment_time matches DB-scheduled slot; assert provider_name is non-null and matches provider table; assert prep_instructions appear and match booked visit_type (e.g., 'fasting required' for cardiology). Test with multiple visit types to verify instruction lookup works. Verify no placeholder text (e.g., '{provider_name}').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Full intake pipeline (validate, check insurance, triage symptoms, schedule, confirm) completes for real patient submission without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "This test chains multiple real external dependencies in sequence: real payer API call (System-level), real LLM call (Agentic-level), real DB operations (Integration-level). Cascading failures, API timeouts mid-pipeline, LLM hallucinations, or state inconsistencies only appear when all components run together. Individual mocked tests would hide integration breakage.",
+      "test_description": "Workflow test: submit complete intake (valid patient data, real insurance, reported symptoms); no mocking of payer API or medical LLM (use staging/test deployments if available); assert no manual intervention required; verify patient record in system, appointment visible on calendar, confirmation email queued. Run full submission twice on different patients; assert no data collisions or leftover state. Check logs for no rollback/failure points.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.1,
+        "Workflow": 0.7
+      }
+    }
+  ]
+}

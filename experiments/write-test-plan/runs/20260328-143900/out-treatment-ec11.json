@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history passed to the LLM is trimmed to the most recent 10 messages when the full history exceeds the context window",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic logic: given a list of N messages where N > 10, return the last 10 in correct order. A unit test with a mocked LLM can verify the exact trimmed history passed to it. Failure modes (e.g., trim to first 10, trim to 11, reversed order) are caught by asserting input to the mocked LLM call. No real I/O, DB, or non-determinism required.",
+      "test_description": "Create a conversation history with 15 messages. Call the message-trimming function and verify the output contains exactly the last 10 in correct order. Mock the LLM and call the chatbot with this 15-message history, asserting that the trimmed (last 10) messages—not the full history—were passed to the LLM's input.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "The failure is 'LLM produces off-topic or generic response'—a non-deterministic outcome that only a real LLM exhibits. Mocking the LLM to always return on-topic responses hides this failure. Real test cases must call a real LLM (or a fixed, non-deterministic model) and evaluate whether the output addresses the question using a rubric or human judgment. This is fundamentally a test of LLM behavior, not system wiring.",
+      "test_description": "Call the chatbot with a set of real customer questions (e.g., 'How do I reset my password?'). Generate real LLM responses. Evaluate each response against a rubric (e.g., 'Does it mention the password reset process?') or human evaluation to verify it actually addresses the question, not a generic platitude or off-topic content. Run multiple times to account for LLM non-determinism, and flag any responses that fail the rubric.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Integration",
+      "justification": "Assumes the tone classifier is heuristic-based (keyword patterns, sentiment analysis, etc.—common in real systems for cost/latency). The failure modes are: (1) tone classifier misclassifies formal text as casual, (2) regeneration is not triggered despite formal response, (3) regeneration is triggered incorrectly. Testing each component in isolation (Unit tests) is insufficient; you must wire together the tone classifier, the regeneration trigger logic, and mock LLM calls to verify the end-to-end flow. This requires Integration.",
+      "test_description": "Mock the LLM to return a known formal response (e.g., with passive voice and formal vocabulary). Set customer tier to 'casual' and call the chatbot. Verify the tone classifier flags it as 'too formal'. Verify the regeneration trigger fires and a second LLM call is initiated with a regeneration prompt. Mock the second LLM to return a casual response. Verify the final response returned to the customer is the casual one and test logs show regeneration occurred. Also test the passing case: a casual response that does not trigger regeneration.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "Mocking the database hides real failures: schema validation errors, incorrect timestamp format (e.g., not ISO 8601), missing regeneration records, or persistence failures that succeed silently in a mock. Testing this requires a real database instance (in-memory SQLite, test MongoDB, or equivalent) to verify schema compliance, timestamp ordering, and that all exchanges are actually recorded. No external network or real LLM calls needed.",
+      "test_description": "Mock the LLM to return a formal response, then a casual one. Call the chatbot and trigger a regeneration. Query the test database and verify: (1) the user message is logged with a timestamp, (2) the formal response is logged even if rejected, (3) the casual response is logged, (4) all timestamps are in ISO 8601 format, (5) timestamps are monotonically increasing in the correct order (user message → first response → second response), (6) the database schema accepts all fields without error.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first—the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "The failure modes are: (1) API response includes both formal and casual responses, (2) database logs both but doesn't mark one as rejected or hidden, (3) rejected response is visible to the customer in the UI. Unit tests of response-selection logic alone won't catch DB persistence bugs. Integration testing with a real database is needed to verify both the API response (only final response) and the database record (rejected response either omitted or marked as not shown to customer).",
+      "test_description": "Mock the LLM to return a formal response, then call the chatbot and trigger regeneration. Mock the second LLM to return a casual response. Verify that: (1) the API response to the customer contains only the casual response, not both, (2) the database does not include the formal response in the customer-visible log, OR if it does, it is marked with a flag (e.g., 'rejected=true' or 'shown_to_customer=false'), (3) no duplicate responses are returned. Test both the no-regeneration case (casual response passes tone check on first try) and the regeneration case to ensure behavior is consistent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

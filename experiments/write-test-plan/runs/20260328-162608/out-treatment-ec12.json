@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "A mock dead-letter queue could hide real failures: schema mismatches in the actual DLQ table, row number calculation errors specific to the database schema, serialization issues with the actual system, or write failures due to constraints. The real failure boundary is whether the actual DLQ system correctly receives and persists the rejected row with its row number intact. Unit tests with mocks cannot guarantee this.",
+      "test_description": "Create a test CSV with rows missing required fields mixed with valid rows. Run the pipeline against a test PostgreSQL instance. Verify: (a) invalid rows are rejected by schema validation, (b) rejected rows are inserted into the DLQ table with the original row number preserved, (c) valid rows are correctly written to the target table. Assert both the validation logic and the actual DLQ database write succeed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses real PostgreSQL for both DLQ and target table, making it Integration level. Cannot be reduced to Unit because mocking the DLQ would hide constraint and write failures.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure, deterministic function with no external dependencies. Given the same input date string, it must always produce the same canonical output. No real infrastructure is needed—the transformation logic can be tested by passing data as arguments. No mocking would hide real failures because there are no system boundaries or external dependencies to mock.",
+      "test_description": "Unit test that calls the date transformation function directly with multiple input formats: ISO 8601 ('2024-01-15'), US format ('01/15/2024'), European format ('15/01/2024'), and edge cases (leap year '2024-02-29', century boundary). Assert all outputs match the canonical format (YYYY-MM-DD) and that invalid or malformed dates raise appropriate errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test directly calls the transformation function with no external systems. This is pure Unit level. No database, file I/O, or network is needed.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "A Unit test with a mocked database would hide real performance degradation. The real failure—memory exhaustion or timeout at 500k rows—only manifests when actually reading a large file and writing to a real database with network I/O. Integration level (real test DB, real filesystem, real I/O) is minimum to catch these failures. System level would apply if OS-level resource limits or subprocess isolation is required, but Python's tracemalloc and timing suffice for Integration.",
+      "test_description": "Generate or load a 500k-row CSV file. Run the pipeline against a test PostgreSQL instance, measuring execution time and peak memory usage (using Python's tracemalloc). Assert: (a) execution completes within the configured timeout threshold, (b) peak memory usage stays below the configured limit, (c) all 500,000 rows are successfully written to the database. This catches streaming inefficiencies, memory leaks, and database write bottlenecks that only appear at scale.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real I/O (filesystem and database network calls) and real performance measurement. Cannot use Unit-level mocks because they would hide the actual performance bottlenecks that only manifest at 500k scale.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "A Unit test of the retry logic alone could pass with a naive mock, but miss real failures: misconfiguration of the S3 client library, the mock not accurately representing S3's actual 503 behavior, or integration issues between the retry mechanism and the actual library. Integration level (using a test double like moto that simulates realistic S3 behavior) is minimum to verify the actual S3 client retries correctly and exponential backoff is applied before eventual success.",
+      "test_description": "Mock S3 using moto to return a 503 error on the first 2 read attempts, then succeed on the 3rd. Run the pipeline. Verify: (a) the pipeline detects the 503 response, (b) it retries the read operation (not the entire batch), (c) exponential backoff delays are applied between retries (e.g., 1s, 2s, 4s), (d) after retries succeed, the batch completes normally without failing the entire pipeline.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses moto (S3 test double) at Integration level. Could not be reduced to Unit because a simple mock might not catch configuration issues or library integration problems; cannot be elevated to System unless actual AWS calls are required.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "A mock database would hide real failures: duplicate key constraints not being enforced, transaction rollback behavior differing from expectations, or idempotency logic not working with actual PostgreSQL. The real failure boundary is whether PostgreSQL constraints and transaction semantics actually prevent duplicates when the pipeline restarts. Only a real database can verify this behavior; mocking eliminates the very mechanism (database constraints) that prevents duplication.",
+      "test_description": "Insert 10 rows into a test PostgreSQL table via the pipeline. Simulate a crash by interrupting the pipeline mid-batch (e.g., after processing 15 rows). Restart the pipeline with the same input. Verify: (a) the final row count is 25 (not 40), (b) duplicate detection (via primary key or idempotency token) prevents re-insertion of already-processed rows, (c) no duplicate entries appear in the database. Assert that the pipeline's restart mechanism and database constraints work together to guarantee exactly-once semantics.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires actual PostgreSQL with real constraints and transaction behavior. Cannot use mocks because the entire mechanism being tested—database constraint enforcement—is what mocks eliminate. Requires Integration level real database.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

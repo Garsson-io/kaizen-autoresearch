@@ -23,6 +23,7 @@ interface Result {
   score: number | null;
   loss: number | null;
   delta: number | null;
+  model?: string | null;
   status: string;
   description: string;
   section: string | null;
@@ -246,9 +247,18 @@ const results: Result[] = [
   },
 ];
 
-const jsonl = results.map((r) => JSON.stringify(r)).join("\n") + "\n";
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+const jsonl =
+  results
+    .map((r) =>
+      JSON.stringify({
+        ...r,
+        model: r.model ?? DEFAULT_MODEL,
+      })
+    )
+    .join("\n") + "\n";
 
-import { PATHS } from "./paths";
+import { PATHS } from "./paths.js";
 
 if (process.argv.includes("--write")) {
   writeFileSync(PATHS.results, jsonl);

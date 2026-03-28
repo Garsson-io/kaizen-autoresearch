@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct numeric risk score when transaction amount exceeds the configured merchant-category threshold.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic rule-based logic: compare transaction amount against a threshold and compute a score. All computation happens in-process with no I/O. A mock transaction and explicit config are sufficient to catch the real failure (e.g., inverted comparison, wrong calculation). The config itself is assumed to be correctly provided; testing config-loading belongs to a separate behavior.",
+      "test_description": "Instantiate ScoringModel with config {electronics: $500, jewelry: $2000}. Create transaction with amount=$750, merchant_category='electronics'. Call score(transaction). Verify returned risk_score indicates exceeded threshold (e.g., score > baseline). Add boundary cases: amount exactly at threshold, amount just below, amount well above. Verify calculation is consistent (e.g., higher amounts yield higher scores).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies a fraudulent transaction pattern (rapid small purchases from different geographies) as fraudulent even when no single rule-based threshold is individually exceeded.",
+      "minimum_level": "Integration",
+      "justification": "The risk model is ML-based (trained classifier). A Unit test with mocked model outputs would pass even if the real trained model weights have never learned this pattern — the mock hides the critical failure mode. To verify the model actually recognizes the pattern, we must load the real model artifact and run inference. This crosses the I/O boundary (load model from disk, run computation). A mock that says 'return fraud=true for this pattern' is useless; only real inference exposes if training succeeded.",
+      "test_description": "Load actual trained risk model from artifacts/models/risk_model.pkl. Create transaction sequence: $50 USD (now), $45 UK (now+5min), $60 France (now+10min). Confirm no single transaction exceeds individual velocity/amount limits. Call model.predict_fraud([txn1, txn2, txn3]). Verify fraud_probability > 0.7 (or configured threshold). Repeat with similar velocity/geography but from single country to confirm model requires the geo-diversity signal.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in the scoring model correctly counts the number of transactions for a user within the configured time window, handling boundary conditions and timezone edge cases.",
+      "minimum_level": "Integration",
+      "justification": "A mocked in-memory transaction list hides real database failure modes: timezone mismatches (UTC vs local), off-by-one errors at window boundaries, query logic bugs, and concurrent-insertion anomalies. The real database might include transactions inserted with millisecond precision or in different timezones. Testing this behavior requires a real (test) database to expose edge cases the mock would conceal.",
+      "test_description": "Set up test database. Insert transactions for user 'alice': (1) timestamp=now, (2) now-10m, (3) now-29m, (4) now-31m (outside 30m window), (5) now-60m. Configure velocity window to 30 minutes, velocity_threshold to 5. Call velocity_check('alice'). Verify count() == 3. Add test for boundary: insert transaction at exactly now-30m (window edge) and verify it's correctly included/excluded per implementation spec. Test timezone handling: insert transaction in UTC and query in UTC-5 context.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for manual review. The two models operate as an OR gate, not an AND gate.",
+      "minimum_level": "Integration",
+      "justification": "Testing only the decision logic ('if score_flag OR risk_flag: hold') at Unit level catches logic errors (e.g., AND instead of OR) but misses the real failure: the decision is correct but the hold action fails or never executes (database insert fails, queue message dropped, timeout on external system). The behavior statement 'is still held for review' implies the transaction actually enters the review pipeline. Verifying this end-to-end requires database or queue I/O.",
+      "test_description": "Process two transactions: (1) risk_model.flag=true, scoring_model.flag=false; (2) risk_model.flag=true, scoring_model.flag=true. Call pipeline on both. Query the 'held_for_review' collection/table in test database. Verify both transactions appear. Test negative: a transaction with both flags=false should not appear in held_for_review. Verify the transaction record includes the reason ('flagged by risk model') for reviewer context.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined assessment output includes both the scoring model's numeric risk score and the risk model's fraud probability, enabling the reviewer to see which model flagged the transaction.",
+      "minimum_level": "Unit",
+      "justification": "The output structure and field presence is deterministic logic that can be tested by mocking both model outputs with known values and verifying the combined result. The real failure mode (missing field, wrong field name, incorrect value serialization) is caught without requiring model inference or persistence. The output formatting is pure in-process computation.",
+      "test_description": "Mock scoring model to return risk_score=0.75. Mock risk model to return fraud_probability=0.82. Call combine_outputs(scoring_result, risk_result). Verify the output object contains both attributes: .risk_score and .fraud_probability with the correct values. Serialize output to JSON and verify both fields appear. Test edge cases: scores at extremes (0.0, 1.0), scores as null if model returns no prediction. Verify field names match reviewer UI expectations (no typos or inconsistent naming).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

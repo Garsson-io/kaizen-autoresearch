@@ -8,6 +8,7 @@
  *   npx tsx scripts/results.ts --keeps      # only kept iterations
  *   npx tsx scripts/results.ts --summary    # aggregate stats
  *   npx tsx scripts/results.ts --json       # raw JSON array
+ *   npx tsx scripts/results.ts --model gpt-5.3-codex --last 10
  */
 
 import { readFileSync } from "fs";
@@ -35,10 +36,13 @@ function printTable(results: IterationResult[]) {
     "hook-blocked": "#",
   };
 
+  const formatModel = (model: string | null | undefined): string =>
+    (model ?? "-").slice(0, 16).padEnd(16);
+
   console.log(
-    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"LOSS".padStart(7)} ${"SCORE".padStart(6)} ${"Δloss".padStart(7)} ${"IDEA".padEnd(26)} DESCRIPTION`
+    `${"#".padStart(3)} ${"ST".padEnd(3)} ${"LOSS".padStart(7)} ${"SCORE".padStart(6)} ${"Δloss".padStart(7)} ${"MODEL".padEnd(16)} ${"IDEA".padEnd(26)} DESCRIPTION`
   );
-  console.log("-".repeat(110));
+  console.log("-".repeat(128));
 
   for (const r of results) {
     const icon = statusIcon[r.status] || "?";
@@ -48,10 +52,11 @@ function printTable(results: IterationResult[]) {
       r.delta !== null
         ? (r.delta >= 0 ? "+" : "") + r.delta.toFixed(1)
         : "   -  ";
+    const model = formatModel(r.model);
     const idea = (r.idea_id || "").padEnd(26);
-    const desc = r.description.slice(0, 55);
+    const desc = r.description.slice(0, 40);
     console.log(
-      `${String(r.iteration).padStart(3)} [${icon}] ${loss.padStart(7)} ${score.padStart(6)} ${delta.padStart(7)} ${idea} ${desc}`
+      `${String(r.iteration).padStart(3)} [${icon}] ${loss.padStart(7)} ${score.padStart(6)} ${delta.padStart(7)} ${model} ${idea} ${desc}`
     );
   }
 }
@@ -91,6 +96,22 @@ function printSummary(results: IterationResult[]) {
   );
 
   const keeps = results.filter((r) => r.status === "keep");
+  const byModel = results.reduce(
+    (acc, r) => {
+      const key = r.model ?? "unknown";
+      (acc[key] ||= []).push(r);
+      return acc;
+    },
+    {} as Record<string, IterationResult[]>
+  );
+
+  console.log(`\nBy model:`);
+  for (const [model, rows] of Object.entries(byModel)) {
+    const modelLosses = rows.filter((r) => r.loss !== null).map((r) => r.loss!);
+    const modelBestLoss = modelLosses.length ? Math.min(...modelLosses).toFixed(3) : "n/a";
+    console.log(`  ${model}: ${rows.length} runs, best loss ${modelBestLoss}`);
+  }
+
   if (keeps.length > 0) {
     console.log(`\nKept changes:`);
     for (const k of keeps) {
@@ -106,24 +127,60 @@ function printSummary(results: IterationResult[]) {
 }
 
 // Main
-const results = loadResults();
-const flag = process.argv[2];
+const allResults = loadResults();
+const args = process.argv.slice(2);
 
-switch (flag) {
-  case "--last": {
-    const n = parseInt(process.argv[3] || "5");
-    printTable(results.slice(-n));
-    break;
+let modelFilter: string | null = null;
+let showKeeps = false;
+let showSummary = false;
+let showJson = false;
+let lastN: number | null = null;
+
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  switch (arg) {
+    case "--model": {
+      modelFilter = args[i + 1] ?? null;
+      i++;
+      break;
+    }
+    case "--keeps":
+      showKeeps = true;
+      break;
+    case "--summary":
+      showSummary = true;
+      break;
+    case "--json":
+      showJson = true;
+      break;
+    case "--last": {
+      const raw = args[i + 1];
+      lastN = raw ? parseInt(raw, 10) : 5;
+      i++;
+      break;
+    }
+    default:
+      break;
   }
-  case "--keeps":
-    printTable(results.filter((r) => r.status === "keep"));
-    break;
-  case "--summary":
-    printSummary(results);
-    break;
-  case "--json":
-    console.log(JSON.stringify(results, null, 2));
-    break;
-  default:
-    printTable(results);
+}
+
+let results = allResults;
+if (modelFilter) {
+  results = results.filter((r) => (r.model ?? "") === modelFilter);
+}
+
+if (showKeeps) {
+  results = results.filter((r) => r.status === "keep");
+}
+
+if (lastN !== null) {
+  results = results.slice(-lastN);
+}
+
+if (showSummary) {
+  printSummary(results);
+} else if (showJson) {
+  console.log(JSON.stringify(results, null, 2));
+} else {
+  printTable(results);
 }

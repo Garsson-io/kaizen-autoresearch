@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "The failure boundary is the vision model's correctness on real images. A mocked model can always return 'flagged', but that doesn't catch the real failure: a real explicit image going undetected by the actual model. Only testing with a real image against the real vision model (Agentic) reveals whether the model actually catches explicit content.",
+      "test_description": "Submit a real test image containing explicit content to the moderation pipeline. Assert the vision model classifies it as 'flagged' and the image is queued for human review (verified in database), never reaching the published state.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "The failure boundary is the text model's robustness to obfuscation. A mocked model can be hardcoded to return 'hate_speech' for any input, but this doesn't verify the real model handles variants like 'h@te', 'ḧate', etc. Only the real text model on real obfuscated text (Agentic) catches the actual failure mode: the model missing obfuscated variants.",
+      "test_description": "Submit posts with obfuscated hate speech (letter substitutions: 'h@te', 'h4te'; unicode lookalikes: 'ḧate'). Verify the text model flags each variant as 'hate_speech' and the post is held for review, not published.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the decision logic and its integration with the publisher. This is deterministic: if both models return 'safe', publish. A Unit test of the logic alone doesn't catch failures in the publish mechanism (e.g., logic decides 'publish' but never calls the publisher, or database write fails). Integration level with mocked models wired to a real (or mocked) publisher catches logic errors and integration failures.",
+      "test_description": "Mock both vision and text models to return 'safe'. Submit a post. Verify the post appears in the published state (database, message queue, or external API), not in review or missing entirely. Assert the post row/message has status='published' or equivalent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "The failure boundary is real infrastructure latency: vision model inference, text model inference, network overhead, database writes. Integration tests with mocked models run instantly and hide real latency problems. System level (real model calls via HTTP/subprocess, real database) measures actual end-to-end latency. Only real infrastructure reveals whether the 5-second SLA is achievable.",
+      "test_description": "Submit a post with image and text through the real pipeline. Measure latency from submission to final publish/hold decision. Assert the measurement is under 5 seconds. Run multiple times to account for variance and ensure P99 latency is acceptable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.85,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the error-handling logic and its integration with the retry queue. Mocking the vision model to fail is sufficient; we don't need the real model. But we do need to verify the queue mechanism is called and the post is actually enqueued (not auto-approved). Integration level with a mocked unavailable model and a local (in-memory or database) queue catches this failure. (System level would be required only if the queue is an external distributed service.)",
+      "test_description": "Mock the vision model to raise an exception (timeout, connection error). Submit an image post. Assert the post is added to the retry queue with status='pending_retry' and is NOT published. Verify the queue contains the post and can be re-processed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "The failure boundary is the vision model's consistency (determinism) on real images. A mocked model can always return the same value, so it passes trivially. The real failure is: a borderline image is classified differently across runs (e.g., 'flagged' on run 1, 'safe' on run 2), leading to inconsistent moderation. Only testing with the real model on the same real borderline image across multiple runs (Agentic) detects this non-determinism.",
+      "test_description": "Select or create a borderline test image (mildly suggestive, could go either way). Submit it to the pipeline 5+ times within 1 minute. Assert the vision model returns the same classification (flagged or safe) on all submissions. If classifications differ, the test fails.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block",
+      "minimum_level": "Unit",
+      "justification": "This is pure string-parsing logic. The failure is in how the segmentation function handles multi-line input with newlines. Testing the segmentation function in isolation with a multi-line shell block (e.g., variable assignments on one line, command on the next) is sufficient to catch failure—no I/O or external dependencies needed. The function should return multiple segments, not treat the whole block as one.",
+      "test_description": "Parse a multi-line shell block containing variable assignments (e.g., `export VAR=value`) followed by a command on a new line (e.g., `gh pr create --title \"Test\"`). Verify the output contains at least two segments: the variable assignment and the command, not a single merged block.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger",
+      "minimum_level": "Integration",
+      "justification": "The original bug occurred at the boundary between segmentation and trigger detection: the hook failed to detect the PR trigger because segmentation wasn't handling multi-line input correctly. A Unit test that mocks segmentation (assuming it always works) would pass and hide the real failure. To catch the real failure, you must wire the real segmentation logic to the trigger detection logic and test with actual multi-line input. This is Integration—multiple modules (segmentation + detection) must work together correctly.",
+      "test_description": "Given a multi-line shell block with a variable assignment on line 1 and `gh pr create` on line 2, call the hook's trigger detection logic with the real segmentation function (not mocked). Verify the result is classified as a PR-create trigger (not `not_a_trigger`).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger",
+      "minimum_level": "Integration",
+      "justification": "False-positive prevention requires testing trigger classification with real segmentation logic. A Unit test with mocked segmentation could miss boundary cases where similar-looking commands are misclassified. You need both segmentation and classification working together to ensure `gh issue create` is correctly distinguished from `gh pr create`.",
+      "test_description": "Given a multi-line shell block with a variable assignment on line 1 and `gh issue create --title \"Test\"` on line 2, call the hook's trigger detection with real segmentation. Verify the result is NOT classified as a PR-create trigger.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state",
+      "minimum_level": "Integration",
+      "justification": "The failure could occur in either PR ID reconstruction (parsing the command) or in persistence (writing to state storage). Mocking the file I/O layer could hide write failures, permission errors, or state corruption. You need real persistence—either to a real filesystem, temp file, or in-memory state that behaves like real storage—to catch these failures. Minimum is Integration: real command parsing + real state persistence.",
+      "test_description": "After the hook detects a PR-create trigger from a multi-line command, verify it reconstructs the PR identifier (e.g., `owner/repo#123` or the URL from `gh pr create` output) and persists it to the expected state file location. Verify the state file exists and contains the expected PR identifier.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the contract between two hook implementations (PostToolUse and pre-tool enforcement) sharing a state file. You cannot test this at Unit level—it requires both hooks wired together with real shared state storage. The failure could be: wrong format, wrong location, missing fields, or encoding issues. Testing requires both hooks to read and write the state with real persistence.",
+      "test_description": "After the PostToolUse hook writes PR state following a PR-create detection, invoke the pre-tool enforcement hook and verify it can read the state file, parse it correctly, and enforce the review gate (e.g., block execution or require approval). Verify the state format matches the enforcement hook's expectations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.8,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

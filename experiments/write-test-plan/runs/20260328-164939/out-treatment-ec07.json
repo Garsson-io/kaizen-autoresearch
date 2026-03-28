@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Unit",
+      "justification": "This is a data-assembly logic error, not a cross-system failure. Real failures here are in-process: a source is accidentally skipped, data is lost in transformation, or a merge operation omits one dataset. All of these can be caught by unit testing with mocked sources. We mock each of the three APIs, call the data collection function, and assert that the collected data object contains keys/values from all three. Mocking cannot hide this failure because the assertion is on the function's return value, not external side effects.",
+      "test_description": "Mock the three data source APIs (metrics endpoint, issue tracker, deployment log) to return distinct test datasets. Call the data_collection() function. Assert that the returned data structure contains non-empty content from all three sources, e.g., data.metrics, data.issues, data.deployments all have expected values. Use patch.object to mock each source's client method.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting.",
+      "minimum_level": "Unit",
+      "justification": "This tests error-handling logic within the data collection step. Real failures are code-level: the exception handler is missing, the fallback message is not added, or the exception causes the function to abort instead of continuing. None of these require real network calls; we can mock one source to raise a ConnectionError (or timeout, HTTPError, etc.) and verify that the function catches it, adds the fallback marker, and continues collecting from the other two sources. Mocks can realistically simulate unavailability by raising exceptions.",
+      "test_description": "Mock the three data source APIs. Configure the issue tracker API mock to raise a requests.ConnectionError. Call data_collection(). Assert that the returned data contains a 'data_unavailable' marker in the issues section. Assert that the metrics and deployments sections still contain real (mocked) data. Verify that data_collection() does not re-raise the exception.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends on real LLM output quality, not just code correctness. Mocking the LLM only verifies that the code correctly passes data to the LLM and outputs the response; it does not test whether a real LLM's summary actually represents the input data accurately. Real failures here are semantic: the LLM omits key metrics, distorts values, or produces a misleading summary. Mocking would always pass as long as the code calls the LLM and returns its output. Testing this requires calling a real LLM (or a deterministic test double that simulates realistic LLM output) with known input data and verifying that the summary includes and correctly represents the key values (e.g., specific metrics, issue counts, deployment timelines).",
+      "test_description": "Create test input data with specific, easily verifiable values (e.g., metrics: {critical_incidents: 3, uptime_pct: 99.5}, issues: {open_count: 12}, deployments: {last_deployment: '2026-03-28T14:00Z'}). Call the real LLM summary generation function (or a deterministic test model configured to behave realistically). Extract the generated narrative and assert that it contains or references the key values (e.g., '3 critical incidents', 'uptime of 99.5%', 'open issues'). Allow for natural language variation but flag nonsensical or missing values.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "This is an end-to-end behavior that combines multiple failure boundaries: data collection (system), LLM-based summary generation (agentic), report formatting (system), and email delivery (system + network). Mocking all steps (LLM, email service, data sources) would hide failures in how the pieces interact with real infrastructure. Real failures could be: the report is formatted incorrectly for email delivery, the LLM-generated content breaks email parsing, email headers are malformed, or the email never reaches the inbox due to SMTP issues. To catch these, we need a real LLM call (to generate realistic content) and real or test-infrastructure email delivery (to verify the complete message reaches the recipient). This is a full pipeline from data to email, including an agentic step, which qualifies as Workflow.",
+      "test_description": "Create test data or use realistic test data from the three sources. Call the report generation pipeline with a real LLM to generate the narrative summary. Format the complete report (including email headers, body, and any attachments). Send the report via a real SMTP service or a test email service (e.g., a local test mail server or a test fixture like mailhog) to a configured test recipient email address. Assert that the email is received, headers are correct, subject includes expected content, and the body contains the LLM-generated summary with data from all three sources. Verify the email is properly formatted (no encoding issues, links are valid, etc.).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.72
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "System",
+      "justification": "This behavior tests error handling and retry logic, not LLM quality or email delivery success. Real failures are: the exception handler for email delivery is missing, the fallback file save is not implemented, the file is saved to the wrong location, the file has wrong format/permissions, or the retry mechanism is broken. These can all be caught at the System level by: mocking the data sources and LLM (speed + determinism), using a real filesystem for the save, mocking the email service to raise an exception, and mocking or controlling the scheduler to trigger the retry. Since the failure boundary is the error handling and retry logic (not the LLM quality or actual email behavior, both tested elsewhere), we do not need the full Workflow complexity of a real LLM + real email service. The mock LLM is sufficient to generate a report-shaped object that the fallback logic can save and reload.",
+      "test_description": "Mock the three data sources and the LLM (return fixed test summary). Mock the email service to raise an SMTPException when send() is called. Call the report generation and sending pipeline. Assert that the exception is caught, the generated report is saved to the configured fallback file path with correct format and content, and the file is readable and has correct permissions. Simulate the next scheduled run by loading the saved file and re-attempting email delivery. Optionally mock the scheduler to verify it was triggered correctly or manually trigger the retry. Assert that the saved file is used for the retry and that after successful delivery (or another failure), the file is handled correctly (e.g., deleted or marked as retried).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.7,
+        "Agentic": 0.1,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "baseline",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject webhook when `X-Signature-256` does not match raw body; do not forward event.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: a unit test of just the HMAC function can miss wiring bugs (raw-body extraction, header parsing, middleware ordering). REAL-INFRA: no external network/process required. MOCK-HIDE: mocking request parsing could hide real mismatch handling, so at least module-wiring integration is needed.",
+      "test_description": "Start the app with real webhook middleware and a real in-process queue adapter (or test double at module boundary). Send an HTTP request with a deliberately bad signature over the app interface. Assert `401` response and assert queue write API was not called / queue storage remains unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Persist event to queue before returning HTTP 200.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: with an in-memory mock queue, ordering bugs around persistence commit vs response can be missed. REAL-INFRA: needs real queue persistence path (DB/filesystem), but not external services. MOCK-HIDE: mocked enqueue that resolves immediately can hide race/ordering defects.",
+      "test_description": "Run handler with the real persistent queue implementation (local DB/filesystem). Instrument enqueue commit point and response send point. Send a valid webhook and assert commit timestamp/order occurs before `200` is sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Return HTTP response without waiting for downstream event processing completion.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: unit tests of handler logic can miss real async wiring where processing is accidentally awaited. REAL-INFRA: no external network/process needed. MOCK-HIDE: if downstream is mocked as instant success, accidental waiting is hidden.",
+      "test_description": "Wire handler + queue + processor module in-process. Configure processor to block (e.g., promise resolved after 10s). Send a valid webhook and assert HTTP response is returned quickly while processor is still running, then confirm processor completion later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Respond within 3 seconds even when earlier events are slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: in-process mocks often miss event-loop contention, socket scheduling, and real concurrency effects. REAL-INFRA: this is wall-clock SLO under concurrent load, requiring real HTTP server/runtime behavior. MOCK-HIDE: mocked timing/concurrency can falsely pass.",
+      "test_description": "Launch the service in a real process. Create concurrent traffic with earlier events triggering intentionally slow processing. Send new valid webhooks over real HTTP and measure end-to-end latency; assert responses remain under 3s at the configured concurrency/load profile.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Do not enqueue duplicate event IDs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: dedupe usually depends on persistent uniqueness/lookup logic across modules, not just one function. REAL-INFRA: local DB/filesystem-backed queue is enough. MOCK-HIDE: mocked repository can miss unique-constraint/idempotency defects.",
+      "test_description": "Use real persistent queue storage with dedupe mechanism enabled. Send the same event ID twice (sequentially, and optionally concurrently). Assert first request enqueues once and second does not create a second stored queue record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, return 503 and include `Retry-After`.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: mapping queue-full error to HTTP status/header can fail at module boundaries. REAL-INFRA: requires real queue behavior at capacity, but no external API/process necessarily. MOCK-HIDE: forcing a mocked error may miss real full-condition detection path.",
+      "test_description": "Configure real persistent queue with small capacity and fill it. Send another valid webhook. Assert response is `503`, `Retry-After` header is present and well-formed, and no new queue record is persisted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity and rejects overflow.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: capacity enforcement often relies on storage-level behavior (transactions/counting/locks) beyond a single function. REAL-INFRA: local persistent store interaction is the key boundary. MOCK-HIDE: mocked queue internals can always accept writes and hide true overflow bugs.",
+      "test_description": "Instantiate the real queue against its persistent backend with capacity N. Attempt N+1 writes under realistic conditions (including a concurrent write case). Assert exactly N are accepted and overflow write(s) return the queue’s rejection error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to 10 most recent messages when exceeding context window",
+      "minimum_level": "Unit",
+      "justification": "The trimming is a deterministic data transformation with no external dependencies. A unit test mocking the LLM service can verify the exact message payload sent. The real failure (passing 50 messages instead of 10) is caught by asserting the mock was called with exactly the right subset. No need for real LLM behavior, DB, or external infrastructure.",
+      "test_description": "Unit test mocking the LLM service. Create a conversation history of 25 messages, invoke the chatbot, and assert that the LLM mock was called with exactly the last 10 messages in the correct order. Verify off-by-one errors and boundary conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses customer's question (not generic/off-topic)",
+      "minimum_level": "Agentic",
+      "justification": "This tests semantic quality of LLM output. Mocking the LLM hides the real failure: a broken prompt that doesn't elicit relevant responses. Only a real LLM call reveals whether the prompt actually instructs the model to address the specific question. A mocked response always 'addresses the question' if you pre-script it that way.",
+      "test_description": "Agentic test calling a real LLM with concrete customer questions (e.g., 'How do I return a product?'). Evaluate the response via semantic similarity or LLM-based check ('Does this response address the original question?'). Test multiple question types to catch prompt engineering failures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.9,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check identifies when response is too formal for casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "The core failure is: tone detection doesn't correctly flag a formal response. If tone detection is LLM-based (common in modern chatbots), a real LLM tone-checking call is required. An Integration test with a mocked LLM generating a formal response tests only the decision logic, not the actual LLM's ability to recognize formality nuances. The real bug (LLM tone detector given bad prompt) is only caught with a real agentic call.",
+      "test_description": "Agentic test generating a formal response (via real LLM or by requesting formality from real LLM with specific prompt). Invoke the real tone-checking mechanism (LLM-based or rule-based), verify it flags the response as too formal for a casual customer tier, and confirm the regeneration flag is set. Repeat with casual-appropriate responses to catch false positives.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.27,
+        "System": 0.02,
+        "Agentic": 0.63,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "Persistence failures (wrong field, missing data, timestamp timezone bug, schema mismatch) only manifest when data actually hits a database. Mocking the DB hides serialization and write errors. Unit tests of a serialization function alone don't catch bugs in how the ORM writes or how timestamps are handled in the actual DB. Real or in-memory DB is the minimum. The LLM call can be mocked since we're testing persistence logic, not response quality.",
+      "test_description": "Integration test mocking the LLM (or calling real LLM), generating a response, persisting the full exchange (user message, response, regeneration metadata) to an in-memory test database, retrieving it, and verifying all fields are present and timestamps are in the correct format and timezone. Include edge cases: late-night messages, DST transitions, multiple regenerations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Second response replaces first; customer never sees rejected draft",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is complex: initial response must be correctly flagged as too formal (requires real tone detection to work), regeneration must occur, and persistence must replace (not append). If tone detection is LLM-based and its prompts are broken, an Integration test with mocked LLMs won't catch it. The critical path is: real LLM generates formal → real tone detection flags it → regeneration logic fires → second response replaces first. This requires real agentic calls. Without real tone detection, you might mock-pass a scenario that fails in production because the tone LLM isn't prompted correctly.",
+      "test_description": "Agentic test calling real LLM to generate initial response (possibly formal), triggering real tone detection (LLM or rule-based), confirming regeneration occurs, calling real LLM again for second response, verifying the database shows only the final response (not both), and confirming the customer-facing API endpoint returns only the regenerated response. Test both scenarios: tone-check passes (no regeneration) and tone-check fails (regeneration happens).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.6,
+        "Workflow": 0.08
+      }
+    }
+  ]
+}

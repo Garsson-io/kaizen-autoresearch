@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migration files with numeric prefixes are executed in ascending order (e.g., 001_init.sql before 010_schema.sql before 100_data.sql).",
+      "minimum_level": "Integration",
+      "justification": "While sorting logic could be unit-tested in isolation with mocked file lists, the real failure boundary is file discovery from the filesystem combined with execution order against the database. A unit test with mocked DB could verify SQL call order, but would miss failures arising from filesystem discovery not matching the intended file list, or sorting bugs that only appear with real filenames. Integration testing with real .sql files on disk and a real database ensures the full pipeline (discover → sort → execute) is correctly ordered.",
+      "test_description": "Create a real migrations/ directory with named files (001_create_table.sql, 010_insert_data.sql, 100_add_column.sql), run the migration runner against a fresh test database, and verify that the executed SQL statements appear in the _migrations table in ascending order by filename prefix. Query the _migrations table to confirm the order matches.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test directly verifies the real failure boundary—wrong execution order against the actual database. A mock could pass while the real filesystem returns files in a different order.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run (idempotency).",
+      "minimum_level": "Integration",
+      "justification": "A unit test could mock the _migrations table query to return previously applied migrations, but this would not catch the real failure: silent re-execution against the actual database. The real boundary is querying the actual _migrations table, detecting already-applied migrations, and genuinely skipping them on the second run. A mock hides failures in query execution, connection handling, or state tracking. Integration testing with a real database and real _migrations table ensures that re-runs truly skip migrations instead of pretending to.",
+      "test_description": "Run the migration runner against a test database and verify migrations are recorded in _migrations. Run the runner again and verify that no additional SQL statements are executed and no new entries are added to _migrations. Check row counts or transaction logs to confirm no re-application occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A pure mock could pass while the real database silently re-applies migrations. Integration testing directly verifies idempotency against the actual database state.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.93,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "A unit test could mock transaction rollback, but would not catch real failures in transaction boundary setup, actual rollback execution, or continuation logic after errors. The real failure boundary is rollback behavior against the actual database. A mock would always return 'rollback succeeded,' hiding bugs like: rollback not clearing changes, missing transaction boundaries, or silent failures in rollback. Integration testing with a real database and a deliberately failing SQL statement ensures that the transaction is actually rolled back, changes are genuinely undone, and no further migrations are attempted.",
+      "test_description": "Create a migration with a valid first statement (e.g., CREATE TABLE) followed by an intentionally failing statement (e.g., duplicate key constraint violation or syntax error). Run the runner and verify that: (1) the first statement's changes are rolled back (table created by first statement is gone), (2) no entry is added to _migrations for that migration, (3) subsequent valid migrations in the same run are not executed, and (4) the runner exits with an error status.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A mock could hide actual rollback failure. Integration with a real database and a failing statement directly tests the real failure boundary.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.88,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "Integration",
+      "justification": "This is a concurrency issue. A unit test cannot expose race conditions, and mocks hide the real synchronization failure. The real failure boundary is two instances competing for the same migrations with database-level (or process-level) locking ensuring exactly-once execution. Integration testing with threading and a real database can expose most concurrency bugs if the runner uses database-level locking (e.g., advisory locks, row-level locks, or transaction isolation). Mocks would always claim lock success, hiding deadlock, missed synchronization, or stale reads.",
+      "test_description": "Simulate two concurrent instances by spawning two threads, each calling the migration runner with the same migration file set against a shared test database. Verify that: (1) each migration is recorded in _migrations exactly once (no duplicate entries), (2) the database state reflects a single application of each migration (correct row counts, no duplicated data), and (3) no migration appears twice. Use a slow migration or sleep statement in one of the migrations to increase the race condition window.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Threading plus real DB will expose locking failures and synchronization bugs. If process-level file locks are used instead of DB locks, System level might be needed, but Integration is the minimum for DB-coordinated runners.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "A unit test could mock the table-existence check and table creation, but would not catch real failures like malformed table creation SQL, order-of-operations bugs (trying to insert before table exists), or connection/permission issues. The real failure boundary is detecting the table doesn't exist, creating it with the correct schema, and successfully inserting migration records into the newly created table. A mock could hide insertion failures or schema mismatches. Integration testing with a real, genuinely fresh database (no _migrations table) ensures table creation SQL is correct and usable.",
+      "test_description": "Create a fresh test database with no _migrations table (or drop it if it exists). Run the migration runner with at least one migration file. Verify that: (1) the _migrations table exists after the run, (2) the table has the correct schema (appropriate columns for migration name, applied_at timestamp, etc.), (3) the first migration is correctly recorded in _migrations (proving inserts succeeded), and (4) the runner exits successfully without errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "A mock could hide table creation or insertion errors. Integration with a fresh database directly verifies the initialization sequence works end-to-end.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.93,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

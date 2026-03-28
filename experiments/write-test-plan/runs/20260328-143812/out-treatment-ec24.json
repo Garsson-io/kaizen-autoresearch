@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent translation preserving meaning, not word-for-word substitution",
+      "minimum_level": "Agentic",
+      "justification": "The behavior requires verifying semantic properties (grammatical coherence, meaning preservation). A mock API returning a hardcoded response would always pass the test but would miss real failures where the live API returns incoherent or meaning-destroying output. To catch real semantic failures, the test must call the real API and evaluate the output semantically—either via another LLM, human review, or semantic similarity metrics. System-level tests (real API + format validation) would miss semantic degradation. Only Agentic-level evaluation can verify these properties reliably.",
+      "test_description": "Call real API with test source text and sentence pairs (e.g., 'The cat sat on the mat'). Use another LLM or semantic validator to verify the translation is grammatically valid in the target language and preserves core meaning. Track failure rate across language pairs. Test should fail if translations drift toward literal word-for-word mappings or semantic nonsense.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real semantic evaluation (Agentic) to distinguish grammatical coherence from format validity. System-level validation (JSON format, language detection) would not catch semantic failures.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.12,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When translation API returns 503, service falls back to dictionary without returning error to caller",
+      "minimum_level": "Integration",
+      "justification": "The behavior spans multiple modules (API call, error handling, fallback logic, dictionary lookup). Mocking the API to return 503 doesn't hide the real failure—fallback logic is independent of API correctness. However, to verify the fallback actually works and returns a valid translation, you need a real or well-populated test database. Real failures include: database transaction failure during fallback, fallback returning stale/corrupt data, error escaping to caller. Unit mocks would miss database integration bugs; System-level would be overkill (doesn't need real API, just error injection).",
+      "test_description": "Mock the primary API to return 503. Verify service catches the error, queries the fallback dictionary, and returns a valid translation without exposing the error in the response. Use a seeded SQLite test database with known phrase pairs. Test should fail if error is returned to caller, if fallback query fails, or if response doesn't contain the expected translation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires integration of error handling + real dictionary lookup. Mocking both (Unit) would not catch DB integration failures or fallback query bugs.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary-based fallback returns the correct pre-stored translation for phrases in SQLite database",
+      "minimum_level": "Integration",
+      "justification": "Real failures include SQL query bugs, schema mismatches, parameter injection bugs, and data corruption that a mock would hide completely. The test must execute the actual query against a real database instance to catch: SQL syntax errors, WHERE clause bugs, encoding issues, missing or wrong indexes, and data retrieval failures. Unit testing with mocked query results would pass even if the real query is broken.",
+      "test_description": "Populate a test SQLite database with known phrase pairs. Query the dictionary lookup function for phrases that exist and don't exist. Verify exact match retrieval and null/default behavior for missing phrases. Include edge cases: special characters, different encodings, very long phrases. Should fail if queries return wrong translations, fail silently, or raise unhandled database errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real database interaction. A mock query result would not catch SQL errors or data bugs. Pure Unit test of query logic without DB would miss schema/corruption failures.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.95,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "The behavior has two components: (1) edit distance algorithm correctness (Unit-level concern) and (2) metric persistence (Integration-level concern). Real failures include: algorithm bugs (Unit catches), but also storage failures (metric not written), wrong format stored, database transaction failures, or comparison never running due to async issues (Integration catches). To catch all real failures in a production system, must verify the metric actually reaches the storage backend. Unit tests of the algorithm alone would miss storage pipeline failures.",
+      "test_description": "Call service with primary and fallback outputs. Compute expected edit distance independently. Verify: (1) calculated distance matches expected value, (2) metric is actually written to storage backend (log, DB, or file), (3) timestamp and metadata are correct. Inject storage failures (DB down, disk full) and verify graceful degradation. Should fail if metric is not stored, wrong distance is stored, or comparison fails silently.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test includes both algorithm verification (could be Unit) and storage verification (must be Integration). Storing the metric is part of the stated behavior, so Integration is the minimum to catch storage-layer failures.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators available, service returns primary translation and logs quality comparison in the background",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires verifying concurrent behavior: primary result returned immediately while comparison/logging runs asynchronously. Real failures include: comparison never runs (async task dropped), logging fails silently, primary result is incorrectly blocked waiting for comparison, or race conditions. Unit mocks would pass even if background task is broken. System/Agentic unnecessary (no external dependencies, no LLM quality at stake—this is about orchestration). Integration is the minimum because you must verify actual async behavior, logging infrastructure, and that primary path is not blocked by background work.",
+      "test_description": "Call service when both primary and fallback translators are available. Verify: (1) response contains primary translation immediately, (2) comparison job is enqueued or started, (3) metric is logged asynchronously within a reasonable timeout (verify via eventual consistency check). Inject logging failure and verify primary result still returned. Should fail if response is delayed by background work, if comparison is never logged, or if errors in comparison block the response.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires verifying async orchestration and actual logging, not just code path existence. Unit mocks would not catch race conditions, dropped tasks, or logging pipeline failures. System/Agentic would add unnecessary infrastructure (real API not being tested here—primary is already available).",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

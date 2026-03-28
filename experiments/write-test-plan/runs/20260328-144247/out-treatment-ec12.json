@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number",
+      "minimum_level": "Integration",
+      "justification": "The validation logic alone (Unit) could be tested in isolation, but catching real failures requires: (1) actual DLQ write succeeding (serialization, authentication, format correctness), (2) row numbering preserved end-to-end through the pipeline, (3) DLQ schema enforcement. A pure mock of the DLQ write would hide network failures, permission errors, and format mismatches. Using moto to mock S3 and SQS/Kinesis would be sufficient; real AWS is not required.",
+      "test_description": "Integration test using moto to mock S3 and DLQ. Upload a CSV with some rows missing required fields, run the pipeline, verify: (a) invalid rows are rejected by schema validation, (b) each invalid row appears in the DLQ with its original row number, (c) the DLQ message payload is correctly formatted and deserializable.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires moto infrastructure and actual validation + DLQ code paths, not just unit test of validation logic.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format",
+      "minimum_level": "Unit",
+      "justification": "This is a pure function with no I/O, no external dependencies, and no state. The failure boundary is entirely within the transformation logic itself. A unit test with various date string inputs and format assertions will catch any parsing bug, off-by-one error, or incorrect output format. No infrastructure can hide a real failure here.",
+      "test_description": "Unit test of the date transformation function with parametrized inputs covering: ISO 8601 variants (2024-03-28, 2024-03-28T15:30:45Z), US format (03/28/2024, 3/28/24), European format (28/03/2024, 28.03.2024), edge cases (leap years, month/day boundaries). Assert all convert to a single canonical output format (e.g., YYYY-MM-DD).",
+      "plan_consistent": true,
+      "plan_consistent_note": "No infrastructure needed; mocking would be irrelevant and unnecessary.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory",
+      "minimum_level": "Integration",
+      "justification": "Memory and timeout failures only manifest with real load and real streaming behavior. A unit test with a small mock dataset (100 rows) would always pass and hide the actual failure. The real failure is: (1) memory leak in the pipeline that compounds over 500K rows, (2) timeout due to inefficient transformation, (3) buffering strategy that loads all rows into memory at once. Integration with a real 500K dataset, real S3 streaming (via moto), and a real test database will catch these. You don't need real AWS, but you need real data volume and real resource allocation.",
+      "test_description": "Integration test: generate a 500K-row CSV file, upload to moto S3, run the pipeline with resource monitoring (track peak memory, wall-clock time), verify: (a) processing completes before timeout, (b) peak memory stays below a configured threshold, (c) streaming behavior (rows processed in chunks, not all at once). Use monitoring tools (psutil or resource module) to measure actual memory consumption.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real data volume and memory measurement; a smaller mock dataset would not surface the failure.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch",
+      "minimum_level": "Integration",
+      "justification": "Retry logic *can* be unit-tested with mocked time and S3 calls, but Integration is safer. Real failure modes: (1) retry code path never executes (mocking hides this), (2) backoff formula is linear instead of exponential (time mocking might not catch off-by-one errors), (3) retries exhaust before the 503 clears. Using moto to inject 503 errors and testing the actual S3 client + retry wrapper together ensures the pipeline respects the backoff behavior. Time mocking for determinism is acceptable at Integration level.",
+      "test_description": "Integration test using moto S3: configure moto to return 503 errors on the first 2 read attempts, then succeed on the 3rd. Mock time.sleep to capture backoff delays. Run the pipeline, verify: (a) no exception is raised (batch succeeds), (b) sleep is called with exponential backoff intervals (1s, 2s, 4s, etc.), (c) read is retried exactly 3 times before succeeding.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires actual retry wrapper + S3 client integration, not just isolated retry logic. Time mocking is acceptable for determinism.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch",
+      "minimum_level": "System",
+      "justification": "Idempotency across process restarts requires testing real system boundaries: process crash/recovery, database durability, and transaction isolation. A mock database with in-memory state cannot simulate this. Real failure modes: (1) no unique constraint, so duplicates are silently inserted, (2) offset tracking in S3 not persisted, so restart re-processes already-written rows, (3) transaction rollback behavior on crash differs from expectation. You must actually restart the pipeline process and verify PostgreSQL durability guarantees. The real-world scenario is a crash during batch processing and recovery—this cannot be simulated at Integration level.",
+      "test_description": "System test: run the pipeline on a CSV with 1000 rows, write to a real PostgreSQL test database. Stop the pipeline mid-batch (e.g., after 600 rows written). Restart the pipeline on the same CSV. Query PostgreSQL to verify: (a) total rows in the target table equals 1000 (no duplicates), (b) all rows from the CSV are present, (c) the pipeline tracked offset correctly and resumed from row 601 onward (not row 1).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot be simulated with mock DB or in-process restart; requires actual process lifecycle and real PostgreSQL durability.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

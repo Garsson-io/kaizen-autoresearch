@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for merchant category",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests deterministic rule-application logic: given a transaction amount, merchant category, and config, compute the score. Real failures (off-by-one thresholds, wrong penalty, config not applied) are detectable with in-process testing of the scoring function. No I/O, external services, or mocking of the scoring logic needed—just pass real config and real transaction data to the function and verify the score includes the expected penalty.",
+      "test_description": "Configure a merchant category with an amount threshold of $500 and a risk penalty of +15 points. Test three transactions: (a) $600 → verify penalty applied; (b) $500 → verify penalty applied (boundary); (c) $499 → verify penalty NOT applied. This catches off-by-one errors and config misapplication.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is achievable at Unit level: configure the rule, call the function, assert the score. No storage, no mocking, no external calls needed.",
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies fraudulent transaction pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded",
+      "minimum_level": "Integration",
+      "justification": "The core failure risk is that the risk model's pattern-detection logic breaks or is disabled. Mocking the risk model (e.g., returning a fixed boolean) completely hides this failure—a mock won't evaluate the pattern. To catch real failures, the model itself must be real: either a loaded ML/statistical model (Integration) or an LLM call (Agentic). The test must create a realistic multi-transaction scenario with temporal and geographic variation, then call the actual risk model. This cannot be done at Unit level without defeating the purpose of testing pattern detection.",
+      "test_description": "Create a transaction history with 5 purchases of $50 each over 2 hours from 3 different geographic locations. Configure the scoring model so no single threshold is exceeded (amounts are low, velocity within acceptable window). Load the real risk model and call the fraud detection service. Verify the risk model flags this as fraud (fraud_probability > threshold or explicit fraud flag) based on the pattern, even though the scoring model does not. This catches pattern-detection failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot be tested with a mocked risk model. Must load/call the real model and orchestrate multiple transactions. This requires Integration infrastructure (model file, transaction history) or Agentic infrastructure (real LLM call).",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.65,
+        "System": 0.12,
+        "Agentic": 0.13,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in scoring model correctly counts the number of transactions within the configured time window per user",
+      "minimum_level": "Integration",
+      "justification": "The core failure risks are time-boundary off-by-one errors (transaction at T+60min when window is 60 minutes), user filtering errors, or duplicate-count bugs. These require real or test transaction data in temporal order. If the function signature is count(user_id, window, transactions=[]), a Unit test with carefully-chosen timestamps works. But the realistic scenario—transactions fetched from storage per user/window—requires Integration infrastructure (test database or persistent transaction store). Boundary conditions are subtle and best caught with real transaction records.",
+      "test_description": "Create a transaction history for a user with four transactions: T+0min, T+30min, T+59min, T+61min. Configure a 60-minute velocity window. Call velocity_check(user_id, window). Verify it returns count=3 (excluding the T+61min transaction). Test the exact boundary: add a transaction at T+60min and verify whether it is included/excluded based on implementation design (>= vs >). This catches off-by-one and boundary errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real or test transaction storage with precise timestamps. If function takes transactions as input, could be Unit; if it fetches from storage, must be Integration.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Transaction flagged by risk model but not by scoring model is still held for review (models operate as OR gate, not AND)",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests the decision-combination logic, not the models themselves. The real failures are logic errors: using AND instead of OR, not calling one of the models, or not marking as held for review. These can be caught by mocking the model outputs with deterministic boolean values (one true, one false) and verifying the OR result. The behavior is about how the system combines two boolean signals, not about whether each signal is correct.",
+      "test_description": "Mock the scoring and risk models to return deterministic boolean flags. Test three scenarios: (a) scoring_flag=true, risk_flag=false → assert held_for_review=true; (b) scoring_flag=false, risk_flag=true → assert held_for_review=true; (c) scoring_flag=false, risk_flag=false → assert held_for_review=false. This verifies the OR gate logic is implemented correctly, not that the models work.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test operates at decision-logic level, not at model-validation level. Mocking the models is appropriate because we are testing the OR gate, not the models' correctness. No storage, no real model calls needed.",
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both numeric risk score and risk model's fraud probability for reviewer visibility",
+      "minimum_level": "Unit",
+      "justification": "This behavior verifies response schema: the output object must contain both fields with correct types. Real failures (missing field, wrong key name, wrong type) are detectable by inspecting the output structure without calling real models or I/O. Mock both models to return deterministic values, call the decision logic, and assert the response includes both fields. This is a schema/contract test, not a behavioral test.",
+      "test_description": "Mock both models to return fixed values (risk_score=42.5, fraud_probability=0.85). Call the fraud detection service. Verify the response includes: (a) risk_score field with numeric type; (b) fraud_probability field with numeric type; (c) optionally, fields indicating which model flagged the transaction. Assert both fields are present and non-null. This catches missing-field and schema-mismatch failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is purely structural validation. Can use mocked model outputs because we are testing output format, not model correctness.",
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.15,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to 10 messages when exceeding context window",
+      "minimum_level": "Unit",
+      "justification": "The core failure is incorrect message selection/ordering (trimming to 9, 11, oldest instead of newest), which is local logic in a single function. A Unit test with a mocked LLM can verify the exact messages passed to the LLM by inspecting call arguments, catching any trimming error without needing a real LLM or database. The context window limit is a configuration value, not a runtime dependency.",
+      "test_description": "Mock the LLM, create a conversation history exceeding the configured token limit, invoke the chatbot, and assert via mock.call_args that exactly the 10 most recent messages (not 9, 11, or the oldest ones) were passed to the LLM call. Test both boundary cases: 10 messages exactly, and 11+ messages.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.07,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses customer's question rather than being generic or off-topic",
+      "minimum_level": "Agentic",
+      "justification": "A mocked LLM would return whatever you instruct it to return, hiding the real failure: that the actual LLM produces irrelevant or generic text. Response quality and topicality depend entirely on what the real model generates for the given prompt. Only a real LLM call can validate whether the model understands the customer's intent and provides relevant, specific information vs. boilerplate.",
+      "test_description": "Call the system with specific customer questions (e.g., 'How do I reset my password?'), allow the real LLM to generate responses, then validate relevance using semantic similarity (embedding-based), keyword matching for expected topics, or an LLM-as-judge evaluator that confirms the response addresses the question with specific (not generic) information.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.9,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when response is too formal for casual-tier customer and triggers regeneration",
+      "minimum_level": "Unit",
+      "justification": "Assuming the tone-check is rule-based or heuristic (keyword/sentiment analysis), the critical failures are: the rule doesn't trigger when it should, or regeneration doesn't happen when triggered. Both can be caught at Unit level by creating a response with known tone characteristics, calling the tone-check directly, verifying the flag, and mocking the LLM to verify regeneration is requested. If tone-check is itself LLM-based, this escalates to Agentic, but the most likely implementation uses fast heuristics.",
+      "test_description": "Create test responses with known tone markers (e.g., formal language like 'kindly', 'we appreciate', 'pursuant to'). Call the tone-check module directly or via the pipeline with customer_tier='casual'. Assert it returns 'too_formal'. Then mock the LLM to return that formal response, invoke the full pipeline, and verify the system calls the LLM a second time with a modified prompt requesting informality (assert mock.call_count == 2).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.5,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.15,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "A mocked database accepts any write without validation or verification of actual persistence. Real failures include data loss, missing fields, incorrect timestamps (e.g., using server startup time instead of request time), or timestamp precision issues. These require a real or in-memory test database to verify both that writes succeed and that data can be queried back correctly. This crosses the I/O boundary (database).",
+      "test_description": "Invoke the chatbot with a real or in-memory test database (e.g., SQLite, MongoDB test instance), mock the LLM response, trigger a conversation (including any regenerations), then query the database directly and verify: user message, generated response, and timestamps are all present; timestamps are within ±1 second of the LLM call time; all regeneration history is logged if applicable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.85,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, second response replaces the first — customer never sees rejected draft",
+      "minimum_level": "Integration",
+      "justification": "A Unit test with mocked LLM and database would miss the real failure: the rejected draft is stored alongside the final response, or the API accidentally returns both versions. The critical test surfaces are the database (what is persisted) and the customer-facing API (what is returned). Both require Integration level to wire together and verify no draft is visible at either boundary. A Unit-only test mocking both LLM and DB cannot catch these real failure modes.",
+      "test_description": "Trigger a tone-check regeneration by mocking the LLM to return a response that fails the tone check. Verify in two places: (1) Query the customer-facing API response—assert it contains exactly one final response, not a list or multiple versions; (2) Query the database directly—assert only the final response is stored for customer view (or intermediate drafts are marked with metadata flags like 'is_draft=true' that exclude them from customer queries). Also test that a GET endpoint returns only the latest version, not history.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.06,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

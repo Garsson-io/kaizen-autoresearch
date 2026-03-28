@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject webhook when `X-Signature-256` does not match raw body; do not forward event.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: a pure unit test of HMAC logic can pass while real handler wiring (raw-body extraction, header parsing, middleware order) is broken. `REAL-INFRA`: no external network/process required. `MOCK-HIDE`: mocked request/body handling can hide canonicalization bugs.",
+      "test_description": "Run the HTTP handler in-process with real middleware/body parsing and a real/in-memory queue adapter. Send a request with a deliberately incorrect signature over a known raw payload. Assert HTTP 401 and assert queue write/enqueue was never called (or queue remains empty).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Persist event to queue before returning HTTP 200 acknowledgment.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: ordering bugs happen at module boundaries (handler + queue persistence). `MOCK-HIDE`: mocking queue writes as instant success can hide missing `await`/transaction commit ordering. `REAL-INFRA`: local persistence is enough; no external system required for minimum boundary.",
+      "test_description": "Use the real queue implementation backed by local test storage (e.g., sqlite/file). Instrument queue write completion and response completion timestamps/events. Send a valid webhook and assert durable queue write completes before HTTP 200 is emitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Return HTTP response without waiting for downstream event processing completion.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: the failure is usually accidental awaiting across modules (handler -> worker trigger). `MOCK-HIDE`: unit tests of a single function may not exercise real async wiring. `REAL-INFRA`: no OS/network dependency needed for minimum proof.",
+      "test_description": "Wire handler + queue + downstream processor in-process, with downstream processor intentionally delayed (e.g., 10s promise). Send a valid webhook and assert HTTP 200 returns quickly while processor is still running, then eventually completes later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "HTTP response arrives within 3 seconds wall-clock despite slow concurrent downstream processing of earlier events.",
+      "minimum_level": "System",
+      "justification": "`REAL-INFRA`: this is a wall-clock latency and concurrency/SLA claim that depends on runtime scheduling, event loop behavior, and HTTP server behavior under load. `MOCK-HIDE`: fake timers or mocked concurrency can miss real contention and head-of-line blocking.",
+      "test_description": "Start the service as a real process (or production-like runtime), pre-load slow concurrent downstream jobs, then send new valid webhook requests over real HTTP. Measure end-to-end response time with wall-clock and assert each response is <=3s under the stated concurrent slow-processing condition.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.23,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Do not write duplicate event IDs to queue.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: dedupe correctness often relies on persistence constraints/state across requests, not just pure logic. `MOCK-HIDE`: mocked stores may not reproduce uniqueness semantics or race behavior. `REAL-INFRA`: local persistent backend is sufficient for minimum level.",
+      "test_description": "With real queue persistence, submit the same event ID twice (separate requests). Assert first is accepted (per design) and second is not newly written; verify only one persisted queue record for that ID.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, return 503 and include `Retry-After` header.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: mapping real queue-full condition to HTTP semantics spans queue + handler modules. `MOCK-HIDE`: synthetic mocked errors may not match actual error codes/types raised by queue implementation.",
+      "test_description": "Configure real queue to small capacity, fill it to limit, then send another valid webhook through the handler. Assert HTTP 503 and presence/value format of `Retry-After`; assert overflow event not persisted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity and rejects writes beyond limit.",
+      "minimum_level": "Integration",
+      "justification": "`MOCK-MISS`: capacity enforcement is a storage-backed behavior; pure in-memory stubs can diverge from real implementation. `REAL-INFRA`: requires real local persistence path/DB behavior but not full external system. `MOCK-HIDE`: mocked queue often never truly fills.",
+      "test_description": "Instantiate the real persistent queue with explicit capacity N on test storage. Write N events successfully, then attempt N+1 and assert rejection/error contract and unchanged persisted count at N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

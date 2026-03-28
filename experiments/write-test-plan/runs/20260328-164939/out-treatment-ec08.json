@@ -1,0 +1,114 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Exponential backoff - wait time doubles with each retry up to configured maximum",
+      "minimum_level": "Unit",
+      "justification": "Backoff calculation and timing can be fully verified with mocked API and JavaScript fake timers without real network I/O. Failure (e.g., 100ms → 100ms → 100ms instead of doubling) is caught by verifying delay sequence.",
+      "test_description": "Mock API to return 429; use jest.useFakeTimers() or similar; trigger first failure (verify 100ms wait), fast-forward time, trigger second failure (verify 200ms wait), trigger third (verify 400ms wait, capped if max exceeded). Confirm exponential progression.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Rate-limit response detection - correctly identifies 429/rate-limit responses and computes appropriate wait time",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit status code parsing and wait-time computation are deterministic logic that can be tested against mocked HTTP responses. Failures (wrong status codes recognized, incorrect Retry-After parsing) surface immediately.",
+      "test_description": "Mock API responses with 429 status and Retry-After headers (or compute from max-age); verify library parses status code correctly, extracts wait hints, computes backoff delay. Test multiple response formats (Retry-After as seconds, Date header math).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Transparent retry - after backoff wait, resend original request and return successful result to caller without exposing retry logic",
+      "minimum_level": "Unit",
+      "justification": "Retry mechanism and response forwarding can be observed through mock call tracking and response assertions. Failure (request not retried, or 429 leaked to caller) is caught by verifying call sequence and returned value.",
+      "test_description": "Mock API to return 429 on first call, then 200 with success payload on second call; call library's async call() method once; verify it returns success payload directly (not error), and confirm via mock that exactly two API calls were made in order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quota exhaustion error - after max retries exhausted, return typed QuotaExhaustedError rather than generic error",
+      "minimum_level": "Unit",
+      "justification": "Error type and message correctness are deterministic and can be verified when mock API exhausts the retry count. Failure (wrong error type, generic Error returned) is caught immediately by instanceof check.",
+      "test_description": "Mock API to consistently return 429 responses; configure max retries to N; invoke library call(); catch the thrown/returned error; assert error instanceof QuotaExhaustedError, verify error message includes quota/rate-limit context.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Termination without infinite loops - full retry chain terminates correctly and does not loop indefinitely before surfacing the error",
+      "minimum_level": "Unit",
+      "justification": "Termination and loop-control logic can be validated with mocked API and test timeouts that catch hangs at unit level. Failure (infinite loop, missing termination condition) is caught by test runner timeout.",
+      "test_description": "Mock API to return 429 indefinitely; set test timeout to 5 seconds; invoke library call with max retries N; verify that call returns/throws QuotaExhaustedError before timeout expires, confirming the loop terminates.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test timeout is sufficient to detect infinite loops or unexpected hangs; no need for integration infrastructure.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Shared quota pool - multiple concurrent async callers within same process draw from shared account quota, preventing one caller from exceeding global limits",
+      "minimum_level": "Integration",
+      "justification": "Concurrent async callers and shared state behavior require integration testing with actual Promise.all() concurrency to catch race conditions or per-instance quota isolation bugs that unit mocks could miss.",
+      "test_description": "Create one or two client instances; issue three async calls concurrently using Promise.all(); trigger rate limits on calls 1 and 2; verify that call 3 (waiting in queue) sees the same remaining quota as calls 1–2, not an independent quota. Confirm shared counter, not isolated per-client.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing actual concurrent Promise execution ensures shared state is maintained across async tasks; mocked sequencing could hide isolation bugs.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Request ordering - multiple requests queued during backoff are dispatched to the API in FIFO order (original submission order)",
+      "minimum_level": "Integration",
+      "justification": "FIFO queue dispatch under live backoff concurrency requires integration-level testing with multiple simultaneous requests hitting rate limits; unit mocks cannot reliably simulate the timing and concurrency dynamics that could reorder requests.",
+      "test_description": "Issue three async requests simultaneously to library (via Promise.all); configure mock API to return 429 on first two, success on all three; track the order in which the mock API receives calls; verify calls are made in submission order (1st, 2nd, 3rd), not out of order or batched differently.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Concurrent backoff windows and queue dispatch require testing actual async task scheduling, not just queue data structure.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

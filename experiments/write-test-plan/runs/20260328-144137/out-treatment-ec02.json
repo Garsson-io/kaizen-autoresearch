@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature rejected with 401 and body not forwarded to queue",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is deterministic crypto logic at a single function boundary. Real HMAC-SHA256 (not mocked) with controlled test vectors is sufficient; no I/O or concurrency involved. Mocking the queue to verify it's not called will catch the failure reliably.",
+      "test_description": "Unit test: call handler with mismatched X-Signature-256 header using real crypto.createHmac with test keys; verify 401 response and queue.enqueue() was never invoked.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event written to persistent queue before HTTP 200 returned to sender",
+      "minimum_level": "Integration",
+      "justification": "The keyword 'persistent' means durability is part of the contract. A mocked queue could hide real failures: queue operation latency, transaction isolation issues, or storage failures that wouldn't manifest with an in-memory mock. Testing ordering at Unit level (via call order to mocks) would not verify that the real queue durably received the write before the response fired.",
+      "test_description": "Integration test: set up a real persistent queue (SQLite, or in-memory with real async semantics); make webhook request; verify event is durable in queue before HTTP response body is sent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without awaiting downstream processing",
+      "minimum_level": "Unit",
+      "justification": "This tests code structure—whether the handler fires downstream work asynchronously without blocking. A mock downstream processor (that doesn't resolve immediately) with verification that response is sent before the mock settles is sufficient. The failure mode is: handler inadvertently awaits the processor. A Unit test catches this by checking execution order.",
+      "test_description": "Unit test: mock downstream processor with a Promise that never settles; call handler; verify HTTP response is returned (or callback fires) while the mock is still pending.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.18,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock even when downstream processing is slow and concurrent",
+      "minimum_level": "System",
+      "justification": "This is a latency SLA under realistic concurrency. Mocked downstream (with instant in-process resolution) will always meet the SLA even if real downstream is slow. Real concurrent tasks with controlled delays (or real subprocess/external service calls) are required to measure actual wall-clock time and verify the handler doesn't block on any of them.",
+      "test_description": "System test: spawn multiple slow downstream tasks (e.g., timers that sleep for 1-2 seconds); make concurrent webhook requests while these run; measure wall-clock response time for each request; verify all complete within 3 seconds despite earlier tasks still running.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.12,
+        "System": 0.8,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Same event ID not enqueued twice",
+      "minimum_level": "Integration",
+      "justification": "Deduplication must be durable and correct under concurrency. A mocked dedup store (in-memory map) would pass the happy path but miss race conditions, transaction failures, or durability issues. Real persistent storage (database, cache) is needed to verify the dedup state survives across handler invocations and handles concurrent duplicates correctly.",
+      "test_description": "Integration test: with real persistent dedup storage, send the same event (same ID) twice; verify only one entry is in the queue; optionally send the duplicates concurrently to stress race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Queue full condition returns 503 with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "This is error handling for a specific queue exception. We mock the queue to throw a 'full' error and verify the handler catches it and returns the correct status and header. No real queue needed; the failure mode (missing the exception catch or wrong response) is caught by Unit-level mocking.",
+      "test_description": "Unit test: mock queue.enqueue() to throw QueueFullError; call handler; verify response status is 503 and Retry-After header is present and valid.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.86,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces configured capacity limit and rejects events exceeding it",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue's own enforcement, not the handler's logic. A mocked queue can always be mocked to reject at the right count, but the real failure mode is: the actual queue does NOT enforce capacity (or enforces it incorrectly). This requires testing the real persistent queue with real enqueue operations up to and past its limit.",
+      "test_description": "Integration test: initialize persistent queue with explicit capacity (e.g., max 10 events); enqueue up to capacity; verify next enqueue is rejected with an overflow error; optionally verify the queue state is consistent after rejection.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.87,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    }
+  ]
+}

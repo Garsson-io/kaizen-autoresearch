@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is pure deterministic logic with no external dependencies, I/O, or system calls. The function takes query parameters as input and produces a key deterministically. A real failure (non-deterministic hashing, poor collision resistance) can be caught entirely in-process. Mocking cannot hide this failure because the function is a pure computation.",
+      "test_description": "Create parameterized tests with identical and distinct parameter sets. For identical parameters, verify generated keys are identical regardless of parameter order (if designed to be order-invariant). For different parameters, generate keys for diverse random permutations and verify no collisions across large sets (e.g., 10,000 distinct param combinations). Test boundary cases: empty parameters, null values, special characters, very long query strings.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.94,
+        "Integration": 0.03,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "While the TTL formula itself is a Unit-level computation, the real failure boundary is at integration: the freshness rule must be retrieved from a configuration source (database, config file, or service). A Unit test mocking rule retrieval would miss failures where rules are never loaded, wrong category is queried, config is malformed, or source is unavailable. Integration testing with a real (test) config source and cache working together catches these failures.",
+      "test_description": "Set up a test configuration store (database or config file) with multiple categories and their freshness rules (e.g., 'user_profile' → 5 min, 'product_catalog' → 1 hour). For each category, request a cache entry and verify TTL matches the configured rule. Test: missing categories (should error or fall back), rule updates (next entry uses new rule), simultaneous rule and TTL computation, and malformed rules (should not crash or apply incorrect default).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "This requires multiple integrated components: the cache accumulating items, an in-memory usage tracker, a threshold monitor, and a strategy selector. A Unit test mocking memory state would miss failures where items don't accumulate correctly, memory is miscalculated, or the threshold comparison has off-by-one bugs. Real failure: 'cache grows unbounded because strategy never switches despite exceeding threshold' — requires Integration to witness cache saturation and strategy flip in a live system.",
+      "test_description": "Populate the cache with items of known sizes until memory usage approaches the configured threshold. Once threshold is exceeded, execute a cache operation and verify the active eviction strategy has switched from LRU to LFU. Verify that the next evictions follow LFU order (least-frequently-used first). Test: threshold at exact limit, memory reduction after eviction (does strategy revert?), interleaved reads and writes while at/above threshold, threshold value edge cases (0%, 100%).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "This is the critical integration boundary between cache and database. The real failure — 'cache returns stale data after DB update' — cannot be caught by mocking the write or mocking invalidation alone. The test must verify: (1) write reaches database, (2) system detects the write and computes affected cache keys, (3) those entries are actually invalidated. This requires a real (test) PostgreSQL database and live cache wired together. System-level testing is needed only if invalidation uses PostgreSQL WAL or triggers; standard app-level write interception is testable at Integration.",
+      "test_description": "Set up a test PostgreSQL database with sample rows. Populate the cache with entries derived from those rows. Perform a write operation (UPDATE one row, DELETE multiple rows, INSERT new row). Verify that cache entries matching the affected rows' keys are invalidated. Verify unrelated cache entries remain valid. Test: single-row updates, multi-row deletes, concurrent writes and cache reads, invalidation timing (does stale read ever occur between write and invalidation?), and correctness of key-to-affected-rows computation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithm verification. Given a cache state (entry timestamps and frequency counts) and a full cache, the eviction logic must correctly identify and remove the target entry. A real failure (evicts most-recently-used instead of least, miscounts frequency, corrupts other entries) can be caught entirely in-process without I/O, databases, or external services. The logic is self-contained, deterministic, and has no external dependencies to mock.",
+      "test_description": "For LRU: create a cache with a known access sequence (e.g., access A, B, C, A, B). Fill to capacity. Trigger eviction and verify C (least-recently-used) is removed and remaining entries are intact. For LFU: populate with entries having different frequencies (A: 10 accesses, B: 5, C: 1). Trigger eviction and verify C is removed. Test: tie-breaking rules when multiple entries have same recency/frequency, eviction correctness under different cache sizes, and that non-evicted entries remain valid with correct state (no timestamp/frequency corruption).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by filename prefix",
+      "minimum_level": "Integration",
+      "justification": "While file sorting logic could be tested at unit level (testing the sort function in isolation), the actual failure—migrations running out of order—only manifests when migrations execute against a real database. A unit test on sorting could pass while the runner still applies migrations incorrectly. Integration test must actually apply multiple migrations to a test database and verify execution order by checking applied sequences and timestamps in the transaction logs.",
+      "test_description": "Create test database with migrations 001_init.sql, 002_schema.sql, 003_data.sql. Run runner once. Verify migrations executed in numeric order by inspecting transaction logs or applied timestamps in _migrations table. Confirm schema created by 001 exists before 002 attempts to modify it, confirming sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on subsequent run",
+      "minimum_level": "Integration",
+      "justification": "Unit tests with mocked database could verify the skip logic in isolation, but would miss failures in reading metadata, comparing migration names, or persisting state. The real failure—migration re-runs when it shouldn't—requires reading actual _migrations table state from a real database and confirming it's checked before execution. Mocking hides SQL errors, transaction isolation issues, or metadata table schema problems.",
+      "test_description": "Apply migration A to test database (records in _migrations). Run runner again against same database. Verify migration A statement does not re-execute by checking transaction logs. Confirm _migrations table has exactly one entry for migration A with no duplicate timestamps. Test that other pending migrations still apply correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted",
+      "minimum_level": "Integration",
+      "justification": "Unit tests with mocked database would pass even if rollback logic is broken. The real failure requires testing actual database transactions. While true rollback behavior is a database feature (could argue System level for process-level behavior), the primary failure boundary is transaction isolation in a real database. Integration test with real PostgreSQL can trigger a failure (e.g., constraint violation) within a transaction and verify the database is rolled back to pre-migration state.",
+      "test_description": "Apply valid migration M1. Create M2 with intentional failure (e.g., duplicate key, constraint violation, invalid DDL). Run both in same invocation. Verify: (1) M1's changes persist, (2) M2 fails with error, (3) M2's changes do not appear in schema (rolled back), (4) _migrations shows M1 applied but not M2, (5) runner stops after M2 failure and does not attempt M3.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.65,
+        "System": 0.35,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances start simultaneously against the same database, each migration is applied exactly once across both instances",
+      "minimum_level": "System",
+      "justification": "This is a concurrency failure that depends on real database locking and process-level isolation. Integration tests with concurrent connections to a single test database might catch some races, but real failures manifest under true process isolation: two separate Node.js processes with their own memory, transaction state, and timing. The failure modes (both processes apply the same migration, causing duplicate records or constraint violations) require actual process spawning to test meaningfully. Database locks, transaction ordering, and process synchronization are OS- and subprocess-level concerns.",
+      "test_description": "Spawn two separate Node.js runner processes, both starting simultaneously (coordinated via flag or delay) against the same test PostgreSQL database with 3+ pending migrations. Monitor both processes to completion. Verify: (1) all migrations complete in both processes, (2) each migration appears exactly once in _migrations table (no duplicates), (3) database is in consistent state with all migrations applied, (4) no row-level conflicts or constraint violations occurred, checked via row counts and unique index integrity.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.35,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On first run against fresh database, _migrations table is created before any migration file is applied",
+      "minimum_level": "Integration",
+      "justification": "Unit tests with mocked table creation would pass regardless of timing. The real failure—_migrations table missing or created after a migration partially runs—only manifests against a real database. Integration test with a real empty database verifies DDL execution order and that the metadata table exists before migration statements are applied. Mocking would hide SQL syntax errors or schema issues in table creation.",
+      "test_description": "Start with completely empty test PostgreSQL database. Run migration runner with one pending migration file. Verify _migrations table exists immediately after runner starts (before migration logic runs). Confirm table schema has required columns (name, applied_at). Apply migration and verify _migrations entry is created. Repeat with fresh database to confirm idempotent initialization.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

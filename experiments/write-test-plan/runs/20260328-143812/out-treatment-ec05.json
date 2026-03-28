@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix (001_init.sql runs before 002_users.sql before 010_posts.sql).",
+      "minimum_level": "Unit",
+      "justification": "Filename parsing and sorting is deterministic local logic. The code must extract numeric prefixes (001, 002, 010) and sort them numerically, not lexicographically. A unit test can mock fs.readdir() to return unsorted filenames and verify the sort order in isolation. Real filesystem ordering doesn't matter because the code sorts regardless.",
+      "test_description": "Mock fs.readdir() to return migration filenames in random order (e.g., [010_posts.sql, 001_init.sql, 002_users.sql]). Call the migration discovery/sorting logic and verify the result is [001_init.sql, 002_users.sql, 010_posts.sql]. This catches numeric vs. lexicographic sorting bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run, verified by checking the _migrations metadata table.",
+      "minimum_level": "Integration",
+      "justification": "Mocking the database query would hide the real failure: the code might query the wrong table, use the wrong column names, or compare values incorrectly. Only a real test database reveals whether the query actually finds previously-applied migrations and the comparison logic is sound. The failure boundary is the database: does the code correctly record and retrieve migration history?",
+      "test_description": "Apply migrations to a real test database (e.g., PostgreSQL container or in-memory DB). Verify each migration is inserted into _migrations. Re-run the same migrations against the same database and verify they are skipped (no duplicate entries in _migrations, no re-execution of SQL). Confirm by querying the metadata table directly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback behavior is a database operation, not application logic. Mocking would hide the failure: a mocked rollback always 'succeeds' but never tests the actual transaction semantics. Only a real database test verifies that a failed migration leaves no schema changes and that the error is properly caught before executing subsequent migrations.",
+      "test_description": "Create a test database and define one migration that will fail (e.g., violates a unique constraint or references a non-existent table). In the same batch, include a second migration. Run the batch and verify: (1) the failed migration is not recorded in _migrations, (2) any partial schema changes from the failed migration are rolled back (inspect table structure), (3) the second migration is not executed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Concurrency and process-level synchronization cannot be tested at unit or integration level. Unit tests run in a single process; integration tests typically run sequentially. The real failure requires two actual OS processes with real database locking semantics. A race condition might pass a mocked test but fail under real concurrent load. Testing this requires spawning separate processes and coordinating their timing against a shared test database.",
+      "test_description": "Spawn two Node.js processes that simultaneously attempt to apply the same migrations to a real test database. Use signals or wait points to control timing (e.g., pause process A after acquiring the lock for migration 001 but before executing it). Verify that both processes eventually complete, each migration in _migrations has exactly one entry, and neither process applied the same migration twice. Check for deadlocks or timeout failures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "DDL (CREATE TABLE) and schema validation require a real database. Mocking the CREATE TABLE statement doesn't verify that the table actually exists with the correct schema, or that it's created at the right time (before migrations execute). Only a real test database reveals schema mismatches, missing columns, or timing bugs.",
+      "test_description": "Start with a fresh test database that has no _migrations table. Run the migration runner. Verify that the _migrations table is created with the correct schema (e.g., columns for migration name, applied_at timestamp) before any migration files are executed. Confirm by querying the table structure and checking that the first migration record exists after the run completes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

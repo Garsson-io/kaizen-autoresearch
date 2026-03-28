@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Image containing explicit content is flagged and held for review, not published",
+      "minimum_level": "Integration",
+      "justification": "The core behavior is 'when vision model flags an image, it must be held for review (not published).' While the model classification can be mocked, we must test the full downstream pipeline: flagged items entering the review queue, being excluded from the publish path, and persisting in the system. A unit test of isolated business logic (if EXPLICIT then flag=true) misses integration failures like queue insertion failures or database errors. A system test with a real vision model is unnecessary—we're not testing the model's detection capability, just the routing logic.",
+      "test_description": "Mock the vision model to return EXPLICIT classification. Submit image through the full moderation pipeline. Verify: (1) post is added to review queue, (2) post does not appear in published feed, (3) post record is marked with hold flag in database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Text post containing hate speech is flagged regardless of obfuscation techniques (letter substitution, unicode lookalikes)",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests the text model's capability to detect hate speech despite obfuscation—a property that cannot be tested with mocks. Mocking the model to return 'hate_speech' for any input defeats the purpose and hides real failures (e.g., the model failing on novel obfuscation techniques). The core failure boundary is whether the real model correctly classifies obfuscated text. This requires calling the actual model with multiple obfuscated variants. The correctness depends on real model behavior, not on orchestration or I/O infrastructure.",
+      "test_description": "Create test cases with known hate speech and multiple obfuscation variants (character substitution like '0' for 'O', unicode lookalikes like 'ɑ' for 'a', spacing tricks). Call the real text classification model with each variant. Verify all variants are classified as hate speech.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.2,
+        "Agentic": 0.7,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post passing both content checks is published rather than held or silently dropped",
+      "minimum_level": "Integration",
+      "justification": "The behavior is 'when both models return SAFE, then publish.' We can mock both model outputs, but we must verify the full publish pipeline: the post reaches the published feed (not silently dropped), database records are created correctly, and there is no spurious hold. A unit test of 'publish_decision(vision=SAFE, text=SAFE) returns PUBLISH' only tests the boolean logic; it misses bugs like 'publish returns success but post never appears in feed' or 'post inserted twice' or database connection failures.",
+      "test_description": "Mock both vision and text models to return SAFE. Submit a post through the pipeline. Verify: (1) post appears in the published feed, (2) post is NOT in the review queue, (3) post record timestamp and content are correct in the database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline completes within 5 seconds of submission",
+      "minimum_level": "System",
+      "justification": "This is a performance SLA that depends on real-world latencies: actual model inference time, network round-trips, and I/O operations. Mocking the models to be artificially fast (e.g., instant returns) is useless—it hides the real failure that the system is actually slow. The 5-second limit cannot be verified without real infrastructure. The failure boundary is 'real system is slower than SLA,' which only emerges under real execution with real models and I/O.",
+      "test_description": "Submit an image+text post through the full moderation pipeline using real (or realistic stubs with actual latency) models. Record the end-to-end latency from submission to final decision (publish/hold). Verify latency < 5 seconds. Repeat across multiple submissions to measure 95th percentile.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved",
+      "minimum_level": "Integration",
+      "justification": "The behavior is 'when vision model fails (times out, errors, etc.), queue for retry instead of auto-approving.' We can test this with a mock vision model that raises an exception, then verify the retry queue logic. We don't need the real model to actually be unavailable (System level); we just need to verify the pipeline's recovery path. However, we must test the full pipeline: exception handling, queue insertion, verification that the post is not auto-approved. A unit test of 'if vision.classify() raises, then queue_for_retry()' is too narrow and misses bugs in the actual queue or auto-approve logic.",
+      "test_description": "Mock vision model to raise a timeout exception. Submit image post. Verify: (1) post is added to the retry queue with retry_count=1, (2) post is NOT published, (3) post is NOT auto-approved, (4) error is logged. Later, retry the queued post with a successful mock response and verify it publishes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window",
+      "minimum_level": "Agentic",
+      "justification": "This tests whether the vision model returns consistent classifications for the same image over a short time period. Vision models can exhibit non-deterministic behavior (stochastic layers, temperature sampling, or floating-point variance). Mocking the model to return the same result both times is not testing real consistency—it's just tautological. The failure boundary is 'real model returns different results on the same input within a short window,' which only emerges with real model calls. This is not a multi-step workflow; it's two sequential calls to verify model determinism.",
+      "test_description": "Call the real vision model with the same borderline image. Record the classification (e.g., classification score, confidence level). Within 30 seconds, submit the same image again. Verify the classification is identical or within a tolerance threshold (e.g., confidence within 0.05). Repeat with 5 different borderline images to ensure consistency is not a fluke.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

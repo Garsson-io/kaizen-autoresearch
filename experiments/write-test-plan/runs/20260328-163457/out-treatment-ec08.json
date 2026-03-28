@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is a local backoff algorithm testable with jest.useFakeTimers(). The test mocks the API to return rate-limit errors, advances fake time, and verifies that setTimeout is called with delays of 1x, 2x, 4x, etc. Fake timers capture the delay values passed to the timing function, catching bugs like linear (instead of exponential) backoff or missing delays. No external infrastructure needed.",
+      "test_description": "Mock API to return HTTP 429 for N consecutive attempts. Use jest.useFakeTimers(). Call the client library method. Advance fake time past each backoff interval. Verify that setTimeout (or the underlying delay mechanism) is called with arguments [delay1, delay2, delay3, ...] where delay_i = delay_base * 2^(i-1), capped at max.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test operates in-process with mocks; no real I/O or timing required.",
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "This is pure response parsing: extract the 429 status code, parse the Retry-After header, compute the next attempt time. A Unit test can mock the HTTP response object and verify the parsing logic. No network I/O or multi-module interaction needed.",
+      "test_description": "Create mock HTTP responses with status 429 and various Retry-After header formats (e.g., 'Retry-After: 60', 'Retry-After: <RFC-date>'). Pass each mock response to the client's retry handler. Verify the computed wait time matches the expected value (60 seconds, RFC-date timestamp, etc.). Also test missing/malformed headers and edge cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies response parsing without real network calls.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "This tests that after a 429, the client retries the request and surfaces the success. A Unit test mocks the API to return 429 once, then success on the second call. By checking mock.callCount === 2, we verify the request was resent. By verifying the promise resolves with the success response, we verify transparency.",
+      "test_description": "Mock the API to return HTTP 429 on the first call, then HTTP 200 with success payload on the second call. Call the client method. Verify that: (1) the mock was invoked exactly twice (request was resent), (2) the caller receives the success response without seeing the 429, (3) the response body matches the success payload from the second call.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies retry and result propagation within a single module; mocks fully capture the behavior.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "This tests retry counting and error type. A Unit test mocks the API to return 429 for maxRetries+1 attempts, calls the client, and verifies the error is an instance of QuotaExhaustedError. No multi-module interaction or real I/O needed.",
+      "test_description": "Mock the API to always return HTTP 429 (or timeout, depending on implementation). Set maxRetries to N. Call the client method. Verify that after N retries, a QuotaExhaustedError is thrown (or returned, if using Result type), not a generic Error or HTTP error. Check the error message/code indicates quota exhaustion, not a transient failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test isolates error-type behavior with simple mocking.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "This tests that the retry logic terminates even under adversarial input (e.g., API always returns 429). A Unit test with a tight timeout (e.g., jest.setTimeout(5000)) and a mock that returns 429 forever will catch infinite loops—the test will timeout and fail if the code hangs.",
+      "test_description": "Mock the API to always return HTTP 429 or timeout. Set a strict test timeout (e.g., 5 seconds, well under normal retry duration). Call the client method with maxRetries set to a reasonable value (e.g., 5). Verify that the function completes (either with QuotaExhaustedError or another typed error) before the timeout expires. If the code infinite-loops, the test will timeout and fail.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses timeout to detect hangs; no external infrastructure required.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This tests that multiple concurrent call() invocations interact correctly via a shared quota tracker. A naive Unit mock (independent 429 responses per caller) could hide the bug where each caller has its own quota instance. Catching the failure requires a mocked API server that enforces a *global* quota constraint—tracking and rejecting when the sum of all callers exceeds the limit. This is integration of multiple callers with one shared resource.",
+      "test_description": "Create a mocked HTTP API server (or in-memory mock with enforced global state) that tracks total call count across all callers. Set a quota limit (e.g., 10 calls per second). Issue concurrent call() requests from multiple callers that collectively exceed the quota (e.g., caller A makes 7 calls, caller B makes 5 calls). Verify that: (1) the 11th and subsequent calls see 429 errors, (2) all callers experience the same backoff (they share the quota), (3) if caller A is waiting to retry, caller B also backsoff accordingly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a mock server that enforces a global constraint, not just independent mocks per caller.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This tests FIFO ordering under concurrent async execution. A Unit test with deterministic mocks might not expose ordering bugs (e.g., using an unordered Set instead of an ordered Array for the queue) because mock scheduling is predictable. Real concurrent async scheduling introduces subtle race conditions. Integration testing with actual async/await and a mocked server captures real scheduling scenarios and reveals ordering violations.",
+      "test_description": "Launch multiple concurrent call() requests that all hit rate-limit errors (429). Record the submission order (time or ID). Once all are queued and waiting, monitor the order in which they are actually retried (by inspecting mock call sequence or via instrumentation). Verify that the retry order matches the submission order. Example: submit calls [A, B, C], all hit 429, all wait; verify retries happen in order [A, B, C], not [B, A, C] or any permutation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real concurrent scheduling to expose ordering bugs; mocks alone do not guarantee order preservation.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

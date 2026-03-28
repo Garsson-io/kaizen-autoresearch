@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "Real failures in file scoping can hide at unit level. A unit test with mocked GitHub API can verify filtering logic in isolation, but won't catch if: (a) the system ignores the changed-files list and walks the entire repo directory tree, (b) Git checkout or path normalization fails in the actual GitHub Action environment, or (c) file discovery uses a glob pattern that unintentionally includes unchanged files. The failure boundary crosses file I/O and Git repository context, requiring a real or simulated repository with multiple files where we can verify which files actually got analyzed.",
+      "test_description": "Set up an Integration test that: (1) Creates a Git repository with 5 unchanged files and 2 changed files; (2) Configures the lint step to analyze only changed files (simulating GitHub Action PR context); (3) Runs the lint step; (4) Verifies via filesystem instrumentation or process monitoring that only the 2 changed files were opened/scanned, and the 5 unchanged files were never accessed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Integration",
+      "justification": "Unit-level tests of grouping logic alone will not catch real failures in the GitHub API interaction. Failures could include: (a) the HTTP request to GitHub is malformed and rejected, (b) the Markdown formatting has syntax errors and renders incorrectly on GitHub, (c) the grouping data structure is incorrectly serialized to JSON, (d) the API endpoint URL or authentication is wrong. These only manifest when actually calling GitHub's API (or a test mock of it). A mock in-memory grouping function will pass even if the real GitHub API call fails.",
+      "test_description": "Set up an Integration test using a mock HTTP server (e.g., responses library or WireMock) that: (1) Mocks the GitHub API endpoint for posting PR comments; (2) Runs the lint step on test files to generate findings; (3) Captures the actual HTTP request body sent to GitHub; (4) Parses the Markdown comment body and verifies it contains sections for each severity level (e.g., '## Errors', '## Warnings', '## Info'); (5) Verifies findings are correctly grouped under each section; (6) Asserts the HTTP status is 201 (created).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "Integration",
+      "justification": "Performance failures cannot be tested with mocks or in pure unit tests — they only manifest with real file I/O and actual linter execution. A mock linter will execute in microseconds. Real failures could include: (a) the linter reads files serially instead of in parallel, (b) a quadratic or exponential algorithm in the filtering or reporting logic, (c) memory bloat that causes GC pauses or OOM, (d) disk I/O contention on many files, (e) subprocess spawning overhead. The only way to catch these is to actually run the linter on a real 200-file test suite and measure execution time.",
+      "test_description": "Set up an Integration test that: (1) Creates a test repository with 200 realistic source files (e.g., JavaScript, Python, or mixed); (2) Runs the lint step end-to-end (including file discovery, linter invocation, result aggregation, and comment generation); (3) Measures elapsed wall-clock time; (4) Asserts elapsed time < 10 minutes (600 seconds) with a safety margin (e.g., < 500 seconds to leave headroom for GitHub Action overhead); (5) Optionally monitors memory usage to detect leaks or unbounded allocation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.88,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "System",
+      "justification": "Mocking subprocess calls will not reveal real crash-handling failures. The system's ability to handle a real process crash involves OS-level behaviors: signal handling (SIGTERM, SIGSEGV), process cleanup, file descriptor closure, and pipeline continuation. Integration-level tests with a mock subprocess mock away these details. Real failures include: (a) no try-catch around subprocess.run() call, (b) cleanup code that assumes successful exit, (c) results posted without checking if linter actually completed, (d) inherited file handles preventing analysis of remaining files. Only by spawning a real subprocess (or one that behaves like the real linter, including actual crashes) can these be detected.",
+      "test_description": "Set up a System test that: (1) Creates a test directory with 3 source files, where the 2nd file is malformed (e.g., truncated binary or deeply nested syntax error); (2) Runs the lint step against this directory; (3) The real linter (or a subprocess wrapper that simulates a crash on the 2nd file) exits with non-zero status; (4) Verifies that: (a) analysis continued after the crash (files 1 and 3 were analyzed), (b) results were posted to GitHub (or mock API) with findings from files 1 and 3, (c) an error/warning was logged about the crash on file 2. Optionally stress-test with multiple file crashes in one run.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.12,
+        "System": 0.78,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is a pure data-processing algorithm with no dependencies on I/O, subprocess behavior, or external services. Real failures are purely in the deduplication logic: (a) using the wrong comparison key (e.g., comparing only line number, ignoring rule name), (b) off-by-one errors in duplicate detection, (c) case-sensitivity bugs in rule name matching. None of these require infrastructure. A unit test that passes a list of mock findings (same line, different rules) to the deduplication function will definitively catch all real failures in the algorithm.",
+      "test_description": "Set up a Unit test that: (1) Creates mock finding objects with overlapping criteria: (a) 3 findings on line 5 from rules A, B, C (all identical except rule name), (b) 2 findings on line 5 from rule A with different column numbers, (c) 1 finding on line 10 from rule A; (2) Calls the deduplication function; (3) Asserts exactly 4 unique findings remain (one per rule on line 5, plus the line 10 finding); (4) Verifies the deduplication key includes both line number and rule name; (5) Tests edge cases: empty input, single finding, all duplicates.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

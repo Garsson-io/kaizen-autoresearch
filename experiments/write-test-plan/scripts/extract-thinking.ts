@@ -112,8 +112,8 @@ export function checkSelfAware(
 ): { selfAware: boolean; evidence: string | null } {
   if (!gt || predicted === gt) return { selfAware: false, evidence: null };
 
-  const gtIdx = LEVELS.indexOf(gt);
-  const predIdx = LEVELS.indexOf(predicted);
+  const gtIdx = LEVELS.indexOf(gt as (typeof LEVELS)[number]);
+  const predIdx = LEVELS.indexOf(predicted as (typeof LEVELS)[number]);
   if (predIdx >= gtIdx) return { selfAware: false, evidence: null }; // over-predicted, not under
 
   const lower = thinkingExcerpt.toLowerCase();
@@ -155,8 +155,8 @@ function loadGT(taskId: string): Record<number, string> {
 
 export function getDirection(predicted: string, gt: string): "correct" | "under" | "over" {
   if (predicted === gt) return "correct";
-  const predIdx = LEVELS.indexOf(predicted);
-  const gtIdx = LEVELS.indexOf(gt);
+  const predIdx = LEVELS.indexOf(predicted as (typeof LEVELS)[number]);
+  const gtIdx = LEVELS.indexOf(gt as (typeof LEVELS)[number]);
   return predIdx < gtIdx ? "under" : "over";
 }
 

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Unit",
+      "justification": "This behavior tests data orchestration logic: that data collection calls all three sources and passes their combined results to the summary generator. A Unit test mocking the three data sources and verifying the summary function receives all three datasets will reliably catch failures like dropped or missing sources. No real I/O, real network, or LLM is involved—only the wiring of the collection logic. A mock cannot hide this failure: if the code fails to call one source or loses data from it, the assertion on the mocked call or the combined data payload will fail.",
+      "test_description": "Unit test: Mock the metrics endpoint, issue tracker API, and deployment log as isolated dependencies. Call the data collection function. Assert that the summary generator function is called exactly once with a combined data structure containing non-empty entries from all three sources. Verify that dropping any one source from the mock setup causes the test to fail.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Behavior requires only local module boundaries and orchestration logic. Unit level is both necessary and sufficient; higher levels would add overhead without catching additional failures.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Unit",
+      "justification": "This tests error handling and resilience logic: the script must catch exceptions from any single source and continue. A Unit test can mock one source to raise an exception (timeout, connection error, etc.), then assert that the report is still generated with the expected 'data unavailable' note in that section. This is purely control-flow logic within the script; the fallback behavior does not require I/O or external services to verify. A mock exception is a realistic simulation of a real failure, and the assertion directly checks the recovery path.",
+      "test_description": "Unit test: Mock the metrics endpoint to raise a ConnectionError or timeout. Call data collection. Assert that a report is still generated, the report includes a 'data unavailable' note in the metrics section, and the sections from the other two sources are populated normally. Parametrize the test across all three sources to ensure error handling works for any source.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Behavior is about exception handling and fallback logic, both testable at Unit scope. Higher levels would redundantly verify the same logic with real dependencies.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests the semantic quality of the generated summary. A Unit test with a mocked summary generator will always pass (the mock returns whatever you configure), hiding the real failure: a poorly-trained or misconfigured LLM that produces inaccurate or nonsensical prose. The real failure boundary is at the LLM inference level—only a call to a real (or very realistic simulated) language model will reveal if the generated narrative actually captures and contextualizes the key values correctly. MOCK-HIDE: mocking the summary function will hide the failure of poor accuracy. Because accuracy depends on the non-deterministic LLM output, Agentic-level testing is required.",
+      "test_description": "Agentic test: Prepare input data with specific, measurable key metrics (e.g., 'deploy count: 5', 'mean incident response time: 2h', 'active issues: 12'). Call the real or realistic-mock summary generator. Parse or manually inspect the narrative output. Assert that all three key values are mentioned or clearly referenced in the prose, and that the narrative tone and framing are coherent (not gibberish or inverted logic). Use multiple representative datasets to catch edge cases in the LLM's interpretation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Behavior specifically targets the semantic accuracy of the summary, which depends on the actual language model's non-determinism. Unit/Integration tests with mocks would pass even if the real LLM fails. Agentic level is both necessary and sufficient.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report—from data collection through email delivery—reaches the configured recipient's inbox correctly.",
+      "minimum_level": "System",
+      "justification": "This behavior requires end-to-end verification of actual email transmission. A Unit test cannot verify this—it is purely in-process. An Integration test with a local test mail service (e.g., mailhog) could work, but the behavior explicitly requires the email to 'reach the configured recipient's inbox,' suggesting a realistic mail service. The real failure boundary is at the SMTP/mail-service level: the email could be dropped, malformed, sent to the wrong recipient, or fail due to authentication. Only System-level testing (sending to a real or realistic mail service and verifying receipt) will catch these failures. REAL-INFRA: email transmission is a real external API call.",
+      "test_description": "System test: Run the complete script end-to-end with all dependencies available (real or realistic test mail service). Verify that an email is delivered to a test inbox or mail server with the correct recipient address, subject line, and formatted body content. Assert that the email arrives within a timeout window and contains the generated narrative summary. Optionally, capture and parse the SMTP interaction to verify protocol correctness.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Behavior requires real email transmission or a realistic stub that behaves like a real mail service. Unit/Integration with pure mocks would not catch delivery failures (wrong recipient, malformed message, service unreachable). System level is necessary.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.28,
+        "System": 0.65,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior has two parts: (1) save to local file on delivery failure (Integration level), and (2) retry delivery on the next scheduled run (Workflow level). A Unit or Integration test can verify the file-save logic, but only a Workflow test—running the script multiple times across scheduled intervals—can verify the retry logic. The real failure boundaries are: (a) the report is not saved when delivery fails (Integration catches this), and (b) the script does not locate and retry the saved report on the next run (only Workflow catches this). Testing both parts together requires simulating multiple scheduled invocations of the script.",
+      "test_description": "Workflow test: Run the script with the email service mocked to fail (unreachable, timeout). Verify the report is saved to a local directory with a retrievable name and format. Restore the email service (or mock it to succeed). Trigger the next scheduled run of the script. Assert that the script locates the saved report file, attempts email delivery, and upon success, deletes the backup file. Verify that no report is saved if the initial email delivery succeeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Behavior requires testing the full cycle across multiple scheduled runs. Unit/Integration tests of the save logic alone would miss the retry-on-next-run failure. Workflow level is necessary to catch both the persistence and recovery aspects.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}

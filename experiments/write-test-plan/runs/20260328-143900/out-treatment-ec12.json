@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number",
+      "minimum_level": "Integration",
+      "justification": "The behavior combines schema validation (testable in unit) with queue-writing (requires real or semi-real infrastructure). A mock queue could silently pass even if the code writes wrong row numbers, corrupts the format, or writes to the wrong queue. Must use actual test database table or message queue to verify the row data and row number are captured correctly.",
+      "test_description": "Set up test PostgreSQL table for dead-letter queue with correct schema. Process a CSV with some rows missing required fields (e.g., missing email in required field), verify rejected rows appear in dead-letter table with exact original row numbers and original row content preserved. Test both header-based row numbers and content-based de-duplication.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format",
+      "minimum_level": "Unit",
+      "justification": "Pure transformation function with no external dependencies or I/O. All failure modes (wrong format, missing format support, off-by-one errors, edge cases like leap years) are fully catchable by unit testing. No mock can hide a failure here—the function output is deterministic and testable directly.",
+      "test_description": "Parameterized unit tests covering: ISO 8601 (2026-03-28), US (03/28/2026), European (28/03/2026), edge cases (leap day, year boundaries, century transitions, invalid dates should error). Verify all valid inputs transform to canonical ISO 8601 format. Test with explicit timezone context if relevant.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory",
+      "minimum_level": "System",
+      "justification": "Mocks don't exercise real memory or time behavior. Real failure modes: memory leak in row processing, slow transformation/serialization, streaming buffer overflow, or connection pool exhaustion. A unit test with mocked S3 and DB won't reveal these. Must stress-test with realistic S3 streaming (network chunking, back-pressure), actual database writes, and real or simulator-based timers.",
+      "test_description": "End-to-end test: generate or stream actual 500k-row CSV from S3-compatible endpoint (MinIO or real S3), write to real PostgreSQL, measure peak memory usage and elapsed time, verify both stay within configured limits. Include realistic row sizes and transformation complexity. Monitor for memory leaks across the full batch.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch",
+      "minimum_level": "Integration",
+      "justification": "Retry logic + backoff calculation can be unit-tested with mocks, but realistic error handling and state management between retries benefit from integration-level wiring. A poorly-configured mock might return 503 but not as an actual exception, or might not reset retry state. Integration level ensures the exception is truly thrown, caught, and handled across real call boundaries.",
+      "test_description": "Mock S3 configured to return transient 503 errors on first N attempts (then succeed), mocked/controlled time to avoid real sleep delays, verify: (1) retry count matches expected, (2) backoff delays grow exponentially (not linearly), (3) batch succeeds after retries, (4) no exception escapes. Test both timing with mocked time and verify exponential formula (e.g., 2^N milliseconds).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch",
+      "minimum_level": "Integration",
+      "justification": "Must verify actual constraint enforcement on real schema. A mocked database that only records 'INSERT called' will not catch duplicate insertion—real failure is when the same row is inserted twice and violates a primary key or unique constraint. Only a real test database with actual schema constraints can verify idempotency.",
+      "test_description": "Test PostgreSQL table with primary key constraint (or idempotent upsert logic). Insert a row via pipeline, verify it exists. Simulate restart by re-invoking the pipeline for the same logical row/offset. Verify either: (1) constraint violation is properly caught and logged, or (2) upsert logic ensures no duplicate appears. Query final row count to confirm exactly one instance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

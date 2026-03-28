@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Integration",
+      "justification": "A unit test of the rule-application logic (e.g., 'if amount > threshold, score += penalty') can miss real failures: configuration may not be loaded from the source, merchant category mapping may be incorrect, or the config format may not match the code's expectations. To catch these, we need integration-level testing that loads actual config, validates merchant category lookups, and applies the rule against realistic transaction data.",
+      "test_description": "Create test transactions with known amounts and merchant categories. Load the actual scoring model configuration (from database or config file). Call the scoring model with each transaction. Verify that: (1) a transaction exceeding the threshold for its category receives the expected score increase, (2) a transaction below the threshold does not, and (3) transactions with unknown merchant categories either fail gracefully or use a default category correctly. Test edge cases: transaction exactly at threshold, category with no configured threshold.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests whether the risk model actually learns and detects patterns. Mocking the model to return hardcoded fraud/safe predictions does not test the model's real capability—it only proves the mock works. The failure case is 'the model fails to detect the pattern.' To catch this, we need to provide the actual model with realistic transaction features (merchant category, purchase history, device fingerprint, transaction timing, geography) and verify it produces the correct classification. If the model is an external API or LLM-based, this escalates to System or Agentic; as described, we assume a trained model available for testing.",
+      "test_description": "Construct a test dataset with multiple transactions forming a fraudulent pattern: small purchases ($10–50 each) from different geographic regions within hours. Ensure none exceed thresholds individually. Enrich transactions with merchant category, device fingerprint, and user purchase history data. Run the risk model against these transactions (without scoring model interference). Verify the model returns fraud probability above a threshold for the pattern. Include control transactions (non-fraudulent pattern) that should return low fraud probability. Record confidence intervals if model shows variance across runs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.3,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The velocity check requires querying transactions from a data store and filtering by user and time window. A unit test can verify the counting logic in isolation (e.g., 'given a list of 5 transactions, count returns 5'), but it misses real failures: incorrect SQL/query predicates, time zone bugs, timestamp parsing errors, or off-by-one errors in the time window boundaries. To catch these, we need integration-level testing that queries a real database (or in-memory equivalent) with real transaction timestamps, and verifies the count matches expected behavior across various time-window boundaries (midnight, leap years, daylight savings if applicable).",
+      "test_description": "Set up a test database with transactions for multiple users and timestamps. Insert transactions for User A at times T, T+10min, T+20min, T+30min, T+35min, and T+40min. Configure the velocity check to count transactions within a 30-minute window. Query the velocity count for User A at time T+31min (should count 3: T, T+10min, T+20min, T+30min, T+35min minus T+40min). Test edge cases: exact window boundary (T+30min is inclusive/exclusive?), different users (verify count doesn't mix users), leap-second or DST boundary if applicable. Verify count correctness at multiple query times.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "This is pure logic: 'hold if (scoring_flag OR risk_flag)'. A unit test can mock both models' outputs and verify all four combinations: (T,T)→hold, (T,F)→hold, (F,T)→hold, (F,F)→pass. There is no I/O boundary, no data-loading step, and no real model dependency that would be masked by a mock. The failure case ('accidentally using AND instead of OR') is caught by testing the logic directly.",
+      "test_description": "Create four unit test cases, each providing mocked outputs from the scoring and risk models: (1) both flag=true, verify transaction held, (2) scoring=true, risk=false, verify held, (3) scoring=false, risk=true, verify held, (4) both false, verify not held. Use mocks or test doubles for both model interfaces. Verify the decision logic explicitly checks (flag_A || flag_B), not (flag_A && flag_B).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "This tests output structure and data presence. Given mocked models with known outputs, we can verify the response object contains both fields and has the correct values. There is no I/O or data-loading dependency that would be hidden by mocks—we are only checking that the output object is constructed correctly. A unit test is sufficient to catch the failure case ('output missing risk score' or 'output missing fraud probability').",
+      "test_description": "Mock the scoring model to return risk_score=75.5 and the risk model to return fraud_probability=0.92. Call the combined fraud-detection service with a test transaction. Verify the returned object contains: (1) a 'risk_score' field with value 75.5, (2) a 'fraud_probability' field with value 0.92, (3) optional: fields indicating which model flagged the transaction (e.g., 'flagged_by': ['risk_model']). Verify the output is serializable to JSON for the reviewer interface. Test with different combinations of model outputs to ensure both fields are always present.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to configured maximum",
+      "minimum_level": "Unit",
+      "justification": "Exponential backoff is deterministic mathematical logic. Real failure (wrong calculation) is caught by mocking the HTTP calls and using fake timers to verify that computed wait intervals actually double until reaching the max. No real I/O required—the algorithm is tested in-process.",
+      "test_description": "Mock HTTP client to return 429 on all calls. Use jest.useFakeTimers() to capture setTimeout intervals. Verify that after 1st failure wait is W, 2nd failure wait is 2W, 3rd is 4W, etc., capping at maxBackoffMs. Assert intervals match expected exponential sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Retry logic correctly identifies a rate-limit response and computes appropriate wait time before next attempt",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection is response parsing—a pure function of response status and headers (429 + Retry-After). Real failure (wrong parsing) is caught by mocking the HTTP response with the correct structure. No real API call needed.",
+      "test_description": "Mock HTTP client to return status 429 with Retry-After: 300 header. Verify library correctly identifies this as rate-limited and extracts wait time of 300 seconds. Test edge cases: missing Retry-After (defaults to backoff), malformed header, different rate-limit response formats.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, client actually resends original request and returns successful result to caller transparently",
+      "minimum_level": "Unit",
+      "justification": "Retry loop sequencing is testable with mocked HTTP and fake timers. Real failure (not resending, or resending with wrong params) is caught by verifying the mock HTTP client was called twice with matching request bodies, with wait interval in between. All in-process logic.",
+      "test_description": "Mock HTTP to return 429 once, then 200 with success payload. Use fake timers. Call library.call(). Verify: (1) mock.call(1) was 429, (2) library waited, (3) mock.call(2) was 200 with identical params, (4) promise resolves with success payload. Verify caller sees transparent success, not intermediate 429.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After configured max retries exhausted, client returns typed QuotaExhaustedError rather than generic error",
+      "minimum_level": "Unit",
+      "justification": "Error handling logic is deterministic. Real failure (wrong error type, or throwing after max retries) is caught by mocking HTTP to always return 429 and verifying that after N=maxRetries attempts, a QuotaExhaustedError is thrown (not a generic Error).",
+      "test_description": "Mock HTTP to always return 429. Set maxRetries=3. Call library.call(). Expect promise to reject with error instanceof QuotaExhaustedError. Verify error message mentions quota exhaustion, not generic network error. Also test that after max retries, no further attempts are made.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain terminates correctly and does not loop indefinitely before surfacing error",
+      "minimum_level": "Unit",
+      "justification": "Termination is ensured by proper retry limits and backoff bounds. Real failure (infinite loop) is caught by unit test timeout: if code loops indefinitely, even with fake timers, the test harness will timeout. Mocked HTTP and fake timers are sufficient.",
+      "test_description": "Mock HTTP to always return 429. Set reasonable maxRetries and maxBackoffMs. Run test with jest timeout of 5 seconds. Library must call library.call() and reject with QuotaExhaustedError within timeout. If loop is infinite, test times out and fails. Verify exact number of HTTP attempts equals maxRetries+1.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in same process all draw from same shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Shared quota tracking requires real async concurrency. Real failures (quota tracked per-caller instead of globally, or unsynchronized access leading to race conditions) are only reliably caught by running multiple Promise.all() concurrent callers with mocked HTTP, then verifying that total attempts respect the shared quota limit. Pure in-process unit mocking cannot reliably simulate concurrent access patterns.",
+      "test_description": "Create library with shared quota of 10 reqs/sec. Mock HTTP to track total call count across all callers. Spawn Promise.all([caller1.call(), caller2.call(), ...caller5.call()]) all concurrently. Each waits for quota. Verify: (1) total HTTP calls ≤ quota, (2) all callers eventually succeed or all get QuotaExhaustedError consistently, (3) no caller has private quota counter. Run test multiple times to catch race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in order they were originally submitted",
+      "minimum_level": "Integration",
+      "justification": "Request ordering under concurrency requires real async execution. Real failures (requests dispatched out-of-order from a queue, or no queue at all) are caught by spawning multiple concurrent callers and verifying that mocked HTTP receives them in submission order. Sequential unit tests cannot reliably detect ordering bugs in concurrent dispatch.",
+      "test_description": "Spawn 5 concurrent requests: await Promise.all([call(id=1), call(id=2), ..., call(id=5)]). Mock HTTP to record call order. All requests compete for limited quota. Verify mocked HTTP calls are received in order [1, 2, 3, 4, 5], not scrambled. Use a queue/FIFO tracking mechanism in mock to detect out-of-order dispatch. Run multiple iterations to catch race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

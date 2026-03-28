@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent translation preserving meaning, not word-for-word substitution",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real NMT model produces. A mock translator returning static text would always pass, hiding real failures where the API produces incoherent output. Testing requires the real NMT API call (System level) plus an oracle to evaluate semantic quality (another LLM or human review). Both the call and the oracle evaluation cannot be mocked away without missing real production failures.",
+      "test_description": "Call the real NMT API with test source text, use an independent LLM oracle (or human reviewer) to verify the translation is grammatically coherent and semantically preserves the source meaning. Test multiple language pairs and idiomatic phrases to ensure quality extends beyond word-for-word substitution.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When translation API returns 503 error, service falls back to dictionary without returning error to caller",
+      "minimum_level": "Integration",
+      "justification": "While the error-handling path (catching 503 and triggering fallback) can be tested at Unit level with a mocked API error, verifying the fallback actually works requires a real SQLite database. A mock database hides real failures like schema corruption, misconfigured connection, missing required columns, or locked database. The transparent fallback must be verified end-to-end against real persistence.",
+      "test_description": "Mock the NMT API to return a 503 error, seed the real SQLite database with test phrase→translation pairs, call the service, and verify: (1) the service queries the dictionary, (2) returns the fallback translation immediately, (3) no error is propagated to the caller, (4) the response contains valid data from the real database (catches schema/config issues).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary-based fallback returns correct pre-stored translation for phrases in SQLite database",
+      "minimum_level": "Integration",
+      "justification": "Must test against the real SQLite database to catch real failures: missing or corrupted rows, schema mismatches, encoding issues, or incorrect stored values. A mock database would always pass, hiding data layer problems. The correctness of the lookup is defined by what is actually stored in the database.",
+      "test_description": "Insert a controlled set of phrase→translation pairs into the real SQLite database with varied character encodings, punctuation, and whitespace. Call the service with exact phrase matches and near-matches, verify exact matches return the correct stored translation and the database is queried (not cached).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes edit distance between primary and fallback outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "The edit distance calculation itself is a deterministic algorithm (testable at Unit), but the behavior requires both computation AND persistence. A mock database for storage hides real failures: the metric column may not exist, the schema may be incompatible, or the write may silently fail. Must verify the metric is actually persisted in the real database to catch storage failures.",
+      "test_description": "Obtain translations from both primary API and dictionary fallback, verify the computed edit distance against a manually calculated reference, then confirm the metric is persisted in the real database by querying it back with correct column names and types.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, service returns primary translation and logs quality comparison in background",
+      "minimum_level": "Integration",
+      "justification": "Returning the primary translation (Unit-testable with mocks) is only half the behavior. The background logging task must actually complete and persist, which requires Integration-level infrastructure. A Unit test mocking the logger would pass even if the background task throws an exception, is never scheduled, or fails silently during persistence. Testing the actual background task completion (or log entry existence in real storage) requires Integration.",
+      "test_description": "Set up both translators (real or mocked), call the service with both available, verify the primary translation is returned immediately, then wait for and verify the background quality comparison task completes successfully and the metric is logged/stored in the real database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is: does the code correctly retrieve the PR's changed file list from GitHub and actually use it for filtering? A pure unit test with a mocked GitHub API response could pass even if the code never calls the API at all. Integration level (mocking GitHub API at the module boundary) verifies the code makes the right API call AND applies the results to filter which files are analyzed. System level (running in actual GitHub Action context) would be needed only if the PR context is obtained differently (e.g., via environment variables) and that context setup could fail.",
+      "test_description": "Mock GitHub's API to return a specific list of 5 changed files; create a test directory with 15 files total; run the linter pipeline; verify that: (a) the GitHub API was called with the correct PR/SHA context, (b) exactly 5 files appear in linting reports, (c) the 10 unchanged files are completely skipped and produce no findings.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment",
+      "minimum_level": "Integration",
+      "justification": "The real failure is: are findings grouped AND posted correctly to GitHub? A unit test that only tests the grouping logic would pass even if the code never calls the GitHub API or formats the comment incorrectly. Integration level (mocking the GitHub 'create PR comment' API) ensures the code groups findings correctly in memory AND serializes them into the right format for GitHub. The failure boundary is wiring the grouping logic to the API call correctly.",
+      "test_description": "Run linter on code that produces mixed findings (3 errors, 2 warnings, 1 info); mock GitHub's 'create PR comment' API; verify the comment payload contains findings grouped under distinct severity headers (e.g., '## Errors (3)' with findings listed below) in the correct format GitHub expects.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout",
+      "minimum_level": "System",
+      "justification": "The real failure is a timeout in GitHub Actions. Unit/Integration tests with mocked or real-but-local file I/O cannot reveal whether the actual Action environment (with resource constraints, API rate limits, or other runtime differences) will timeout. The failure boundary is real subprocess execution + real file I/O measured in the actual GitHub Actions resource context. Integration might catch algorithmic bottlenecks (O(n²) logic), but only System testing in the actual Action environment (or a faithful simulation) can confirm the 10-minute timeout is met under real constraints.",
+      "test_description": "In a GitHub Action environment (or simulate Action constraints), create 200 files (mixed types: .js, .ts, .py, .json), run the full linting pipeline including: file discovery, linter subprocess invocation for each file, result aggregation, and GitHub API posting; measure elapsed time; verify completion in under 10 minutes and successful result posting.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted",
+      "minimum_level": "System",
+      "justification": "The real failure is: does the code handle how the real linter subprocess actually crashes? The real linter may crash via exit codes, signals, output corruption, or stderr pollution — none of which a mocked subprocess failure can reliably simulate. Unit tests that mock a subprocess exception would pass even if the actual subprocess behavior (e.g., partial output before crash, buffering issues) causes the recovery logic to fail. System level testing with the real linter subprocess crashing is needed to see the actual failure modes and verify the code recovers.",
+      "test_description": "Create a set of linting targets including one intentionally malformed file that causes the actual linter subprocess to crash (e.g., invalid syntax that linter exits on); run the full pipeline; verify: (a) the subprocess crash is caught, (b) analysis continues on remaining files, (c) partial results (for successfully analyzed files) are posted to GitHub (mocked API), (d) the malformed file is logged as an error with context.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.17,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output",
+      "minimum_level": "Unit",
+      "justification": "This is pure in-process business logic with no infrastructure dependencies (no file I/O, subprocess, or API calls). The deduplication algorithm receives a list of findings and returns a deduplicated list — a deterministic operation. A unit test with test findings (created as real objects, not mocks) can fully exercise all deduplication cases. There is no hidden failure that would only emerge at Integration or System level, because the logic doesn't depend on external behavior, timing, or resources.",
+      "test_description": "Create test findings where line 42 is flagged by two overlapping linting rules (e.g., both a style rule and a security rule); pass the full findings list through the deduplication logic; verify the output contains findings deduplicated according to the strategy (e.g., one consolidated entry per line, or per rule ID), and verify the result count matches expectations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    }
+  ]
+}

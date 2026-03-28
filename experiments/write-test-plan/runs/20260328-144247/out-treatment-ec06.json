@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in subdirectories of the watched root are processed",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked filesystem could hide a bug where the watcher only monitors the root directory (missing recursive flag in chokidar or fs.watch). The bug only manifests when the daemon actually watches a real filesystem with subdirectories. Testing with a real temp directory structure is needed to verify the watcher is configured for recursive monitoring.",
+      "test_description": "Create a temp directory hierarchy with subdirectories, place a file in a subdirectory, start the daemon watching the root, verify the file is processed. Repeat with multiple nesting levels. A unit-level mock would accept the subdirectory path without catching a misconfigured non-recursive watcher.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.95,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic rejects duplicate requests within configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is pure business logic with no OS or filesystem dependency. The deduplication state machine can be tested by calling the deduplication function multiple times with controlled/mocked time. No filesystem events or async I/O are needed—only verification that the in-memory state machine correctly tracks and rejects duplicates.",
+      "test_description": "Unit test: instantiate deduplication service, call process(path1) at time T, call process(path1) at time T+50ms (within window), verify second call is rejected. Call at T+200ms (outside window), verify it is accepted. Use mocked/controllable time, no actual files needed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Multiple OS filesystem events for single file write result in exactly one processing",
+      "minimum_level": "Integration",
+      "justification": "A mock filesystem would not emit the duplicate/redundant 'add' or 'change' events that real operating systems produce (e.g., Windows fires multiple 'change' events, macOS/Linux may emit 'add' then 'change'). Testing with a real filesystem and file I/O allows the actual OS event stream to be observed and debounced correctly. Unit tests calling the handler multiple times simulate the race but don't verify real OS event handling.",
+      "test_description": "Integration test: create actual file(s) in a real temp directory, write to them to trigger OS events, verify processing happens exactly once per file despite the OS likely emitting 2+ events per write. Observe event logs or use a real file watcher library in the test to confirm the debounce/deduplication works against genuine OS event streams.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Daemon resumes watching after watched directory is removed and recreated without restart",
+      "minimum_level": "System",
+      "justification": "The daemon must be running as a subprocess and continue operating while filesystem state changes. A real subprocess must stay alive, detect the directory loss (via watcher errors or retries), and resume monitoring the recreated directory. This requires subprocess management, signal handling, and real filesystem operations that cannot be fully tested at Integration level—the daemon must be a live process responding to actual OS conditions.",
+      "test_description": "System test: start daemon subprocess, verify it is watching /tmp/watch; delete /tmp/watch from the test process; wait and observe that daemon detects loss (via error or timeout); recreate /tmp/watch; place a test file in it; verify daemon processes the file without requiring a restart. Monitor daemon logs and file output to confirm recovery occurred.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.3,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Multiple simultaneous files processed in order of creation timestamp",
+      "minimum_level": "Integration",
+      "justification": "Files must be created with real filesystem timestamps, and the daemon must discover them, read their birth/mtime, and process them in timestamp order. A unit test without real files cannot verify that the ordering logic correctly handles real filesystem timestamp precision and discovery order. Integration with a real filesystem and real file metadata is necessary.",
+      "test_description": "Integration test: create 5 files in temp directory with staggered creation times (controlled via sleep or mtime modification), trigger the daemon/watcher, capture the order in which files are processed, verify it matches the creation timestamp order. Use real filesystem operations and confirm timestamp-based ordering logic works end-to-end.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "File still being written is not processed until write is complete",
+      "minimum_level": "Integration",
+      "justification": "The daemon must detect that a file is open for writing (via file locks, size stability checks, or OS-level queries) and delay processing. A unit test cannot reliably create a file in a 'partially written' state. Real filesystem I/O is needed: open a file handle, write incrementally, trigger the watcher while writing, verify no processing yet, then close and verify processing begins. This requires actual file handles and real OS file state.",
+      "test_description": "Integration test: open a file for writing in a separate thread/process, write data incrementally, trigger watcher arrival event while file is open and incomplete, verify processing does not start. Close the file, verify processing begins. Alternatively, use OS-level file-locking checks (fcntl, LockFile) to confirm the daemon respects in-progress writes before processing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.7,
+        "System": 0.3,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

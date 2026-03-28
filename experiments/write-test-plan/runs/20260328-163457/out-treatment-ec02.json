@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with mismatched X-Signature-256 is rejected with 401; body is not forwarded to queue",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is pure cryptographic logic (HMAC-SHA256) with no I/O or external dependencies. Real failures are in the crypto implementation (encoding, key handling, algorithm), not in infrastructure. A Unit test can mock the queue to verify the rejection decision and confirm the enqueue is never called. The critical test is: does the handler compute HMAC correctly and reject invalid signatures? Mocking the queue dependency doesn't hide this logic.",
+      "test_description": "Create a request with a body and a deliberately incorrect X-Signature-256 header (or compute correct signature with different key/algorithm). Verify: (1) handler returns 401, (2) queue.enqueue() is never called, (3) request body is not processed. Test with real HMAC-SHA256 library to catch crypto bugs (encoding issues, algorithm choice). Also test with a valid signature to confirm correct requests are accepted.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is written to persistent queue before HTTP 200 acknowledgment is returned to caller",
+      "minimum_level": "Unit",
+      "justification": "This is a control-flow and ordering guarantee: `await queue.enqueue()` must complete before `res.send(200)` is invoked. This is testable at Unit level with an async mock queue that we can control. The real failure would be the handler sending the response without waiting for the enqueue (e.g., `queue.enqueue(); res.send(200)` without await), which a mock can catch. No real queue I/O is needed to verify the code ordering; the async mock proves the handler respects the ordering contract. Whether the queue is actually persistent is a separate concern (Behavior 7).",
+      "test_description": "Mock the queue with an async enqueue() that returns a promise. Call the handler with a valid request. Verify that res.send() is called *after* queue.enqueue() has resolved (use a sequence tracker or promise resolution order check). Test both fast and slow queue mocks (e.g., 100ms delay) to ensure handler awaits properly. Negative test: if code is broken and sends response without await, the mock will reveal it because the response will be sent before enqueue completes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without blocking on downstream processing of the event",
+      "minimum_level": "Unit",
+      "justification": "The real failure is the handler incorrectly awaiting downstream work before returning (e.g., `await processor.processEvent(event); res.send(200)`). This is code-logic failure, not infrastructure failure. A Unit test can mock both the queue and any downstream processor and verify the response is sent after enqueue but does not await processing. No real processor or worker is needed; mocking the entire dependency chain reveals whether the handler respects the async boundary.",
+      "test_description": "Mock the queue and a downstream event processor (if the handler invokes one directly). Call the handler with a valid request. Measure that res.send(200) returns quickly (< 100ms) even if the processor mock is slow (e.g., returns a promise that resolves after 1000ms). Verify that the handler does not `await` the processor. Negative test: if code mistakenly awaits processing, the response will be delayed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response latency remains under 3 seconds even when downstream processing of earlier events is slow and multiple requests are concurrent",
+      "minimum_level": "Integration",
+      "justification": "This is a performance and concurrency behavior. A single-request Unit test cannot reveal concurrency bottlenecks, serialization bugs, or lock contention. The real failure would be a handler that blocks on slow I/O (partially caught by Unit tests) or exhibits contention under concurrent load. To verify this, we must test multiple concurrent HTTP requests against the handler. While a mock queue could be used, the test naturally requires: (1) concurrent request handling, (2) realistic queue latency (e.g., 100-500ms), (3) timing assertions across multiple in-flight requests. This cross-request orchestration is an Integration-level concern.",
+      "test_description": "Create an HTTP server with the handler. Mock the queue with a delay (e.g., 200ms enqueue latency). Fire 10 concurrent requests with valid signatures. Measure the response time for each. Verify: (1) each response arrives within 3 seconds (< 3000ms), (2) total time for all concurrent requests is roughly equal to the slowest single request (~200ms + overhead), NOT serial (2000ms+). If handler blocks on queue I/O or serializes requests, total time will grow linearly with request count and test will fail.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time (deduplication works correctly)",
+      "minimum_level": "Integration",
+      "justification": "Deduplication state must persist across multiple requests and be shared (e.g., in a database, Redis, or shared in-memory cache). Testing this requires either: (1) a real or realistic deduplication store, (2) multiple sequential or concurrent requests with the same event ID. The real failure modes include: incorrect ID extraction, missing deduplication check, race conditions if the store is external (check-then-enqueue must be atomic), or lost state across restarts. A Unit test with a mocked store cannot catch data-store bugs or race conditions. An Integration test with a real local database/cache, concurrent requests, and verification that only one enqueue occurs is needed.",
+      "test_description": "Set up the handler with a real local deduplication store (e.g., SQLite table, Redis, or in-memory Map with persistence). Create and send two requests with identical event IDs (same body + signature). Verify: (1) first request succeeds with 200, (2) second request succeeds with 200 (same signature is valid), (3) queue.enqueue() was called exactly once, not twice. Also test concurrent identical requests: send two requests simultaneously with the same event ID and verify atomicity (only one queued). Extract event ID from request to ensure the handler computes it correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full (capacity reached), handler returns 503 Service Unavailable with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "This is error-handling logic in the handler: check queue fullness, then branch on the result. The real failure is missing the check or returning the wrong status code. A Unit test can mock the queue with `isFull() = true` and verify the conditional logic. No real queue I/O or capacity testing is needed here; the handler's response to a full-queue signal is a pure code-logic problem. The actual queue capacity enforcement is tested separately (Behavior 7).",
+      "test_description": "Mock the queue with an isFull() method that returns true. Call the handler with a valid request. Verify: (1) handler returns 503 status, (2) response includes Retry-After header (verify format, e.g., 'Retry-After: 60'), (3) queue.enqueue() is not called. Also test with isFull() = false to confirm normal flow still works (200 response, enqueue called).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events exceeding it",
+      "minimum_level": "Integration",
+      "justification": "This is testing queue infrastructure behavior, not handler logic. A mock queue can be configured to return `isFull() = true`, but a real mock will never actually run out of capacity. The real failure is the queue implementation allowing over-capacity inserts, incorrect capacity configuration, or silent event loss. To catch these, we must use a real queue with a configured capacity limit and push it to the boundary. This is not the handler's logic—it's the queue's behavior.",
+      "test_description": "Use a real persistent queue (e.g., SQLite table with a max row count, Redis with MAXMEMORY, or an in-process queue with size limit). Configure it with a small capacity (e.g., 10 events). Enqueue 10 valid events and verify all succeed. Attempt to enqueue the 11th event and verify it is rejected (throws exception, returns error status, or returns `isFull() = true`). Verify the queue's storage actually contains exactly 10 items, not 11. Test that rejection is immediate and consistent (not a race condition).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.95,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

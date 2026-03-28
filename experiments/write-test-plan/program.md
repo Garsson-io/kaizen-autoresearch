@@ -366,3 +366,29 @@ Use the scripts above — they all handle naming correctly. Don't hardcode `ec01
 **Agentic vs System**: the distinction is not "does it call an external service" but
 "does the *content* of the response matter and can it vary non-deterministically."
 A deterministic REST API = System. A language model = Agentic.
+
+### Canonical semantics (taxonomy lock)
+
+Use these meanings consistently across GT review, taxonomy, prompt edits, and IDEATE:
+
+- **Agentic** = **AI Agentic Step**
+  One real AI/LLM model step where correctness depends on the model's judgment/output
+  (classification, ranking/scoring quality, generation quality, moderation quality).
+
+- **Workflow** = **AI Agentic Workflow**
+  A full multi-step AI-agent run/session where correctness depends on cross-step behavior
+  (state carried across steps, retry/refinement loops, multi-skill/hook/prompt orchestration),
+  not just one model call.
+
+Guardrail:
+- Do **not** interpret `Workflow` as generic software workflow/pipeline alone.
+  If it is multi-module software wiring without multi-step AI-agent behavior, it is usually
+  Integration or System, not Workflow.
+
+GT policy implication:
+- When a behavior says "single model step should be correct" -> prefer Agentic.
+- When a behavior says "the multi-step agent run should converge/coordinate across steps" -> Workflow.
+
+Prompting policy implication:
+- A future treatment can include this aliasing explicitly ("Agentic Step" vs "Agentic Workflow")
+  if diagnostics show persistent Agentic↔Workflow confusion on the active model.

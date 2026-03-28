@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The cron parser rejects invalid expressions with descriptive error messages",
+      "minimum_level": "Unit",
+      "justification": "The cron parser is a pure function: input string → parsed structure or exception. No I/O, no state, no external dependencies. Invalid expressions (month=13, day=32, malformed syntax) are deterministic rule violations. Testing with parametrized invalid inputs at Unit level catches all parser bugs; a mock would not help since the failure boundary *is* the parser itself.",
+      "test_description": "Parametrize over invalid cron expressions: 'month 13' ('* 13 * * *'), 'day 32' ('* * 32 * *'), 'too few fields' ('* * *'), 'malformed day range' ('* * 1-40 * *'). For each, verify that the parser raises an exception (not silently accepts), and the error message identifies the field and the specific violation (e.g., 'month 13 exceeds max 12').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The next-run-time calculator returns correct timestamps for standard and edge-case cron expressions",
+      "minimum_level": "Unit",
+      "justification": "The calculator is a pure function: (cron_schedule, current_time_arg) → next_run_time. No I/O or system calls; leap years and month boundaries are algorithmic rules, not runtime surprises. Testing with parametrized (cron, current_dt, expected_next_dt) tuples covers deterministic edge cases. A mock of the underlying datetime library would obscure real boundary bugs (e.g., Feb 29 leap-year logic).",
+      "test_description": "Parametrize with test cases: (1) standard daily '0 9 * * *' from 2024-03-15 08:00 → 2024-03-15 09:00, (2) weekday-only '0 9 * * 1-5' from 2024-03-16 08:00 (Saturday) → 2024-03-18 09:00 (Monday), (3) leap-year Feb 29: '0 0 29 2 *' from 2024-02-28 12:00 → 2024-02-29 00:00, (4) month boundary: '0 0 1 * *' from 2024-03-31 12:00 → 2024-04-01 00:00. Assert exact timestamp matches, not approximate.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The overlap detector identifies when two schedules would fire within the configured minimum gap",
+      "minimum_level": "Unit",
+      "justification": "The overlap detector compares two schedules and reports conflicting time windows. If the next-run calculator is injected (mocked with test data) rather than called directly, this is pure Unit logic: given two sets of run times and a min_gap threshold, detect overlaps. The failure boundary is the overlap-detection algorithm, not the next-run calculator. Mocking the calculator is acceptable; the detector logic is deterministic given run times.",
+      "test_description": "Parametrize with (schedule_a, schedule_b, min_gap_minutes, expected_conflicts). Test cases: (1) non-overlapping: schedule_a at 9 AM, schedule_b at 10 AM, min_gap=5 → no conflict; (2) tight overlap: schedule_a at 9:00 AM, schedule_b at 9:02 AM, min_gap=5 → conflict from 9:00-9:05; (3) back-to-back: schedule_a at 9:00 AM runs for 10 min, schedule_b at 9:10 AM, min_gap=5 → conflict. Assert conflict windows (start, end) are exact or list is empty.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across DST transitions, handling spring-forward gaps and fall-back ambiguities",
+      "minimum_level": "Unit",
+      "justification": "DST transitions are deterministic rule-based events defined by timezone libraries (pytz, zoneinfo), not runtime surprises. Testing with real timezone data is required — mocking 'EDT is UTC-4' would hide the function's DST-gap or ambiguity handling logic. No System-level infrastructure needed; the library's rules are baked-in. The failure boundary is how the function handles the DST boundaries, not OS time or network.",
+      "test_description": "Test with real timezone library (pytz/zoneinfo) in 'America/New_York'. Case 1 (spring-forward, 2024-03-10 02:00→03:00): schedule job for '30 2 10 3 *' (2:30 AM doesn't exist); verify next run is either 2024-03-10 03:30 AM or skips to 2024-03-11, per policy. Case 2 (fall-back, 2024-11-03 02:00→01:00): schedule for '30 1 3 11 *' (1:30 AM is ambiguous); verify it runs once, not twice, and UTC offset is correct. Assert timezone info (tzinfo) is present on all returned datetimes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.05,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a job's next run time has passed, the engine applies the configured missed-run policy (skip vs. backfill)",
+      "minimum_level": "Unit",
+      "justification": "The missed-run detector is pure policy logic: given (cron_schedule, last_computed_run, current_time, policy), it computes the queue of runs to backfill or skip. No I/O, no external calls, no non-determinism. Testing with different policies and time-gap scenarios is sufficient at Unit level. The failure boundary is the policy logic, not the next-run calculator (a dependency that can be mocked).",
+      "test_description": "Parametrize with (policy, last_run_time, current_time, expected_queue). Case 1 (SKIP): last_run 2024-03-10 09:00, current 2024-03-15 15:00, policy SKIP → next run 2024-03-16 09:00, backfill queue is empty. Case 2 (BACKFILL): same times, policy BACKFILL → backfill queue includes 2024-03-11 09:00, ..., 2024-03-15 09:00 (5 runs, in order). Case 3 (BACKFILL_WITH_LIMIT(2)): same times, policy BACKFILL_WITH_LIMIT(2) → backfill queue includes only last 2 (2024-03-14, 2024-03-15). Assert queue count and order match policy.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

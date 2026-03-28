@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "Testing subdirectory watching requires verifying that fs.watch is configured with the recursive option and that the daemon's glob patterns include nested paths. A unit mock could emit events for subdirectory paths, but would miss the real failure: fs.watch not being initialized with recursive:true, or the daemon's file-discovery logic excluding subdirs. Only an integration test that creates actual files in real subdirectories and watches them with the actual fs.watch API will catch configuration and setup bugs.",
+      "test_description": "Create a multi-level directory structure (root/subdir1/subdir2/) within the watched directory. Place test files at different nesting levels. Trigger the daemon and verify that all files are discovered and processed, including those multiple levels deep. This directly tests real fs.watch recursive watching behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "The deduplication logic is purely in-memory state management: track recently processed files with timestamps, reject duplicates within the window, and clean up expired entries. This can be thoroughly tested by mocking fs.watch events and using fake/mock timers to control time advancement. A unit test can verify: (1) first event is processed, (2) second event within window is rejected, (3) cleanup works, (4) events after window expires are accepted. Filesystem operations do not affect the correctness of the dedup algorithm itself.",
+      "test_description": "Mock the filesystem watcher to emit two arrival events for the same file path, both within the configured deduplication window (e.g., 5 seconds). Verify processing is triggered only for the first event. Then advance fake time past the window and emit a third event for the same file; verify it is processed. Use deterministic fake timers to control timing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the daemon doesn't correctly deduplicate the actual number and sequence of events that the OS generates. Different OSes (Linux/inotify, macOS/FSEvents, Windows/ReadDirectoryChangesW) and different hardware configurations emit different event counts for a single file write. A unit mock that emits 2–3 events may pass while the real OS emits 5–7 in production, revealing a logic flaw that only a real integration test would catch. Integration testing with actual fs.watch and real filesystem I/O is necessary to capture the true deduplication challenge.",
+      "test_description": "Write a file to the watched directory using real filesystem operations. Capture all filesystem events emitted by the OS (via fs.watch or raw event listener). Verify the daemon processes the file exactly once, regardless of how many events the OS generated. Repeat with files of different sizes and write patterns to expose timing and event batching variations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "This behavior tests resilience to filesystem state changes and depends critically on OS-specific fs.watch error handling. When a watched directory is deleted, different platforms behave differently: some emit errors immediately, others delay, some leave the watcher in an inconsistent state. The daemon must detect the deletion (either via error or failed operations), handle it gracefully without crashing, and re-establish watching when the directory is recreated. This recovery logic is platform-specific. A unit test with mocked directory deletion cannot replicate real fs.watch error semantics; an integration test may work on one OS but fail on another. A system-level test on the target OS is required to verify actual fs.watch behavior and daemon recovery.",
+      "test_description": "Start the daemon watching a directory. While running, delete the watched directory at the OS level and verify no crash or hang occurs. Recreate the directory with the same or similar name. Place new files in the recreated directory and verify the daemon detects and processes them without requiring a restart. Run on the target OS (Linux/macOS/Windows) to validate fs.watch error handling.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.25,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "Verifying that the daemon uses creation timestamps (not arrival order or modification time) requires testing with real files whose timestamps can be controlled and observed. A unit test with mock file objects could test a sorting function, but would not catch if the daemon uses the wrong timestamp property (e.g., mtime instead of ctime), or if it processes files in arrival order and ignores timestamps entirely. Only an integration test that creates real files with specific creation timestamps, triggers watching, and observes the actual processing order will catch such failures.",
+      "test_description": "Create multiple real files in the watched directory with distinct, controlled creation timestamps (e.g., file1 at T, file2 at T+10s, file3 at T+5s). Trigger the daemon's file watching. Capture the processing order and verify files are processed in creation timestamp order: [file1, file3, file2], not arrival order. Test with multiple batches to ensure consistent behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "Detecting incomplete writes requires the daemon to identify open file handles or changing file sizes, which depends on OS file I/O semantics. A unit test could mock file-locking state, but would not catch if the daemon doesn't actually check file state before processing, or if it uses the wrong detection method (e.g., checking mtime stability instead of file locks). The real failure—processing partial/corrupt data from incomplete writes—can only be caught by integration testing with actual file I/O: opening a file, writing data without closing, triggering the daemon, verifying the file is skipped, then closing and verifying it is processed.",
+      "test_description": "Open a file for writing in the watched directory. Write some data but do not close the file handle. Trigger the daemon to scan for files. Verify the file is not picked up for processing. Close the file. Trigger the daemon again (or wait for retry logic). Verify the file is now processed. Test with various file sizes and write patterns to ensure robustness.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

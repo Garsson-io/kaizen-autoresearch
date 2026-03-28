@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Missing required key error message includes the exact config path (e.g., 'database.host', not just 'database')",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is in error message generation and validation logic, both testable in isolation. A Unit test can mock the config dict with a missing key and assert the error message format. The mock won't hide this failure—if the error message is malformed or omits the path component, the assertion fails. However, edge cases in how the actual Pydantic validator formats nested paths might require Integration testing.",
+      "test_description": "Create a Pydantic model with nested required fields (e.g., DatabaseConfig with required 'host' field nested under 'database'). Instantiate the top-level config model with an incomplete nested dict (missing 'database.host'). Assert the ValidationError message contains the full dotted path 'database.host'.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test directly exercises the validation error message without file I/O. If the error message formatting is broken, the assertion catches it. Integration could test with real YAML files, but that's redundant for this specific behavior (path naming), not necessary.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "XDG_CONFIG_HOME environment variable changes the config file resolution path from ~/.config to the specified directory",
+      "minimum_level": "Integration",
+      "justification": "Path resolution logic is testable at Unit level with mocked os.environ, but the real failure mode is that the file isn't actually read from the environment-specified directory. A Unit mock could hide this: code might construct the right path string but never use it to open the file. Integration testing (setting XDG_CONFIG_HOME in a temp environment, creating a config there, verifying it's loaded) catches the actual failure boundary—that file I/O uses the resolved path.",
+      "test_description": "Create two temp directories: one as a mock home (~), another as XDG_CONFIG_HOME. Place a config file in the XDG directory. Set XDG_CONFIG_HOME env var (via pytest monkeypatch) and call the loader. Assert it reads the config from the XDG directory, not the home/.config fallback. Run twice: once with XDG set, once without, to verify both paths work.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test verifies the full behavior: environment variable → path used in actual file I/O. A Unit mock of os.environ could pass even if the code ignores XDG and reads from ~/.config instead. This is a file-I/O boundary failure.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.58,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Environment variable with TOOL_ prefix overrides conflicting values from the config file",
+      "minimum_level": "Unit",
+      "justification": "The behavior is about merge/override logic: when both file and env var provide a value, use the env var. This is purely computational, testable at Unit level by mocking both sources and verifying the final merged config. A mock won't hide the failure—if the override logic is broken (e.g., file value is used instead), the assertion fails. File I/O is not the failure boundary; the logic is.",
+      "test_description": "Mock the config file reader to return {\"database\": {\"host\": \"file-host\", \"port\": 5432}} and mock os.environ.get to return TOOL_DATABASE_HOST='env-host'. Call the config merger. Assert the final config has database.host='env-host' (env wins) and database.port=5432 (file value used, no env override).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test directly tests the override merging logic. Mocks won't hide the failure because the test checks the final merged dict. If override precedence is wrong, the assertion catches it. Integration would be redundant—it tests file I/O, not override logic.",
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "YAML syntax error in config file produces an error message that includes the line number where the error was detected",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is subtle: the error message must include line-number info from the YAML parser. Unit testing with a mocked parser risks hiding real failures—if the code doesn't extract or format the line number correctly from a real PyYAML exception, a Unit mock might not expose this. The real test must use actual YAML parsing: write a malformed YAML file, call the loader, and assert the error includes the line number as provided by the real parser.",
+      "test_description": "Create a temp YAML file with intentional syntax error (e.g., mismatched indentation or invalid key syntax) on line 5. Call the config loader. Capture the error message and assert it includes the line number (e.g., 'line 5' or 'line: 5'). Verify the message is actionable and points to the right location.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test uses real YAML parser, which is the source of line-number info. A Unit mock of the YAML parser could test message formatting but wouldn't verify that real PyYAML exceptions are handled correctly. This is a parser-integration boundary.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On first run, if the config directory does not exist, the loader creates it and writes a defaults file before proceeding",
+      "minimum_level": "Integration",
+      "justification": "This behavior has side effects on the file system (directory creation, file writing). Unit testing with mocked os.makedirs and open() would only verify the code *calls* these functions—it wouldn't catch real failures like permission errors, filesystem state issues, or incorrect defaults content. The real failure boundary is: does the directory actually get created and does the file actually appear with correct content? This requires Integration testing with actual file I/O and filesystem state verification.",
+      "test_description": "Create a temp parent directory. Ensure the config subdirectory does not exist. Call the loader with that parent as the config home. Assert: (1) the config directory now exists, (2) a defaults file exists inside it, (3) the defaults file contains valid YAML and includes all expected default keys and values. Clean up the temp directory afterward.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test verifies actual filesystem side effects. A Unit mock could pass even if os.makedirs fails at runtime (permission denied) or the file write fails (disk full). This is a file-system-I/O boundary; mocking hides real failures.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.73,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Integration",
+      "justification": "The core failure mode is the moderation logic failing to prevent publication of flagged images. This requires testing the coordination between the vision model call, flagging decision, and database update that holds the post. A unit test of the decision logic alone (mocked model) could pass while the database update fails or the post is published anyway. We cannot catch persistence, workflow, or publish-path failures without testing at least two integrated components.",
+      "test_description": "Mock the vision model to return explicit=true, then submit an image post. Verify: (1) the post record exists in the database with flagged=true, (2) the post does NOT appear in the published feed, and (3) the post IS enqueued in the review queue. Failure modes caught: database write failures, logic routing errors (e.g., inverted flag check), publish-path bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends directly on the real text model's robustness to adversarial inputs. Mocking the model to always return hate_speech=true tests only the flagging logic, not whether the model actually detects obfuscated hate speech. Real failures (model fooled by letter substitution, unicode lookalikes) cannot be caught without calling the actual model and observing its real outputs. The system logic is trivial (if model says flag, then flag); the real complexity is in the model's capability.",
+      "test_description": "Submit multiple text posts with identical hate speech content but using obfuscation techniques (letter substitution like 'h4te', unicode lookalikes). Call the real or realistic test text model for each. Verify that all variants are flagged as hate_speech=true. Failure modes caught: model robustness gaps, inconsistency in handling obfuscation techniques, prompt-injection vulnerabilities in pre-processing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The failure modes are: (1) post is held despite passing checks, (2) post is silently dropped, (3) post is not created in the database. These require testing the interaction between the two model calls, the decision logic, and the publish operation. Unit tests of the decision logic (mocked both models returning safe=true) could pass while database commits fail, publish endpoints return 500, or posts get stuck in a retry queue. We need a real or test database and the actual publish flow.",
+      "test_description": "Mock both the vision and text models to return safe=true. Submit an image+text post. Verify: (1) the post record exists in the database with flagged=false, (2) the post appears in the published feed with correct metadata, (3) the post has a non-null published_at timestamp. Failure modes caught: missing database insert, failed publish operation, incorrect decision routing (e.g., accidentally holding safe posts).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "The failure is: pipeline exceeds 5-second SLA. Real causes include slow API responses (vision or text models), database latency, or infrastructure bottlenecks. Unit and integration tests with instant mocks always pass. Testing the SLA requires real (or realistic) I/O: actual HTTP calls to model services, real database operations, real publish workflow. However, the test does not require production model latency; it requires observing real infrastructure behavior. System-level testing with fast test models is sufficient to catch most bottlenecks; Agentic is only needed if production model latency is part of the SLA definition.",
+      "test_description": "Submit a post (image + text) through the full pipeline using realistic infrastructure: real database, real HTTP calls to vision and text model APIs (or fast test stubs). Record wall-clock time from submission until the post appears in the feed or review queue. Assert elapsed time < 5 seconds. Repeat 10 times to account for variance. Failure modes caught: database query timeouts, synchronous waiting on slow APIs, publish endpoint latency, connection pool exhaustion.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.65,
+        "Agentic": 0.25,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "System",
+      "justification": "The failure is: when vision API is down, the system either auto-approves (bad) or silently drops the post (bad), rather than queuing for retry. To catch this, we must test the system's failure-handling path when the vision API actually fails. This requires real or realistic error conditions: either mocking the API to raise an exception (integration-level) or actually simulating an unavailable service (system-level). However, simulating unavailability is better done at system level (taking down the service, network failures) to catch infrastructure-specific issues. A mock that raises an exception is integration-level but sufficient; system-level adds realism (connection timeouts, etc.).",
+      "test_description": "Configure the vision model service to be unavailable (DNS failure, connection refused, or timeout). Submit an image post. Verify: (1) the post record exists in the database, (2) flagged=null (not decided), (3) retry_queued=true or status=PENDING_RETRY, (4) the post does NOT appear in published feed, and (5) it does NOT auto-approve. Repeat with different unavailability modes (timeout, 503, connection reset). Failure modes caught: failure-path not implemented, auto-approval fallback, silent drops.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "The failure is: the same image receives different moderation decisions on re-submission (e.g., first submit → held, second submit → published). This depends on real LLM non-determinism: vision models can output different confidence scores or classifications for the same input. Testing consistency requires: (1) calling the real model multiple times, (2) observing its actual non-deterministic outputs, and (3) verifying the system caches or normalizes them correctly. Mocking the model to always return the same result masks the real problem. The test must interact with the actual model's behavior, including its variability.",
+      "test_description": "Submit the same borderline image 5 times within 10 seconds. Verify: (1) the moderation decision (flagged or safe) is identical for all 5 submissions, AND (2) the decision is cached (only one call to vision model, or cached result is used). Vary the image quality/encoding slightly and repeat. Failure modes caught: lack of caching, decision logic that depends on timestamp or request ID rather than image content, insufficient normalization of model outputs, race conditions in the cache layer.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    }
+  ]
+}

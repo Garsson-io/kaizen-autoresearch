@@ -16,6 +16,12 @@ change_type: framing
 risk: Persona framing may conflict with other instructions or cause inconsistent reasoning across tasks
 prereqs: null
 related: [precision-failure-boundary, concrete-agentic-example]
+explore_status: concentrated-signal
+explore_tasks: [ec-03, ec-04, ec-19, ec-30]
+explore_baseline_loss: 128.78
+explore_loss: 86.24
+explore_delta: -42.54
+explore_date: 2026-03-28
 ---
 
 ## The change
@@ -28,31 +34,26 @@ Answer as a staff engineer justifying the testing strategy in a PR review. You m
 
 ## Epistemological status
 
-**Explore-run signal only (4 tasks, not full corpus). Do not treat as confirmed.**
+**DISCONFIRMED on full corpus. explore_status retroactively: concentrated-signal.**
 
-Tested 2026-03-28 on tasks ec-03, ec-04, ec-19, ec-30 (the 4 worst-loss tasks in iter19 baseline).
+Explore tested 2026-03-28 on tasks ec-03, ec-04, ec-19, ec-30 (top-loss tasks, biased sample).
+Full corpus run: iter21 (run 20260328-170052), loss **469.89** vs baseline 368.08 → **+101.81**.
 
-| Metric | Baseline (iter19) | V2 role-anchor | Delta |
-|--------|-------------------|----------------|-------|
-| Loss (4-task subset) | 128.78 | 86.24 | **-42.54** |
+| Task | Baseline | Explore run | Full run | Explore Δ | Full Δ |
+|------|----------|-------------|----------|-----------|--------|
+| ec-03 | 14.07 | 15.09 | — | +1.02 | — |
+| ec-04 | 22.10 | 16.43 | 58.74 | -5.67 | **+36.64** |
+| ec-19 | 24.64 | 21.03 | — | -3.61 | — |
+| ec-30 | 67.98 | 33.68 | 40.74 | **-34.30** | -27.24 |
 
-This was the strongest signal of the three variations tested that day:
-- V1 anti-lazy: +20.84 loss (worse)
-- V2 role-anchor: **-42.54 loss (better)**
-- V3 precision: -29.20 loss (better, but weaker)
+**Concentration analysis**: EC-30 drove -34.30 of the -42.54 explore aggregate (**81%**). 3/4 tasks improved in the explore run. But EC-04 — which was modest -5.67 in explore — reversed to +36.64 on the full corpus. EC-04-type regressions (hurt 11 tasks, +140 total) overwhelmed the EC-30 improvement on the full run.
 
-## Why it might work
+The explore sample was biased: ec-30 baseline = 67.98, which was **52.8% of the 4-task subset baseline** (128.78). Any change that helps EC-30 dominates the aggregate, masking per-task regressions.
 
-The "staff engineer in PR review" frame forces **bidirectional accountability**: you must defend against both under-prediction ("why not higher?") and over-prediction ("why not lower?"). The existing prompt only pushes upward (MOCK-MISS, MOCK-HIDE, LLM-DEP all raise the level — nothing lowers it).
+This failure documented in meta-failures.md (explore-selection-bias). The fix: stratified task selection and per-task concentration check in `/explore`.
 
-On ec-03 (over-prediction: Integration→System x4) and ec-30 (over-prediction: Unit→Integration x9), the role-anchor reduced over-prediction errors while maintaining Agentic detection.
+## Why it failed on the full corpus
 
-## Scathing critique
+The "staff engineer who defends upward AND downward" frame created bidirectional pressure that the model resolved inconsistently. On EC-30 (lots of over-prediction), the downward pressure helped. On EC-04, EC-07, EC-10 (behaviors requiring Agentic detection), the "not higher to be safe" guard suppressed correct Agentic predictions.
 
-4 tasks is not enough signal. ec-03, ec-04, ec-19, ec-30 are the hardest tasks — improvement here may not generalize. The baseline subset loss (128.78) is disproportionately high, making the delta look large. On the full 30-task corpus, the effect may be much smaller or wash out entirely.
-
-Also: the "not lower, not higher" instruction may create tension with the existing "choose LOWEST level" framing in KEY-QUESTIONS. The model might get confused about which direction to resolve ambiguity.
-
-## Next step
-
-Run on full 30-task corpus to get a real loss number. Compare against iter19 baseline (368.08).
+The tension with "choose LOWEST level" in KEY-QUESTIONS proved real: when given two opposing instructions ("defend why not lower" vs "choose lowest"), the model defaulted to Unit/Integration across the board on tasks that needed Agentic.

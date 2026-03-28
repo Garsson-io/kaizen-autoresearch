@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "Cache key generation is a pure deterministic algorithm (e.g., hash or canonicalization of query parameters). The function takes parameters as input and returns a key, with no I/O, external calls, or stateful dependencies. Unit testing with various parameter combinations will catch failures in non-determinism, collisions, and edge cases. The key-generation function can be tested in isolation by passing different parameter sets and verifying outputs.",
+      "test_description": "Write a unit test that calls the key-generation function with multiple sets of identical parameters and verifies the returned keys are identical. Test with distinct parameter sets to ensure different keys are produced. Include edge cases: parameter order variations (if order-independent), special characters, numeric vs. string values, empty parameters, and null values. Verify no false collisions across hundreds of distinct inputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test operates entirely in-process with function inputs and outputs; requires no I/O, database, or external calls. Unit level is sufficient and necessary.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "TTL computation is a pure deterministic algorithm that takes a data category and a freshness rule as inputs and returns a TTL value in seconds. No I/O or external calls are required; the freshness rules can be provided as in-memory test fixtures (dictionaries, configuration objects, or model instances). Unit testing will catch failures in incorrect category mappings, off-by-one errors, and missing-category handling.",
+      "test_description": "Write a unit test that provides a freshness rule configuration (e.g., {'user_profile': 300, 'product_catalog': 3600, 'user_session': 600}). Call the TTL computation function with each category and assert the correct TTL in seconds is returned. Include edge cases: unknown categories (should throw or return default), boundary values (0 seconds, max TTL), and categories with fallback/default rules.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires only function calls with in-memory fixture data; no I/O or external dependencies. Unit level is sufficient and necessary.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Unit",
+      "justification": "The behavior of switching eviction strategies based on memory threshold is testable in-process by populating a real Cache object with actual entries until its measured memory usage crosses the threshold, then verifying the strategy changed. The Cache's memory measurement is deterministic (whether via sys.getsizeof, entry counts, or metadata tracking) and requires no external I/O. Unit testing will catch failures in memory measurement being incorrect or stale, threshold comparison logic errors (> vs >=, off-by-one), and strategy not actually switching despite condition being met.",
+      "test_description": "Create a Cache instance with a known memory threshold (e.g., 100 bytes). Verify the eviction_policy attribute starts as LRU. Add entries (with known sizes) in a loop, checking cache.memory_usage() until it exceeds the threshold. Assert that eviction_policy changes to LFU. Test boundary conditions: memory exactly at threshold (should not switch), memory one byte over (should switch), and memory far above (should have switched and stayed switched).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test operates entirely in-process with real Cache operations and real entry allocation; no external dependencies. Unit level is sufficient and necessary.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "This behavior couples the cache and the database; the detection mechanism (whether triggered by application code calling invalidate(), a PostgreSQL trigger, polling, or WAL decoding) must actually execute. A Unit test with mocked database writes cannot verify that the invalidation path is wired or that the detection fires. Integration testing with a real test PostgreSQL instance is essential to catch failures such as: the invalidation trigger never executing, the application code not calling cache.invalidate() after writes, cache entries not being removed despite invalidation being called, or key matching being incorrect (invalidating wrong entries or missing some).",
+      "test_description": "Set up a test PostgreSQL instance (e.g., testcontainers, in-memory SQLite with compatible schema, or a fixture database). Create cache entries whose keys correspond to specific database rows. Execute a write (INSERT, UPDATE, DELETE) to the database table. Verify that the cache entries corresponding to affected rows are removed and subsequent cache lookups return misses. Test scenarios: single-row write, multiple-row write, partial row overlap (some cache keys match affected rows, others do not). Verify non-affected entries remain in cache with correct values.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real database instance and the full application code path involving both cache and DB. Mocking the database write would skip testing whether the detection mechanism is wired. Integration level is required.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "LRU and LFU eviction correctness is deterministic algorithm logic within the Cache object. Testing requires populating the cache to max capacity, performing controlled accesses to build up metadata (access timestamps for LRU, access counters for LFU), triggering eviction by inserting one more entry, and verifying the correct entry was removed. No I/O or external systems are involved. Unit testing will catch failures in access tracking (not recording accesses or order), frequency counting (not incrementing), eviction selection (picking wrong entry), or the removal not happening.",
+      "test_description": "Parameterize a test over [LRU, LFU]. For LRU: create a Cache(maxsize=3, policy=LRU), insert entries a, b, c, then access a and c (establishing recency: b is least recent), insert d to trigger eviction, assert b is removed and {a, c, d} remain. For LFU: create Cache(maxsize=3, policy=LFU), insert a, b, c, access a twice and c twice (frequency: 2, 1, 2), insert d to trigger eviction, assert b is removed (least frequent). Include tie-breaking: two entries with equal frequency, verify eviction removes one (document tiebreaker: oldest, insertion order, etc.).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test operates entirely in-process with Cache object operations; no I/O or external dependencies. Unit level is sufficient and necessary.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Products marked as out-of-stock are excluded from recommendation results regardless of relevance score.",
+      "minimum_level": "Unit",
+      "justification": "This is pure filter logic operating on product flags. A unit test with a mock catalog (some products OOS, some not) verifies the exclusion without I/O. The failure (OOS products appearing in results) is caught by calling the filter function with test data. Data-layer issues (stale availability flags in the database) are a separate Integration concern—this behavior is about the filtering logic itself.",
+      "test_description": "Create a mock catalog with 5 products; mark 2 as out-of-stock. Run the availability filter. Verify exactly 3 products remain in results and the OOS products are excluded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "User preference filter correctly excludes product categories the user has explicitly blocked in their settings.",
+      "minimum_level": "Integration",
+      "justification": "While filter logic alone could be unit-tested with mocked preferences, real production failures occur in preference loading: querying the wrong settings table, stale cache, or preferences not being fetched at all. A unit test would miss these bugs. Integration testing loads real (test-database) preferences, applies the filter, and verifies exclusion, catching both retrieval and logic bugs. MOCK-MISS: a pure mock can test filtering, but MOCK-HIDE: mocking always-loads preferences, hiding fetch failures.",
+      "test_description": "Create a test user with blocked categories ['Electronics', 'Sports'] in the settings database. Request recommendations with a multi-category catalog. Verify no products from blocked categories appear in results.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Recommendation algorithm ranks products matching user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Integration",
+      "justification": "The ranking logic depends on retrieving browsing history from storage, filtering by recency, and aggregating signals. Unit testing with mocked history misses: incomplete history retrieval, stale timestamps, wrong aggregation, or missing joins. An Integration test creates a user with real (test-DB) browsing history in one category, a diverse catalog, runs the algorithm, and verifies ranking order. This catches bugs across data loading and algorithm logic.",
+      "test_description": "Create a user with browsing history concentrated in 'Home & Garden' products (last 7 days). Create a catalog with 10 products: 5 from H&G, 5 from Electronics. Run the recommendation algorithm. Verify that at least 3 of the top 5 results are from H&G.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns correct page of results with stable ordering—requesting page 2 twice returns identical results if underlying data hasn't changed.",
+      "minimum_level": "Unit",
+      "justification": "Pagination stability depends on two unit-testable properties: correct offset/limit calculation and deterministic sort order. A unit test creates a mock sorted list, requests page 2 twice, and verifies identical results. Failures (different pages, wrong items) indicate bugs in offset logic or sorting, both catchable without I/O. Database race conditions are a separate Integration concern; this behavior assumes stable underlying data.",
+      "test_description": "Create a mock sorted list of 50 recommendations. Request page 2 (items 11–20) twice consecutively with no intervening changes. Verify both requests return identical items in identical order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Recommendation algorithm surfaces at least one product from a category the user hasn't browsed before, avoiding filter bubble.",
+      "minimum_level": "Integration",
+      "justification": "The serendipity constraint requires reading user browsing history and product category mappings, then applying a constraint that forces diversity. A unit test with fully mocked data might pass trivially. Real failures: category lookups missing products, user history incomplete, or serendipity logic not triggered. Integration test creates a user with narrow browsing history, diverse catalog, and verifies the algorithm actually surfaces a new category, catching both data-loading and constraint-logic bugs.",
+      "test_description": "Create a user who has browsed only 'Books' categories. Create a recommendation list with high-ranked Books and lower-ranked Movies/Music. Run the algorithm. Verify the final results include at least one product from a category not in the user's history.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "New user with no purchase or browsing history receives recommendations based on overall popularity rather than empty result set.",
+      "minimum_level": "Integration",
+      "justification": "The fallback logic must detect empty history, then switch to popularity ranking. Unit testing with mocked 'empty history' only verifies fallback logic. Real failures: history detection queries wrong table, null-handling fails, popularity computation is wrong, or fallback branch is skipped entirely. Integration test creates a new user with no history in the database, requests recommendations, and verifies the result is a ranked list of popular products (not empty), catching bugs across all layers.",
+      "test_description": "Create a new user account with no orders and no browsing activity. Request recommendations. Verify the response contains at least 5 products ranked by popularity metrics, not an empty list.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records correct product ID, position in list, and timestamp for each recommendation interaction.",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires that clicks are *recorded*—persisted to storage. A unit test can verify the click event is formatted correctly, but misses storage-layer bugs: writes failing silently, wrong database table, missing/truncated fields, async delays, or permission issues. To verify a click is actually recorded, you must read from persistent storage. MOCK-MISS: mocking storage always succeeds, hiding real write failures. Integration test simulates click, then queries storage to verify correct data is persisted.",
+      "test_description": "Simulate a user clicking product ID 42 at position 3 in a recommendation list at timestamp T. Query the event storage immediately. Verify a record exists with product_id=42, position=3, timestamp within 1 second of T.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "System",
+      "justification": "Performance cannot be tested without realistic scale and infrastructure. A unit test with 10 products passes trivially. Even Integration with 100K items in an in-memory test database misses real issues: missing database indexes, unoptimized SQL joins, caching misses, or resource contention that only manifests at scale. System testing with 100K products in a production-like database setup and actual end-to-end latency measurement catches real performance bottlenecks. REAL-INFRA: database I/O performance depends on database configuration and OS-level resources.",
+      "test_description": "Load a test database with 100,000 products with realistic metadata (categories, prices, availability). Create a test user with 2 weeks of browsing history and 5 purchases. Measure end-to-end time to generate recommendations (filter, rank, paginate). Verify 95th percentile latency is under 200ms across 100 requests.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased by the user, the algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Integration",
+      "justification": "The full flow spans multiple systems: recording purchase, updating user purchase history, retrieving updated history, and re-ranking. Unit testing deprioritization logic in isolation misses: purchase event not being recorded, history not being updated, history being stale/cached, or the algorithm not reading purchase history. Integration test records a purchase, immediately requests new recommendations, and verifies the purchased product ranks lower or is absent, catching bugs across the entire flow. MOCK-HIDE: mocking purchase history always succeeds, hiding actual recording failures.",
+      "test_description": "Request recommendations for a user; note product X ranks in top 5. Simulate purchase of product X. Immediately request recommendations again. Verify product X either does not appear in top 5 or ranks significantly lower than in the first request.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Recommendation results are deterministic for the same user state—requesting recommendations twice with no intervening user activity returns the same ranked list.",
+      "minimum_level": "Unit",
+      "justification": "Determinism depends on the algorithm being free of randomness (no random sampling, non-deterministic set iteration) and sorting being stable (no arbitrary tie-breaking). Both are testable at unit level: call the algorithm twice with identical input and verify identical output. Failures (different results) indicate randomness or unstable sort, caught immediately. Database race conditions (where the same query returns different results) are an Integration concern, but the behavior assumes 'same user state,' implying stable input data.",
+      "test_description": "Create a user with a fixed profile (purchase history, browsing history, preferences). Call the recommendation algorithm twice with identical inputs and no intervening operations. Verify both calls return the product list in identical order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

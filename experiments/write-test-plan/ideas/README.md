@@ -23,6 +23,13 @@ change_type: structural | representational | framing | meta-cognitive | ensemble
 risk: What could go wrong (one sentence)
 prereqs: What must be true for this to work (one sentence, or null)
 related: [other-idea-id, ...]
+# Explore pre-screening results (auto-populated by /explore command)
+explore_status: null           # null | signal | concentrated-signal | no-signal
+explore_tasks: []              # task IDs used, e.g. [ec-04, ec-10]
+explore_baseline_loss: null    # baseline loss on explore_tasks from runs/latest/
+explore_loss: null             # best variation loss
+explore_delta: null            # explore_loss - explore_baseline_loss (negative = better)
+explore_date: null             # ISO date of explore run
 ---
 ```
 
@@ -35,9 +42,17 @@ related: [other-idea-id, ...]
 | `targets` | Failure modes from `leaderboard.md`: `agentic_underprediction`, `workflow_gap`, `unit_overprediction`, `consistency_failures`, `noise_sensitivity`. |
 | `confusion_pairs` | The specific label boundaries this idea targets. |
 | `change_type` | `structural` = reorder/restructure. `representational` = change how levels are described. `framing` = change the task framing. `meta-cognitive` = add self-check/reasoning steps. `ensemble` = run multiple variants. |
+| `explore_status` | `null` = not yet explored. `signal` = aggregate delta negative, majority of tasks improved, no single-task concentration. `concentrated-signal` = aggregate negative but driven by 1–2 outlier tasks — re-run with stratified selection before full corpus (see meta-failures.md). `no-signal` = flat or worse. |
+| `explore_tasks` | Task IDs used in the explore run (typically 4). |
+| `explore_baseline_loss` | Baseline loss on `explore_tasks` from `runs/latest/`. |
+| `explore_loss` | Best variation loss on `explore_tasks`. |
+| `explore_delta` | `explore_loss − explore_baseline_loss`. Negative = better. |
+| `explore_date` | Date the explore run was done. |
 
 ## How to Use
 
 1. Read all ideas before starting an autoresearch loop
 2. Update `status` after each attempt
 3. One idea per iteration (atomic)
+4. Before committing a full run: if `explore_status` is null, run `/explore` first
+5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`

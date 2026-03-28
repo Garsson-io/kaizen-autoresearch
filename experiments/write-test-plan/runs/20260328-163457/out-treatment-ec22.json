@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "Cache key generation is a pure, deterministic function (input parameters → hash/string output). Real failures (non-determinism, collision) can be caught with in-process tests—no external dependencies, mocks, or I/O required. Testing identical inputs produce identical outputs and different inputs produce different outputs is entirely testable at the function level.",
+      "test_description": "Test that calling the key generation function multiple times with the same query parameters produces identical keys. Test that different parameter sets produce different keys. Parametrize across edge cases (empty params, special characters, large params) to verify collision resistance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "While the calculation logic itself is deterministic, the real failure boundaries include: (a) the freshness rule is read from the wrong place or in the wrong format, (b) the category-to-rule mapping is incorrect, or (c) the rule value is misinterpreted. A Unit test mocking the rule dict would only catch calculation errors. An Integration test loading actual config—even if using a test config file or fixture—catches the rule-loading and category-lookup failures that would happen in production.",
+      "test_description": "Load a test configuration (file, dict, or fixture) containing freshness rules keyed by category. For each category, request TTL computation and assert it equals (rule_minutes * 60) seconds. Test both typical categories and edge cases (missing category, zero TTL, high TTL values). Verify that changes to the config are reflected in computed TTLs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Unit",
+      "justification": "The real failure is that the switching logic doesn't execute or selects the wrong strategy when a memory-exceeds-threshold condition is signaled. In a test, you can mock (or simulate) the memory measurement to trigger the condition reliably and verify the strategy switches. Real failures in the switching logic—missing conditional, wrong enum selected, configuration not applied—are caught at Unit level. A mock that returns memory > threshold would expose these bugs without requiring actual OS memory allocation.",
+      "test_description": "Mock or patch the memory measurement function to return a value exceeding the configured threshold. Add cache entries, trigger the memory check, and assert that eviction_strategy has switched from LRU to LFU. Test that the strategy can switch back when memory dips below threshold. Parametrize across different threshold values and verify the threshold comparison is inclusive/exclusive as specified.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that a DB write does not trigger cache invalidation, or invalidates wrong entries, or invalidates only some entries. A Unit test with mocked DB operations would not catch failures in: (a) the actual trigger/hook mechanism that connects DB writes to cache invalidation, (b) the cache key derivation from DB row values, or (c) timing/race conditions between write and invalidation. An Integration test with a real test database and real cache entries will expose these integration-level failures.",
+      "test_description": "Use a test PostgreSQL database (container or in-memory) and real cache instance. Insert a cache entry for a known row key. Write/update that row in the database. Assert the cache entry is invalidated. Insert multiple cache entries for different rows, update one row, and verify only its cache entry is invalidated. Test with multiple write patterns (INSERT, UPDATE, DELETE) to ensure all variants trigger invalidation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "The eviction algorithm is pure in-process logic with no external dependencies. Real failures (wrong entry evicted, eviction order incorrect, algorithm logic broken) are caught by testing the algorithm's behavior: fill a cache, access entries in a controlled pattern to establish recency or frequency ordering, trigger eviction, and verify the correct entry is removed. No mocks hide this failure—the logic is entirely testable in-process.",
+      "test_description": "For LRU: Create cache, add entries A, B, C. Access A (making it most recent). Fill cache beyond capacity and verify B is evicted (least recent). For LFU: Create cache, add entries A, B, C. Access A and B multiple times, C rarely. Trigger eviction and verify C is evicted (least frequently used). Parametrize across cache sizes, number of entries, and various access patterns to cover edge cases (ties in recency/frequency, single-entry cache, immediate eviction).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

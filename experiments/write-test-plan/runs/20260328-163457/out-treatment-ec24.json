@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary neural machine translation API produces grammatically coherent translations that preserve source meaning, not word-for-word substitutions",
+      "minimum_level": "Agentic",
+      "justification": "Real translation quality depends on actual LLM output. A mock API will always return exactly what we configure, hiding cases where the real neural MT service produces incoherent, meaning-distorting, or nonsensical output. The real failure is 'the actual neural translation API produces garbage and our code accepts it silently.' Only calling the real API (with real source text and real model responses) can catch translation quality regressions, since translation coherence varies non-deterministically across the same input.",
+      "test_description": "Call the real neural MT API with diverse language pairs and semantic test cases (idiomatic expressions, context-dependent meanings, ambiguous phrases). Verify outputs are grammatically sound and semantically faithful—not literal word-for-word transposition. Repeat with the same input to verify consistency. Compare outputs using linguistic metrics or human spot-checks to confirm preservation of meaning.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns HTTP 503, the service transparently falls back to dictionary lookup without returning an error to the caller",
+      "minimum_level": "Integration",
+      "justification": "The error-handling logic (catch 503, invoke fallback) can be tested with a mocked API. However, the real failure is that the fallback translation itself fails—corrupted DB, missing rows, or query errors. A Unit test that mocks both the API and the database would never catch a broken SQLite database. We must verify the fallback actually works against a real database; mocking the API failure (503) is sufficient to exercise the error path without requiring the real external API.",
+      "test_description": "Mock the neural MT API to return a 503 error. Populate a real SQLite database with test phrase-translation pairs. Call the service with a phrase that exists in the dictionary. Verify the service returns the correct dictionary translation, that no error is raised to the caller, and that the response is indistinguishable from a successful primary translation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases existing in the SQLite database",
+      "minimum_level": "Integration",
+      "justification": "The real failure here is data retrieval: wrong query logic, corrupted schema, or stale/incorrect data in the database. A Unit test with a mocked database library will never catch these failures—mocks always return what we tell them to. We must run the actual query against a real SQLite database populated with test data to verify the service reads and returns the correct stored translation.",
+      "test_description": "Populate a real SQLite database with a known set of phrase-translation mappings (e.g., 'hello' → 'hola', 'goodbye' → 'adiós'). Call the service's fallback translator with each phrase. Verify the returned translation matches the stored value exactly. Test edge cases: empty database, missing phrase (should return null or fallback error), special characters in phrases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes character-level edit distance between primary and fallback outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "Edit distance computation is a pure function (Unit-testable in isolation), but the behavior requires both computation AND storage. A Unit test that mocks the database will miss storage failures, race conditions, or schema mismatches. The real failure could be: 'the metric is computed but never persisted,' or 'writes fail silently,' or 'the database can't accept the data type.' Integration testing with a real database ensures the full pipeline—compute and store—actually works.",
+      "test_description": "Call the service with inputs that trigger both primary and fallback translators successfully. Capture the primary and fallback translations. Verify edit distance is computed correctly (e.g., 'cat' vs 'car' = 1). Verify the computed metric is stored in the real database and persists—query the database directly to confirm the record exists with the correct values.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background",
+      "minimum_level": "Integration",
+      "justification": "The code path (call both translators, return primary) can be tested at Unit level with mocks. However, logging is a side effect that's often async or decoupled from the response. A Unit test that mocks the logger will pass even if the logger is never called, or if logging fails silently after the response. To catch real failures—logging not happening, logging blocking the response, logging framework crashes—we need Integration: test with a real logging backend (file, memory buffer, or logging service) to verify the comparison is actually persisted.",
+      "test_description": "Mock both translators to return successful translations. Call the service. Verify the primary translation is returned in the response immediately. Verify the quality comparison is logged by checking the actual logs (file, memory buffer, or log aggregator) to confirm the comparison metric appears with correct values, either synchronously or after a short async delay.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -135,3 +135,48 @@ Read this before iterating. These are the ways the process itself broke, not the
 **New metric**: Loss (cross-entropy) from calibrated level_probabilities is now available. Old runs had degenerate probabilities ({level: 1.0, others: 0.0}) making their loss values meaningless. Run 20260328-142302 (loss 454.16) is the first usable loss baseline.
 
 **Lesson**: Use loss as primary metric going forward. Establish loss noise floor by running the same prompt twice.
+
+---
+
+### Model transfer changed the error shape (Haiku -> Codex)
+
+**Status**: confirmed (Codex baseline + one kept Codex iteration)
+
+**What happened**:
+- Codex cold baseline on current treatment (`20260328-193534`) reached loss `366.58` (better than prior best Haiku `368.08`).
+- One targeted Agentic disambiguation line (`20260328-195648`) reduced loss further to `306.79` (`-59.79`).
+
+**Pattern shift**:
+- Under-prediction (especially Agentic/Workflow misses) dropped sharply.
+- Remaining dominant error mass is now mostly **over-prediction Integration→Unit** and a few high-impact misses (notably EC-19/EC-30 agentic judgments).
+
+**Lesson**:
+- Hypotheses that were no-signal on Haiku can become high-signal on Codex.
+- Keep evaluating per model; do not assume cross-model transfer in either direction.
+
+---
+
+### Agentic vs Workflow semantics were under-specified
+
+**What happened**: `Workflow` wording was interpreted as generic software workflow,
+not specifically multi-step AI-agent sessions. That ambiguity can skew both GT reasoning
+and treatment ideas.
+
+**Symptom**:
+- Proposed edits drifted toward "workflow/pipeline" language without explicit AI-agent scope.
+- Agentic vs Workflow boundary decisions became inconsistent across iterations.
+
+**Fix**:
+- Added canonical taxonomy lock in `program.md`:
+  - `Agentic` = **AI Agentic Step**
+  - `Workflow` = **AI Agentic Workflow**
+- Added explicit guardrail: generic software workflow alone is not Workflow-level by default.
+
+**GT implication**:
+- During GT review, separate "single-model-step quality" (Agentic) from
+  "multi-step agent session behavior" (Workflow).
+
+**Prompt implication**:
+- Keep current best treatment unless data says otherwise.
+- If Agentic↔Workflow confusion reappears, test a dedicated treatment variant that
+  explicitly uses the "Agentic Step / Agentic Workflow" aliases.

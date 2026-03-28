@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject webhook when `X-Signature-256` does not match raw body, and do not forward event.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: a unit test of HMAC comparison can miss handler wiring bugs (e.g., verifying parsed JSON instead of raw bytes). MOCK-HIDE: mocking request/body plumbing can hide real signature failures. REAL-INFRA is not required if tested with in-process HTTP + real middleware + queue adapter.",
+      "test_description": "Start the HTTP handler with real raw-body capture middleware and a test queue implementation that records writes. Send a webhook with a deliberately invalid signature over an in-process HTTP client. Assert 401 response and assert zero queue writes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Persist event to queue before returning HTTP 200 acknowledgment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: in-memory mocks can pass even if durability/write ordering is wrong. Need real queue persistence boundary (DB/file) with handler wiring. REAL-INFRA beyond local process is not strictly required.",
+      "test_description": "Run handler wired to the real persistent queue backend (local test DB/file). Instrument queue write completion and HTTP response timing. Send a valid webhook and assert the queue write commit timestamp is <= response-sent timestamp; assert HTTP status is 200.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.78,
+        "System": 0.14,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Return HTTP response without waiting for downstream event processing to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: unit tests can miss async orchestration mistakes in handler/queue/worker wiring. No real external API or OS primitive is required; local async components are enough.",
+      "test_description": "Wire handler to a real queue and a worker stub that blocks for a controlled delay (e.g., 10s) after dequeue. Send a valid webhook and assert HTTP 200 is returned quickly (well before worker completion), while worker eventually finishes later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock even when earlier events are slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: this is a wall-clock latency SLO under concurrency and event-loop/process contention; in-process mocks often hide scheduler/socket/backpressure effects. MOCK-HIDE risk is high for timing behavior.",
+      "test_description": "Launch the service in a real Node.js process, drive concurrent HTTP traffic with real sockets, and pre-load slow downstream work from earlier events. Measure end-to-end response latency for new valid webhook requests; assert each target response is <3s under the defined load profile.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.19,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Do not enqueue an event whose ID was already received.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: dedupe correctness usually depends on persistent state/constraints and handler-to-queue interaction. Unit tests can miss race/transactional issues. No external network required.",
+      "test_description": "Use real persistent queue storage with dedupe keying enabled. Send the same valid event ID twice (including a concurrent variant). Assert first request enqueues once and second does not create another queue record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.74,
+        "System": 0.16,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, return 503 and include `Retry-After` header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-HIDE: a mocked queue-full signal can miss real mapping of queue errors to HTTP semantics and header formatting. Requires real handler + queue boundary; not necessarily full system infra.",
+      "test_description": "Configure queue capacity to a small limit in test storage, fill it to capacity, then send another valid webhook. Assert HTTP 503 and presence/valid format of `Retry-After`; assert overflow event is not enqueued.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.77,
+        "System": 0.14,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity and rejects events exceeding limit.",
+      "minimum_level": "Integration",
+      "justification": "This is a storage/queue module invariant across modules (capacity config + persistence + enqueue path). Unit tests of counters can miss transactional/persistence defects. REAL-INFRA can remain local DB/fs.",
+      "test_description": "Instantiate the real persistent queue backend with a strict capacity (e.g., N). Enqueue N events successfully, then enqueue one more and assert a deterministic capacity-exceeded error with no extra persisted record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.11,
+        "Integration": 0.79,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

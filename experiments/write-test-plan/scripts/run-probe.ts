@@ -1,9 +1,10 @@
 #!/usr/bin/env npx tsx
 /**
- * run-probe-native.ts — Run a single eval-probe task using claude -p --json-schema.
+ * run-probe-native.ts — Run a single eval-probe task using Claude or Codex CLI.
  *
- * Uses the Claude Code CLI's built-in structured output (--json-schema flag) instead
- * of the Anthropic SDK, so no ANTHROPIC_API_KEY needed separately.
+ * Supports:
+ * - Claude Code CLI structured output (--json-schema)
+ * - Codex CLI structured output (--output-schema)
  *
  * Usage:
  *   npx tsx scripts/run-probe-native.ts --task EC-04 --issue-body "..." \
@@ -15,8 +16,11 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { writeFileSync, readFileSync, existsSync } from "node:fs";
-import { ProbeOutput } from "../src/schema.js";
+import { writeFileSync, readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { z } from "zod";
+import { ProbeOutput, BehaviorOutput } from "../src/schema.js";
 
 const LEVEL_DEFS = `
 Level definitions — choose the LOWEST level that can catch a real failure:
@@ -69,45 +73,116 @@ Issue (task_id: ${taskId}):
 ---
 ${issueBody}`;
 
-const PROBE_SCHEMA = JSON.stringify({
-  type: "object",
-  properties: {
-    behaviors: {
-      type: "array",
-      minItems: 1,
-      maxItems: 10,
-      items: {
-        type: "object",
-        required: ["behavior_id", "description", "minimum_level", "justification", "test_description", "plan_consistent", "level_probabilities"],
-        properties: {
-          behavior_id: { type: "integer", minimum: 1, maximum: 10 },
-          description: { type: "string", minLength: 5 },
-          minimum_level: { type: "string", enum: ["Unit", "Integration", "System", "Agentic", "Workflow"] },
-          justification: { type: "string", minLength: 10 },
-          test_description: { type: "string", minLength: 10 },
-          plan_consistent: { type: "boolean" },
-          plan_consistent_note: { type: "string" },
-          level_probabilities: {
-            type: "object",
-            description: "Your confidence (0.0 to 1.0) that each level is the minimum needed. Must sum to 1.0.",
-            required: ["Unit", "Integration", "System", "Agentic", "Workflow"],
-            properties: {
-              Unit: { type: "number", minimum: 0, maximum: 1 },
-              Integration: { type: "number", minimum: 0, maximum: 1 },
-              System: { type: "number", minimum: 0, maximum: 1 },
-              Agentic: { type: "number", minimum: 0, maximum: 1 },
-              Workflow: { type: "number", minimum: 0, maximum: 1 },
-            },
-          },
-        },
-      },
-    },
-  },
-  required: ["behaviors"],
+function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
+  const def = (schema as any)._def;
+  const t = def?.typeName;
+
+  const unwrap = (s: z.ZodTypeAny): { base: z.ZodTypeAny; nullable: boolean; optional: boolean } => {
+    let cur: any = s;
+    let nullable = false;
+    let optional = false;
+    while (cur?._def?.typeName === "ZodOptional" || cur?._def?.typeName === "ZodDefault" || cur?._def?.typeName === "ZodNullable") {
+      const k = cur._def.typeName;
+      if (k === "ZodNullable") nullable = true;
+      if (k === "ZodOptional" || k === "ZodDefault") optional = true;
+      cur = cur._def.innerType;
+    }
+    return { base: cur as z.ZodTypeAny, nullable, optional };
+  };
+
+  if (t === "ZodString") {
+    const out: Record<string, unknown> = { type: "string" };
+    for (const c of def.checks ?? []) {
+      if (c.kind === "min") out.minLength = c.value;
+      if (c.kind === "max") out.maxLength = c.value;
+      if (c.kind === "regex") out.pattern = c.regex.source;
+    }
+    return out;
+  }
+  if (t === "ZodNumber") {
+    const out: Record<string, unknown> = { type: "number" };
+    for (const c of def.checks ?? []) {
+      if (c.kind === "int") out.type = "integer";
+      if (c.kind === "min") out.minimum = c.value;
+      if (c.kind === "max") out.maximum = c.value;
+    }
+    return out;
+  }
+  if (t === "ZodBoolean") {
+    return { type: "boolean" };
+  }
+  if (t === "ZodEnum") {
+    return { type: "string", enum: def.values };
+  }
+  if (t === "ZodArray") {
+    const out: Record<string, unknown> = { type: "array", items: zodToJsonSchema(def.type) };
+    if (def.minLength?.value !== undefined) out.minItems = def.minLength.value;
+    if (def.maxLength?.value !== undefined) out.maxItems = def.maxLength.value;
+    return out;
+  }
+  if (t === "ZodObject") {
+    const shape = def.shape();
+    const properties: Record<string, unknown> = {};
+    const required: string[] = [];
+
+    for (const [key, childRaw] of Object.entries(shape)) {
+      const child = childRaw as z.ZodTypeAny;
+      const u = unwrap(child);
+      const baseSchema = zodToJsonSchema(u.base);
+      properties[key] = u.nullable || u.optional ? { anyOf: [baseSchema, { type: "null" }] } : baseSchema;
+      // Codex output-schema requires all properties appear in required.
+      required.push(key);
+    }
+
+    const out: Record<string, unknown> = {
+      type: "object",
+      additionalProperties: false,
+      properties,
+    };
+    if (required.length > 0) out.required = required;
+    return out;
+  }
+
+  throw new Error(`Unsupported Zod schema node in JSON schema conversion: ${String(t)}`);
+}
+
+const ProbeModelOutput = z.object({
+  behaviors: z.array(BehaviorOutput).min(1).max(10),
 });
+
+const PROBE_SCHEMA = JSON.stringify(zodToJsonSchema(ProbeModelOutput));
 
 function renderTemplate(template: string, taskId: string, issueBody: string): string {
   return template.replace(/\{\{TASK_ID\}\}/g, taskId).replace(/\{\{ISSUE_BODY\}\}/g, issueBody);
+}
+
+function extractJsonObject(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("No output to parse");
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Continue with fallbacks
+  }
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1]);
+    } catch {
+      // Continue with fallbacks
+    }
+  }
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    const slice = trimmed.slice(start, end + 1);
+    return JSON.parse(slice);
+  }
+
+  throw new Error("Could not parse JSON object from model output");
 }
 
 function runProbe(opts: {
@@ -116,8 +191,10 @@ function runProbe(opts: {
   issueBody: string;
   model: string;
   outFile: string;
+  cli: "claude" | "codex";
   promptFile?: string;
 }) {
+  const startedAtMs = Date.now();
   let prompt: string;
   if (opts.promptFile) {
     const template = readFileSync(opts.promptFile, "utf-8");
@@ -132,58 +209,108 @@ function runProbe(opts: {
   // Append probability instruction (measurement concern — NOT part of treatment.md)
   prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
 
-  // Run claude -p with stdin piped from prompt string
-  // --tools "": disable all built-in tools (Bash, Edit, Read, etc.)
-  // --disable-slash-commands: remove slash commands from context
-  // --strict-mcp-config: block all MCP servers (no Sentry, Linear, etc.)
-  // --max-turns 1: one response only (structured output)
-  const result = spawnSync("claude", [
-    "-p",
-    "--json-schema", PROBE_SCHEMA,
-    "--output-format", "stream-json",
-    "--verbose",
-    "--tools", "",
-    "--disable-slash-commands",
-    "--strict-mcp-config",
-    "--max-turns", "1",
-    "--model", opts.model,
-  ], {
-    input: prompt,
-    encoding: "utf-8",
-    maxBuffer: 10 * 1024 * 1024,
-    timeout: 300_000,
-  });
-
-  const stdout = result.stdout ?? "";
-  if (result.error) throw new Error(`claude -p spawn failed: ${result.error.message}`);
-  if (!stdout && result.status !== 0) {
-    throw new Error(`claude -p exited ${result.status}: ${result.stderr?.slice(0, 500)}`);
-  }
-
-  // Save raw stream-json log next to the output file for debugging
-  const logFile = opts.outFile.replace(/\.json$/, ".log");
-  writeFileSync(logFile, stdout, "utf-8");
-
-  // Extract StructuredOutput tool_use input from stream-json
+  let stdout = "";
   let structuredInput: unknown = null;
-  for (const line of stdout.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const event = JSON.parse(line);
-      if (event.type === "assistant") {
-        for (const block of event.message?.content ?? []) {
-          if (block.type === "tool_use" && block.name === "StructuredOutput") {
-            structuredInput = block.input;
+  let parserSource: "claude_structured_output" | "codex_last_message" = "claude_structured_output";
+
+  if (opts.cli === "claude") {
+    // Run claude -p with stdin piped from prompt string
+    // --tools "": disable all built-in tools (Bash, Edit, Read, etc.)
+    // --disable-slash-commands: remove slash commands from context
+    // --strict-mcp-config: block all MCP servers (no Sentry, Linear, etc.)
+    // --max-turns 1: one response only (structured output)
+    const result = spawnSync("claude", [
+      "-p",
+      "--json-schema", PROBE_SCHEMA,
+      "--output-format", "stream-json",
+      "--verbose",
+      "--tools", "",
+      "--disable-slash-commands",
+      "--strict-mcp-config",
+      "--max-turns", "1",
+      "--model", opts.model,
+    ], {
+      input: prompt,
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 300_000,
+    });
+
+    stdout = result.stdout ?? "";
+    if (result.error) throw new Error(`claude -p spawn failed: ${result.error.message}`);
+    if (!stdout && result.status !== 0) {
+      throw new Error(`claude -p exited ${result.status}: ${result.stderr?.slice(0, 500)}`);
+    }
+
+    // Extract StructuredOutput tool_use input from stream-json
+    for (const line of stdout.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        if (event.type === "assistant") {
+          for (const block of event.message?.content ?? []) {
+            if (block.type === "tool_use" && block.name === "StructuredOutput") {
+              structuredInput = block.input;
+            }
           }
         }
+      } catch {
+        // skip non-JSON lines
       }
-    } catch {
-      // skip non-JSON lines
+    }
+  } else {
+    // Run codex exec with JSON schema file and capture final message to file.
+    // We use read-only sandbox to keep behavior deterministic for probe evals.
+    const tmp = mkdtempSync(join(tmpdir(), "run-probe-codex-"));
+    const schemaFile = join(tmp, "schema.json");
+    const lastMessageFile = join(tmp, "last-message.txt");
+    try {
+      writeFileSync(schemaFile, PROBE_SCHEMA, "utf-8");
+      const result = spawnSync("codex", [
+        "exec",
+        "--config", "model_reasoning_effort=\"medium\"",
+        "--output-schema", schemaFile,
+        "--output-last-message", lastMessageFile,
+        "--sandbox", "read-only",
+        "--model", opts.model,
+        "-",
+      ], {
+        input: prompt,
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 300_000,
+      });
+
+      stdout = result.stdout ?? "";
+      if (result.error) throw new Error(`codex exec spawn failed: ${result.error.message}`);
+      if (result.status !== 0) {
+        throw new Error(`codex exec exited ${result.status}: ${result.stderr?.slice(0, 500)}`);
+      }
+
+      const finalMessage = existsSync(lastMessageFile)
+        ? readFileSync(lastMessageFile, "utf-8")
+        : stdout;
+      structuredInput = extractJsonObject(finalMessage);
+      parserSource = "codex_last_message";
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
   }
 
+  // Save raw CLI output next to the parsed output for debugging
+  const logFile = opts.outFile.replace(/\.json$/, ".log");
+  const probeMeta = {
+    type: "probe_meta",
+    cli: opts.cli,
+    model: opts.model,
+    duration_ms: Date.now() - startedAtMs,
+    parser_source: parserSource,
+  };
+  const logBody = stdout.length > 0 ? (stdout.endsWith("\n") ? stdout : `${stdout}\n`) : "";
+  writeFileSync(logFile, `${logBody}${JSON.stringify(probeMeta)}\n`, "utf-8");
+
   if (!structuredInput) {
-    throw new Error("StructuredOutput tool was not called — no structured JSON found in output");
+    throw new Error(`No structured JSON found in ${opts.cli} output`);
   }
 
   // Inject task_id and condition, then validate with Zod
@@ -200,18 +327,23 @@ const get = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i +
 
 const taskId = get("--task");
 const condition = get("--condition") as "baseline" | "treatment" | undefined;
+const cli = (get("--cli") ?? "claude") as "claude" | "codex";
 const outFile = get("--out") ?? `out-${condition}-${taskId?.toLowerCase().replace("-", "")}.json`;
-const model = get("--model") ?? "claude-haiku-4-5-20251001";
+const model = get("--model") ?? (cli === "codex" ? "gpt-5.3-codex" : "claude-haiku-4-5-20251001");
 const issueFile = get("--issue-file");
 const promptFile = get("--prompt-file");
 const issueBody = get("--issue-body") ?? (issueFile ? readFileSync(issueFile, "utf-8") : undefined);
 
 if (!taskId || !condition || !issueBody) {
-  console.error("Usage: run-probe-native.ts --task EC-04 --condition treatment --issue-body '...' [--out out.json] [--model ...] [--prompt-file prompts/probe-treatment.md]");
+  console.error("Usage: run-probe-native.ts --task EC-04 --condition treatment --issue-body '...' [--cli claude|codex] [--out out.json] [--model ...] [--prompt-file prompts/probe-treatment.md]");
   process.exit(1);
 }
 if (!["baseline", "treatment"].includes(condition)) {
   console.error("--condition must be 'baseline' or 'treatment'");
+  process.exit(1);
+}
+if (!["claude", "codex"].includes(cli)) {
+  console.error("--cli must be 'claude' or 'codex'");
   process.exit(1);
 }
 if (promptFile && !existsSync(promptFile)) {
@@ -219,4 +351,4 @@ if (promptFile && !existsSync(promptFile)) {
   process.exit(1);
 }
 
-runProbe({ taskId, condition, issueBody, model, outFile, promptFile });
+runProbe({ taskId, condition, issueBody, model, outFile, cli, promptFile });

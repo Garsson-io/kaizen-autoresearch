@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed, not only files in the root directory",
+      "minimum_level": "Integration",
+      "justification": "Mocking fs.watch alone won't reveal whether recursive directory watching is actually enabled. The failure mode is real: code forgets `recursive: true` in fs.watch options, or glob pattern doesn't match subdirectories. Must test with actual filesystem and file operations.",
+      "test_description": "Create subdirectories under the watched root, place test files in them, verify the daemon processes them. Also test with recursive watching disabled to confirm subdirectory files are correctly ignored when the feature is off.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic discards duplicate processing requests for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is pure in-process logic—a Set or Map tracking recent file paths with timestamps. Mock fs.watch to emit duplicate events, verify the daemon's deduplication state correctly prevents reprocessing. No real filesystem or OS behavior required.",
+      "test_description": "Mock fs.watch to emit two arrival events for the same file path within the deduplication window. Verify the daemon processes the file only once. Test boundary conditions: second event just before window expiration and just after.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the OS emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "System",
+      "justification": "This is fundamentally about real OS filesystem event behavior. inotify (Linux) emits different patterns than FSEvents (macOS) than Windows, and pure mocking cannot reveal these patterns. The failure—processing the same file multiple times—only manifests with real fs.watch events from the actual OS.",
+      "test_description": "Write a file to the watched directory and capture all fs.watch events emitted by the real filesystem. Verify the daemon processes the file exactly once despite multiple events. Repeat on different platforms to confirm it handles OS-specific event patterns (macOS FSEvents vs Linux inotify).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.81,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the watched directory is removed and recreated while running, the daemon resumes watching without a restart",
+      "minimum_level": "System",
+      "justification": "fs.watch behavior when the watched path is deleted—error handling, event emission, recovery—is OS-specific. Different platforms emit different errors and event sequences. Pure mocks or even real files won't capture the actual OS behavior when the watched directory disappears mid-operation.",
+      "test_description": "Start the daemon watching a directory. Delete the watched directory while running, verify the daemon detects the error (logs warning or gracefully stops watching). Recreate the same directory path, write a test file to it, verify the daemon resumes watching and processes the file without requiring a manual restart.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.12,
+        "System": 0.83,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in creation timestamp order",
+      "minimum_level": "Unit",
+      "justification": "This is a sorting/ordering logic problem. Mock fs.watch to emit multiple file events in one burst, mock fs.stat to return creation timestamps in a different order than arrival. Verify the daemon's queue or processing order respects timestamp sorting, not FIFO. No real filesystem behavior is required.",
+      "test_description": "Mock fs.watch to emit arrival events for three files in random order. Mock fs.stat to return their creation timestamps in a different order. Verify the daemon processes them in creation timestamp order. Test edge cases: identical timestamps, future/past timestamps.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.68,
+        "Integration": 0.28,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file still being written is not picked up for processing until writing is complete",
+      "minimum_level": "Integration",
+      "justification": "This requires real file I/O operations (keeping a file handle open) and verifying the daemon's logic waits for write completion (typically via size stability checks). A mock cannot represent the real state of an open file. Need actual filesystem operations and timing to verify retry/wait logic works correctly.",
+      "test_description": "Create a test file and keep it open for writing (fd remains open). Trigger the file arrival event to the daemon, verify it does not process the file (check logs or queue state). Close the file and trigger retry logic, verify the daemon processes the file within a reasonable timeout. Test long-write duration to confirm daemon doesn't wait indefinitely.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

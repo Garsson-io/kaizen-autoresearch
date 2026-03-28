@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with invalid signature is rejected with 401; body is not enqueued",
+      "minimum_level": "Unit",
+      "justification": "Signature validation is pure cryptography (Node's crypto.createHmac). Real failure modes are: (a) wrong crypto algorithm, (b) invalid signature accepted, (c) body enqueued despite bad signature, (d) wrong response code. All detectable with: real HMAC function + mocked queue + single handler call. No I/O, persistence, or wall-clock timing required. Mock queue suffices to verify enqueue() was never called.",
+      "test_description": "Generate valid HMAC using real crypto library with a known secret and body. Send request with valid signature and verify HTTP 200. Send identical request with modified body but original signature, verify HTTP 401 and assert queue.enqueue() was not called.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is persisted to queue before HTTP 200 response is returned",
+      "minimum_level": "Integration",
+      "justification": "The behavior requires verifying both: (1) event is actually written to persistent storage (not just that handler calls queue method), and (2) response is not sent until after enqueue completes. A unit-level mock queue can verify the call order but cannot prove actual persistence or catch timing bugs where the handler returns 200 before awaiting the async enqueue. Real failure: response sent before queue.enqueue() resolves, or queue call is never awaited. Requires a real or realistic persistent queue to catch the actual write, plus timing instrumentation.",
+      "test_description": "Set up real local persistent queue (e.g., SQLite, Redis, or in-process storage with async API). Send valid webhook request. Measure response send time vs. when event appears in queue. Verify event is in queue before response status 200 is returned. Use slow/delayed mock queue to verify response does not arrive until enqueue promise resolves.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream event processing to finish",
+      "minimum_level": "Unit",
+      "justification": "Real failure: handler awaits downstream processing, blocking the response. This is detectable at Unit level by mocking the downstream processor with controllable Promise timing. Test setup: (a) mock queue (instant), (b) mock downstream processor returning a slow-resolving Promise, (c) verify response is returned before processor Promise resolves. If handler incorrectly awaits the processor, test fails. Does not require real infrastructure; fire-and-forget pattern is verifiable without actual workers or background jobs.",
+      "test_description": "Create mock downstream processor that returns a Promise resolving after 1 second. Call handler with valid request. Verify HTTP 200 response is sent synchronously (or near-immediately) without waiting for the processor Promise. Instrument response.send() to capture timing; verify it's called before processor completes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds even when downstream of earlier events is slow and concurrent",
+      "minimum_level": "Integration",
+      "justification": "Wall-clock time constraint over concurrent requests. Mock handler is instant and cannot simulate contention or slow downstream affecting concurrent requests. Real failure: downstream backlog blocks new request handling, or handler has a sequential bottleneck. Requires (a) real or realistic downstream (slow mock OK), (b) multiple concurrent requests, (c) actual timing measurement. Unit test of single request cannot catch concurrency or queue saturation issues that cause response > 3 seconds. Need at least local event loop + multiple parallel handlers to catch this.",
+      "test_description": "Set up realistic downstream processor (real or slow mock). Send 3+ concurrent valid webhook requests. Measure wall-clock time from request arrival to response for each. Verify all responses arrive within 3 seconds even if earlier events are still processing. Use slow downstream (e.g., 2-second processing per event) to create contention and verify new requests are not blocked.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Event with duplicate ID is not written to queue a second time",
+      "minimum_level": "Integration",
+      "justification": "Deduplication requires persistent state across requests (seen event IDs). Real failure: same ID enqueued twice, or deduplication state not persisted/checked. Mock in-memory store might pass within a test but fail across requests or restarts. Need real persistent dedup store (database, cache, file) that survives between handler calls. Unit test can verify logic flow but cannot catch stale or missing dedup checks across boundaries.",
+      "test_description": "Set up persistent event-ID store (e.g., SQLite, in-process cache). Send valid request with event ID 'EVT-001'. Verify queue.enqueue() called once. Send second request with same ID 'EVT-001'. Verify queue.enqueue() is NOT called (or called with dedup marker). Query persistent store to confirm only one entry for EVT-001.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Handler returns 503 with Retry-After header when queue reports it is full",
+      "minimum_level": "Unit",
+      "justification": "Pure handler logic: queue signals 'full' → handler must return 503 + Retry-After. Real failure: (a) handler returns 200 despite full queue, (b) 503 returned without header, (c) handler ignores full condition. All detectable by mocking queue.enqueue() to throw 'queue full' error and verifying response code and headers. No real queue, persistence, or concurrency needed.",
+      "test_description": "Mock queue.enqueue() to throw an error 'QueueFullError'. Call handler with valid request. Assert response status is 503. Assert Retry-After header is present and contains a valid retry delay (e.g., 60 seconds). Verify body is not enqueued despite the error.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit and rejects overfull events",
+      "minimum_level": "Integration",
+      "justification": "Real failure: queue is not actually full at limit, or limit is higher/lower than configured, or queue silently accepts beyond limit. Mock queue can be instructed to fail, but that tests the mock, not the real queue's enforcement. Must use real persistent queue with real capacity enforcement. Need to fill queue to capacity via multiple enqueues and verify rejection at limit.",
+      "test_description": "Set up real persistent queue with capacity limit (e.g., 5 items). Enqueue valid events in a loop until queue.enqueue() rejects (or returns error). Verify rejection occurs at exactly the configured limit (±0, no off-by-one). Query queue storage directly to confirm actual item count matches limit.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

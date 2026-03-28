@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "Real manifest files (package.json, requirements.txt, lock files) have format edge cases that pure in-process parsing can miss: JSON comments, YAML indentation, encoding issues, truncated files. Transitive dependencies from lock files require reading real file formats. Unit tests with hardcoded parsed data would not catch manifest parsing failures. File I/O is necessary.",
+      "test_description": "Load a real manifest file with N direct dependencies and a lock file with M transitive dependencies. Run the extraction logic. Verify all N+M dependencies are included in the vulnerability query payload and none are dropped or duplicated due to parsing errors.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS risk: A mocked vulnerability API can be made to return correctly filtered results even if the scanner doesn't properly encode version constraints in the request. A real database would return all CVEs for the package if version constraints are omitted, exposing the failure. Testing requires a real API (or one that accurately simulates real behavior) to verify both request formatting AND response filtering.",
+      "test_description": "Query the vulnerability database for a package pinned to `^1.0.0`. Verify that CVEs for incompatible versions (0.9.0, 2.0.0) are NOT in the results, while CVEs for compatible versions (1.0.0, 1.5.0) ARE included. This requires a real or production-realistic vulnerability database that rejects or ignores unversioned queries.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "Pure comparison and sorting logic with no I/O, no external APIs, no file system. The failure (wrong sort order) would be caught by hardcoded test data. No mock infrastructure needed.",
+      "test_description": "Construct CVE objects with various severity levels (Critical, High, Medium, Low) and CVSS scores (7.5, 8.2, 6.1, etc.). Run the sort function. Verify order: all Criticals before Highs, Highs before Mediums, Mediums before Lows. Within each severity, verify descending CVSS order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Integration",
+      "justification": "Real file modifications can fail in subtle ways: regex errors corrupting JSON/YAML, wrong encoding, parsing errors, or write failures. A mock string manipulation or in-memory parse-and-modify could hide file I/O bugs. Testing requires reading a real manifest file, modifying it on disk, and verifying structure and all other entries remain untouched.",
+      "test_description": "Load a manifest file with 5 dependencies. Bump one dependency's version. Verify: (1) the target dependency version changed, (2) the other 4 dependencies' versions did NOT change, (3) the file is valid JSON/YAML and can be re-parsed without errors, (4) no extra whitespace or formatting corruption.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This requires actual GitHub API calls or real git operations on a remote-tracking repository. Mocking the GitHub API could hide failures in payload formatting, branch creation, or commit message generation. The behavior explicitly requires creation 'on the real repository', indicating real HTTP/git interactions are necessary. Failure modes include: wrong diff (multiple dependencies), wrong branch, wrong API payload format.",
+      "test_description": "Execute the scanner on a test repository. Trigger PR creation for a dependency bump. Verify: (1) a PR is created on the actual GitHub instance (or test GitHub), (2) the diff shows only the single dependency version change, (3) the commit message is well-formed, (4) the PR is against the correct base branch, (5) no extraneous files or commits are included.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "Pure semantic versioning comparison logic. No I/O, no external APIs, no filesystem. The comparison result (breaking vs. non-breaking) is deterministic and can be verified with hardcoded version strings. No mocking or external infrastructure needed.",
+      "test_description": "Test the version comparison function with cases: (1.0.0 → 2.0.0 should be breaking), (1.0.0 → 1.5.0 should not be breaking), (2.0.0 → 2.1.0 should not be breaking), (0.5.0 → 1.0.0 should be breaking). Verify the breaking flag is set correctly in all cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Unit",
+      "justification": "Pure conditional control flow: if breaking_change then skip_pr_creation and set_review_flag. No I/O, no external systems, no mocking needed. The logic failure (wrong branch taken) can be tested with a mocked semver comparison result.",
+      "test_description": "Mock the semver comparison to return breaking_change=true. Run the scanner's decision logic. Verify: (1) PR creation is NOT attempted (the method is not called), (2) the output structure contains a review_flag field set to true, (3) the report includes a clear notice that manual review is required.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix",
+      "minimum_level": "Integration",
+      "justification": "Verifying execution order requires running actual migrations against a real database and observing their effects in sequence. Unit tests of sorting logic alone would not catch runtime execution order failures. Mocking the database would hide failures where migrations execute in wrong order despite being called in correct order. The real failure surfaces when database state reflects out-of-order execution.",
+      "test_description": "Create three test migrations (001.sql, 002.sql, 003.sql) where each inserts a record with a sequence number. Run the migration runner against a test database. Query to verify records appear in order 1→2→3. Confirm _migrations table records them in ascending order with correct timestamps.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run",
+      "minimum_level": "Integration",
+      "justification": "Idempotency is a state-based property that requires persistence across multiple runs. Unit tests cannot verify behavior across sequential invocations without real database state. Mocking the metadata check (e.g., 'is migration in table?') would hide failures where migrations are actually re-executed despite metadata lookup. The real failure occurs when the runner runs twice and applies the same migration twice.",
+      "test_description": "Add a side effect to each migration (e.g., increment a counter column). Run the migration runner, verify counter values. Run the runner again on the same database. Verify counters were not incremented again and _migrations table contains no duplicate entries. Confirm second run completes without applying migrations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted",
+      "minimum_level": "Integration",
+      "justification": "Testing rollback behavior requires real PostgreSQL transaction semantics. Mocking transaction/rollback APIs would always succeed, hiding actual transaction failures. The real failure is detectable only by executing a failing migration against a real database and verifying the database state is actually unchanged. Mocking the database would hide scenarios where rollback silently fails or data persists despite rollback.",
+      "test_description": "Create a migration that: (1) inserts a row into a test table, (2) then executes invalid SQL to cause failure. Run the migration runner. Verify: the inserted row does NOT exist (rolled back), _migrations table does not record this migration as applied, subsequent migrations in the same batch are not executed, and runner exits with an error. Re-run to confirm the aborted migration can be retried.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances",
+      "minimum_level": "System",
+      "justification": "Concurrency safety requires real database-level locking, actual subprocess execution, and OS-level timing. Mocking locks (e.g., pessimistic locking) would mask race conditions in real PostgreSQL row-level locking. Simulating concurrency in-process hides actual subprocess isolation issues. The real failure only surfaces when two separate processes genuinely compete for database locks in actual time, not in simulated time.",
+      "test_description": "Create a test database with 3 migration files. Write a harness that spawns two separate Node.js processes, each running the migration runner with synchronized start times (e.g., both wait on a barrier before connecting). Measure: _migrations table contains exactly 3 rows (one per migration), no duplicates. Verify both processes complete without lock timeouts or errors. Confirm each migration's execution log shows it was applied by exactly one process.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied",
+      "minimum_level": "Integration",
+      "justification": "Verifying initialization order requires executing the runner against a real fresh database where the table does not initially exist. Mocking table creation would not catch the real failure: a migration executing before the metadata table exists, causing an error when trying to record the migration. The failure is observable only through actual database state transitions, not through code inspection or call order verification.",
+      "test_description": "Start with a completely fresh test PostgreSQL database (all tables deleted). Run the migration runner with 3 migration files. Verify: _migrations table is created before the first migration executes (check by querying during the run or by inspection of execution order in logs). Confirm: runner completes successfully, all migrations are recorded in _migrations, and no errors occur related to missing metadata table.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

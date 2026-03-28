@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "System",
+      "justification": "A real failure occurs when the embedding model API returns a vector with dimensionality that doesn't match the vector DB schema (e.g., 768-dim model against a 1536-dim index). Mocking the embedding service defeats this test: you control what dimensions the mock returns. Integration testing with a mocked embedding model won't catch the real failure. Must call the actual embedding model service to verify the true output dimensionality matches the DB requirements.",
+      "test_description": "Instantiate a real embedding model endpoint (e.g., OpenAI, HuggingFace, local). Query it with a test string. Assert the returned vector's shape matches the vector database's expected dimensionality. Run this against the actual production embedding model or a staging replica.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.82,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "A real failure occurs when the vector DB returns results in the wrong order (ascending instead of descending, or unsorted). Mocking the DB always returns data in the order you specify—it won't catch real ordering bugs in the DB query or indexing. To test actual DB ordering, populate a real vector database with test vectors, execute the search, and verify the returned results are sorted by cosine similarity. A local test instance of the vector DB (e.g., local Milvus, Weaviate, or test mode) is sufficient—no need for embedding model or LLM.",
+      "test_description": "Set up a real (or containerized test) vector database. Insert test vectors with known similarity scores to a query vector. Execute the search query. Assert that results are ordered by descending cosine similarity score. Include edge cases: single result, multiple results with tied scores, and completely dissimilar vectors.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "A real failure occurs when the LLM re-ranker doesn't actually reorder results based on contextual nuance (e.g., it returns the same order as similarity ranking, or reorders incorrectly). Mocking the LLM defeats this test: you can program any order you want. Integration testing with a mocked LLM won't catch the real failure—the mock always does what you specify. To verify the LLM actually re-ranks based on the query's nuanced intent, must call a real LLM. The LLM's output is non-deterministic and context-dependent, making this an Agentic test.",
+      "test_description": "Use a real LLM (e.g., GPT-4, Claude) with a prompt that re-ranks results. Provide a query with genuinely nuanced intent (e.g., 'find me affordable options that also have premium features'). Execute the re-ranking step with real similarity-ranked results. Assert that the re-ranked order differs from the input order for at least some results. Verify the re-ordering is semantically sensible by manual review or a second LLM call.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "The core failure mode is tested at Integration level: the vector DB similarity search must respect a relevance threshold and return empty results when no vectors exceed it. A mock DB won't catch real threshold-enforcement bugs. However, if the behavior also requires the LLM re-ranker to filter out low-relevance results, the test would need to upgrade to Agentic. Based on the description ('returns empty set rather than low-relevance noise'), the primary filter is likely the similarity threshold in the DB query, which is Integration-level. If re-ranking filtering is also required, Integration tests should verify the similarity-search threshold; Agentic tests could additionally verify the LLM filters.",
+      "test_description": "Integration: Populate a real vector DB with product vectors. Query with a string that should have no close matches (e.g., a gibberish or out-of-domain query). Set a high relevance threshold. Assert that the result set is empty, not a list of low-score products. Optional Agentic enhancement: If re-ranking is part of filtering, also call a real LLM to verify it marks all results as low-relevance and the API returns empty.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "A real failure is latency exceeding 2 seconds. To catch this, must measure the actual end-to-end pipeline: real embedding model call → real vector DB query → real LLM re-ranking → response. Mocking any component hides real latency bottlenecks (e.g., LLM inference might be the slowest step, or DB query might timeout). System tests of individual services won't reveal pipeline orchestration overhead or cascade delays. Must orchestrate multiple agentic steps (embedding + LLM) in sequence, measure real wall-clock time across the full pipeline, and repeat to measure median. This is Workflow-level.",
+      "test_description": "Deploy a real (staging or production) instance of the API with real embedding model, vector DB, and LLM. Generate a representative set of queries (at least 100) that cover typical query complexity and result size. Execute queries in a way that reflects the median load (not peak). Measure end-to-end latency from API request arrival to response departure. Assert p50 latency ≤ 2 seconds. Include realistic variance (network jitter, LLM response time variation). Monitor and log any queries exceeding threshold to identify bottlenecks.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.1,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

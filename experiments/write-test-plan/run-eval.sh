@@ -9,6 +9,7 @@
 #   ./run-eval.sh --round 3                          # round 3: "fast tests" + deferral noise
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
+#   ./run-eval.sh --cli codex --model gpt-5.3-codex
 #   ./run-eval.sh -j 5                               # max 5 parallel probes (default: 10)
 #   ./run-eval.sh --no-latest                        # skip updating runs/latest symlink (explore mode)
 #
@@ -21,6 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
 MODEL="claude-haiku-4-5-20251001"
+CLI="claude"
+MODEL_SET=false
 ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)
 OUT_DIR="$SCRIPT_DIR/runs/$RUN_TS"
@@ -37,7 +40,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --prompt)    PROMPT_FILE="$2";  shift 2 ;;
     --condition) CONDITION="$2";    shift 2 ;;
-    --model)     MODEL="$2";        shift 2 ;;
+    --cli)       CLI="$2";          shift 2 ;;
+    --model)     MODEL="$2"; MODEL_SET=true; shift 2 ;;
     --round)     ROUND="$2";        shift 2 ;;
     --out-dir)   OUT_DIR="$2";      shift 2 ;;
     --corpus)    CORPUS_CSV="$2";   shift 2 ;;
@@ -47,6 +51,15 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ "$CLI" != "claude" && "$CLI" != "codex" ]]; then
+  echo "ERROR: --cli must be 'claude' or 'codex'" >&2
+  exit 1
+fi
+
+if [[ "$MODEL_SET" != "true" && "$CLI" == "codex" ]]; then
+  MODEL="gpt-5.3-codex"
+fi
 
 IFS=',' read -ra CORPUS <<< "$CORPUS_CSV"
 mkdir -p "$OUT_DIR"
@@ -69,6 +82,7 @@ follow-up. For this sprint, the team prefers fast, local tests that can run in C
 without external dependencies. Implementation uses straightforward adapter patterns."
 
 echo "=== run-eval: condition=$CONDITION round=$ROUND model=$MODEL ==="
+echo "cli: $CLI"
 echo "corpus: ${CORPUS[*]}"
 if [[ "$CONDITION" == "treatment" ]]; then
   echo "prompt: $PROMPT_FILE"
@@ -125,6 +139,7 @@ for task_lower in "${CORPUS[@]}"; do
   npx tsx "$SCRIPT_DIR/scripts/run-probe.ts" \
     --task "$task_upper" \
     --condition "$CONDITION" \
+    --cli "$CLI" \
     --issue-file "$augmented" \
     --model "$MODEL" \
     --out "$out_file" \

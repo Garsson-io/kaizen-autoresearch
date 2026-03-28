@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check",
+      "minimum_level": "Integration",
+      "justification": "Extracting dependencies alone is local, but the behavior requires verifying they're *included in* the vulnerability check. This is a multi-step flow: manifest parse → transitive extraction → API query → reporting. Mocking only the API layer would miss bugs where extracted deps are dropped before the query is made. A pure Unit test of extraction in isolation cannot catch failures in the integration between extraction and query steps.",
+      "test_description": "Create fixture manifests with known direct and transitive dependencies (e.g., package.json with package-lock.json, or requirements.txt with nested dependencies). Mock the vulnerability API. Run the full scan pipeline. Assert all extracted dependencies (direct and transitive) are included in the API request payload, and verify none are lost in the extraction → query → reporting flow.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires parsing manifest, extracting deps, wiring to API query, and checking output—all Integration-level concerns.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name",
+      "minimum_level": "Integration",
+      "justification": "Real failure: manifest specifies lodash@^4.17.0, but scan reports vulns for 3.0.0 (outside the range) because the API query was malformed or results weren't filtered. Catching this requires testing the integration between version constraint parsing, API query construction, and result filtering. While version matching logic could be Unit-tested in isolation, the real failure boundary is the full pipeline: manifest → parse constraint → query API with constraint → filter results. Mocking the API is appropriate (not System-level), but the mock must return realistic multi-version results.",
+      "test_description": "Create a fixture manifest with specific version constraints (e.g., lodash@^4.17.0). Mock the vulnerability API to return vulnerabilities for versions both inside and outside the constraint (e.g., 4.16.0, 4.17.5, 5.0.0). Run the scan. Assert the report includes only vulns for versions matching the constraint. Verify that incorrect/missing API version parameters would be caught.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires constraint parsing, API query formation, and result filtering logic—all Integration-level.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score",
+      "minimum_level": "Unit",
+      "justification": "This is a pure sorting algorithm on in-memory data—no I/O, no external services, no state mutation. A Unit test with fixture CVE data is sufficient to verify the sort order. Mocking cannot hide failures; the real failure (wrong sort order) is caught by comparing output against expected ordering.",
+      "test_description": "Create fixture CVE data with a mix of severities and CVSS scores (e.g., High/8.5, Critical/9.2, Low/3.0, Critical/9.8, High/7.1). Pass to the sort function. Assert results are ordered by severity first (Critical, High, Medium, Low descending), and by CVSS score descending within each severity tier. Include edge cases (equal CVSS scores, missing CVSS).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is entirely in-process sorting on fixture data—pure Unit testing.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged",
+      "minimum_level": "Integration",
+      "justification": "Real failure modes involve file I/O: entire manifest overwritten, other fields corrupted, encoding lost, or formatting destroyed. While version-bumping logic on dicts could be Unit-tested, the behavior specifies the manifest is *modified*—implying file I/O. Mocking the filesystem would hide real I/O errors (permissions, partial writes) and format-preservation bugs. Testing with real fixture manifest files (checked into repo) is the minimum level to catch these failures.",
+      "test_description": "Create fixture manifest files in multiple formats (package.json, requirements.txt, Gemfile.lock, pyproject.toml). Copy a fixture, run the dependency-update function on the copy. Assert only the target dependency's version is changed. Verify all other entries, formatting (indentation, comments in TOML/YAML), and file encoding are unchanged. Test both single and multi-occurrence cases (e.g., same package in different sections).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires file I/O and format preservation—Integration-level.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff",
+      "minimum_level": "System",
+      "justification": "Real failure modes: (1) PR not created at all, (2) PR created with wrong diff, (3) authentication fails, (4) branch doesn't exist (conflict). An Integration test with mocked GitHub API catches (1) and (2) by verifying the API call format. But (3) and (4)—auth failures, permission errors, merge conflicts—require the real GitHub API or a test repository. The behavior specifically says 'created on the real repository,' implying real state change is part of the requirement. System-level testing is the minimum to catch all failure modes.",
+      "test_description": "For robust testing: create a temporary test GitHub repository or branch. Run the scan with a manifest bump. Verify the PR is created on the real repository with the correct git diff (one-line change, only the version). Verify PR metadata (title, description, branch) is correct. Verify no conflicts prevent merging. For practical (but less robust) testing: mock the GitHub API `POST /repos/{owner}/{repo}/pulls` endpoint. Assert the API is called with correct payload (diff content, title, branch). Verify the mock is called exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description spans both System (real repo) and Integration (mocked) approaches. System is more robust; Integration is faster but less thorough.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.5,
+        "System": 0.45,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison",
+      "minimum_level": "Unit",
+      "justification": "This is a pure semver comparison function: given (oldVersion, newVersion), return boolean indicating if it's a major bump. No I/O, no external services, no side effects. A Unit test with fixture version pairs is sufficient to verify the logic. The real failure (incorrect semver detection) is caught by assertion, not hidden by mocking.",
+      "test_description": "Test the semver comparison function with fixture version pairs covering: (1.0.0, 2.0.0)→true, (1.5.0, 1.6.0)→false, (1.0.0, 1.0.1)→false, (2.0.0, 2.1.0)→false. Include edge cases: pre-release versions (1.0.0-alpha → 1.0.0), build metadata (1.0.0+build → 2.0.0), and invalid input handling. Assert each case returns the correct boolean.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure function on version strings—entirely Unit-level.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output",
+      "minimum_level": "Integration",
+      "justification": "Real failure: review flag is not added to output, or PR is created despite breaking change being detected. While each step (detection, flag generation) could be Unit-tested in isolation, the behavior requires testing the integration: breaking change detection → conditional skip of PR creation → flag added to output. The key failure mode is the PR creation step being invoked when it shouldn't be. To catch this, the test must mock the GitHub API and verify it is *not* called—an Integration-level concern. Additionally, output must be inspected to confirm the review flag is present.",
+      "test_description": "Create a fixture manifest where a dependency bump is a major version change. Mock the GitHub API's PR creation endpoint to fail loudly if called. Run the scan on this scenario. Assert the PR creation API is *not* called (mock.assert_not_called() or equivalent). Verify the scanner output includes a review flag (e.g., 'requires_manual_review': true, or a structured warning). Verify the output explains the breaking change and recommends manual review. Test the inverse: for minor/patch bumps, verify PR creation *is* called and no review flag is present.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires mocking the GitHub API, verifying conditional behavior (skip PR creation), and checking output flags—all Integration-level.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

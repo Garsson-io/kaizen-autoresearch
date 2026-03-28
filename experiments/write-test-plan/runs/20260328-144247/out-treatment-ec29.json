@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields (name, DOB, insurance ID) are validated before downstream processing; missing fields produce a clear error listing all missing items",
+      "minimum_level": "Unit",
+      "justification": "Pure validation logic — no external dependencies, no I/O. The test: supply missing fields → verify error message lists all missing items. A unit test with no mocks directly tests the validator function's output. No mock-hiding because the logic is deterministic.",
+      "test_description": "Unit test: call validator with partially populated patient data (missing name, missing insurance ID but DOB present) → assert error message contains exactly those two field names in a readable format.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date of birth validation rejects future dates, dates more than 150 years ago, and non-date strings",
+      "minimum_level": "Unit",
+      "justification": "Pure date validation logic — no external calls, no I/O. The test: supply edge-case dates and invalid strings → verify rejection. This is deterministic and can be fully tested at the function level.",
+      "test_description": "Unit test: parametrized test with inputs (today+1 day, 151 years ago, 'abc', valid DOB) → assert each produces appropriate rejection or acceptance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.98,
+        "Integration": 0.02,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility check sends correct patient ID and plan code to payer API and correctly interprets 'eligible' vs 'not eligible' vs 'pending' response",
+      "minimum_level": "Integration",
+      "justification": "The insurance check module integrates with an HTTP API client. MOCK-MISS: a pure mock of the HTTP layer will catch if we pass wrong parameters. MOCK-HIDE: correctly mocking different API response types allows us to test interpretation logic. The code must correctly construct the API request AND parse responses — we need to mock the API client and verify both sides. This requires integrating the insurance check code with a mocked API client, not just unit-testing a single function.",
+      "test_description": "Integration test: mock the HTTP API client with responses for eligible/not-eligible/pending states → for each, verify (a) the code passed correct patient ID and plan code to the client, and (b) the return value correctly reflects the response. Use a mock that records the call arguments.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When payer API is unreachable, system marks eligibility as 'pending' and continues intake rather than blocking",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: a mock that always succeeds will hide this failure. MOCK-HIDE: if we mock the API to throw a timeout/connection error, we can test error handling. The behavior requires integrating the intake code with an API client that fails, so we mock the client to throw an exception and verify the intake code handles it correctly. Not System level because we don't need the real network; a mocked API client throwing an exception is sufficient.",
+      "test_description": "Integration test: mock the HTTP API client to raise a ConnectionError or TimeoutError → verify the intake code catches the exception, marks eligibility as 'pending', and returns a result that allows the intake to proceed (no exception propagates).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "AI symptom triage correctly assigns high urgency to symptom combinations indicating emergency conditions (e.g., chest pain + shortness of breath)",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: correctness of urgency assignment depends on what the real AI medical reasoning engine produces. MOCK-MISS: a mock that always returns high urgency for these symptoms will pass, but it hides failures where the real model produces different outputs. The real AI model may classify differently based on context, training, or version. Running this test 100 times with the real model might produce different results (variability in AI judgment). To catch a real failure (real AI assigns low urgency when it should be high), we must test with the real model.",
+      "test_description": "Agentic test: submit real symptom combination (chest pain + shortness of breath) to the live AI triage engine → verify the returned urgency level is 'high' or equivalent. Repeat with multiple symptom sets known to indicate emergencies. No mocking of the AI model.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Symptom triage produces a natural language explanation of its urgency assessment that a clinician can review, not just a numeric score",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: the quality of the explanation (whether it is actually clinician-readable and helpful) depends on the real AI model. MOCK-MISS: a mock that returns a canned explanation will pass any test that checks 'explanation is present', but it hides failures where the real model produces jargon, errors, or unhelpful text. The behavior emphasizes 'that a clinician can review', implying quality judgment beyond just presence. Mocking the AI hides these quality failures.",
+      "test_description": "Agentic test: submit varied symptom profiles to the real AI triage engine → verify each returns (a) both explanation and urgency score, (b) the explanation is coherent and non-technical (manual review or readability heuristics), (c) explanation actually addresses the reported symptoms.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Appointment is scheduled in the first available slot matching the assigned urgency level — high urgency gets same-day, medium gets within 48 hours",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the scheduling logic (select first available slot matching urgency criteria) is deterministic and can be tested by mocking the calendar to return controlled slot lists. REAL-INFRA: the calendar is a database, but we can mock the database client. MOCK-HIDE: if we mock the calendar correctly to return slots, we can test the scheduling logic without the real database. The code integrates the scheduling logic with a calendar client; we mock the client to provide controlled data and verify the logic picks the right slot.",
+      "test_description": "Integration test: mock the calendar database client to return a set of available slots (some same-day, some 48+ hours out). For a high-urgency assignment, verify the scheduler selects the first same-day slot. For medium urgency, verify it selects the first slot within 48 hours. Use a mock that records the query parameters (urgency, patient ID) and returns pre-programmed slots.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The scheduling step does not double-book a time slot even when two patients are being processed concurrently",
+      "minimum_level": "System",
+      "justification": "MOCK-HIDE: a mocked calendar client will not enforce transaction semantics or row-level locking, so it cannot catch double-booking failures under concurrent writes. REAL-INFRA: the calendar is a shared database; concurrency safety requires real database locks or transactions. A mock that naively returns the same slot to both concurrent threads will fail to catch the race condition. Testing concurrency requires either a real database with transaction support or an in-process database mock (e.g., SQLite with transactions). A thread or async pool makes concurrent requests; the database must serialize or reject the second write.",
+      "test_description": "System test: use a real or embedded database (e.g., SQLite with isolation) as the calendar. Spawn two concurrent intake processes for different patients, both requesting same-day appointments. Verify that only one is scheduled in the same slot; the other gets the next available slot or a conflict error (depending on scheduling policy).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Confirmation message includes patient name, appointment time, provider name, and preparation instructions appropriate to the visit type",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: mocking the confirmation system does not hide the behavior. We mock the email/SMS client and verify the intake code passes a correctly structured message to it. MOCK-HIDE: no, because the test checks the message content passed to the mocked client. The code integrates with a confirmation service (email, SMS, etc.); we mock it and verify the code constructs the message correctly with all required fields. Assuming preparation instructions are looked up (not AI-generated), this is Integration.",
+      "test_description": "Integration test: mock the confirmation system (email/SMS client). Process a sample patient intake, triggering the confirmation step. Verify (a) the mocked client was called, (b) the message passed to it contains patient name, appointment time, provider name, and preparation instructions, (c) instructions match the visit type (e.g., 'fast' vs 'imaging prep').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The full intake pipeline — validate, check insurance, triage symptoms, schedule, confirm — completes for a real patient submission without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: the pipeline includes validate → insurance check → AI triage → schedule → confirm. LLM-DEP: the triage step depends on real AI judgment (non-deterministic). MOCK-HIDE: mocking individual components (API, AI, database) may pass but hide integration failures. The behavior says 'for a real patient submission without manual intervention', implying a complete end-to-end run with realistic data. To catch failures in orchestration, data flow, or real AI behavior across the pipeline, we need a Workflow test with the real AI engine and ideally real or representative external services (or high-fidelity test doubles).",
+      "test_description": "Workflow test: create a realistic test patient profile with complete data and symptom report. Invoke the full intake pipeline end-to-end. Verify (a) validation passes, (b) insurance eligibility is determined (real or mocked), (c) AI triage runs and returns urgency + explanation (use real AI), (d) appointment is scheduled, (e) confirmation is sent. Track that each step completes without manual intervention. Repeat with 3–5 diverse patient profiles (different symptom severity, insurance states).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

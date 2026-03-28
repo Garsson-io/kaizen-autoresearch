@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior's correctness depends entirely on what the real neural machine translation model produces. A unit or integration test with a mocked API could return any string, passing the test while the real API produces incoherent output. The failure mode ('real API outputs nonsense') can only be caught by calling the actual API and having an intelligent evaluator (human or LLM-based) judge the semantic quality. No local mock can substitute for real model behavior.",
+      "test_description": "Call the real translation API with a test phrase. Use an LLM or human judgment to evaluate if the output is grammatically correct and semantically preserves the original meaning. Reject if word-for-word substitution without structure or if meaning is distorted.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "This requires verifying error handling across multiple components: the HTTP client detects 503, the service catches it, switches to the fallback, and returns a 200 response without propagating the error. A unit test mocking the exception could miss: wrong exception type being caught, incorrect error-handling code paths, or fallback not being invoked in real flow. Integration testing with a simulated 503 response (via mock HTTP layer, not real API) exercises the full service pipeline without needing an actual API.",
+      "test_description": "Mock the translation API HTTP response to return 503. Verify the service detects the error, calls the SQLite fallback, and returns a successful (2xx) response to the caller with the fallback translation. Confirm no error is raised or logged to the user.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "Unit tests with mocked database queries could pass even if the real database has: wrong schema, missing columns, incorrect table name, or no data. The failure mode ('query runs against real schema and returns nothing' or 'query syntax is wrong') is only caught by executing the actual query against a real SQLite database (or test database with proper schema and data). A mock that returns the expected value hides these integration issues.",
+      "test_description": "Populate a test SQLite database with known phrase-translation pairs. Call the fallback translator with a phrase that exists in the database. Verify it returns the exact pre-stored translation. Repeat with a phrase not in the database; verify it returns null or a 'not found' indicator.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "While edit distance algorithm itself can be unit tested in isolation (e.g., ed('cat', 'hat') == 1), verifying that it 'stores the metric' requires the database write to succeed. A unit test mocking the database could pass while the real database write fails due to: schema mismatch, permission issues, connection pooling problems, or serialization errors. Integration testing ensures the computed value is actually persisted and retrievable from the real (or test) database.",
+      "test_description": "Get translations from both primary API and fallback. Compute edit distance between outputs. Write the metric to SQLite. Query the database and verify the stored value matches the computed distance. Confirm the record includes timestamp, source phrase, and both translation outputs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The critical failure mode is that the async background task never runs or runs but fails silently. A unit test mocking the database and async task could verify the code *schedules* the task, but not that it actually executes. Integration testing ensures the full pipeline (call primary API → return to caller → background task fires → quality comparison is computed and logged) executes correctly. The 'in the background' qualifier requires verifying async execution actually completes against the real database, which can't be reliably done with local mocks.",
+      "test_description": "Call the service with both translators available. Verify the response returns immediately with the primary translation. Wait briefly for background task completion (with configurable timeout). Query the SQLite quality log table and verify the edit distance record was created with correct values. Test that background logging does not block the response to the caller.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

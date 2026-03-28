@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for merchant category",
+      "minimum_level": "Unit",
+      "justification": "The failure is deterministic logic: wrong comparison operator (> vs >=), incorrect threshold parsing, or incorrect score calculation. None of these require I/O or external services. A unit test calling the scoring function with real transaction and config data will catch these. The config is either passed as a parameter (Unit) or loaded from storage—if the latter, that's a separate concern from the threshold comparison logic itself.",
+      "test_description": "Create a transaction with amount=$150, configure a $100 threshold for the merchant category, call scoring_model(transaction, config), and verify the returned score indicates the amount exceeds the threshold. Repeat with edge cases: amount exactly at threshold, amount just below, different categories with different thresholds.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies fraudulent pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded",
+      "minimum_level": "Integration",
+      "justification": "Pattern detection inherently requires aggregating data from multiple transactions. A mock that returns a pre-set history would pass a unit test even if the real query logic is broken (wrong date range, missing filters, or incorrect aggregation in SQL). The failure boundary is where transaction history is fetched and processed by the model. Unit tests with mocked data would hide bugs in how the history is retrieved, indexed, or aggregated. Integration testing with a real test database ensures the model correctly processes actual transaction sequences.",
+      "test_description": "Insert 3 transactions from the same user: $50 in US (T+0), $40 in UK (T+10min), $30 in JP (T+20min). Verify scoring_model does NOT flag any single transaction as high-risk (all amounts below threshold). Call risk_model(user_id, merchant_category, device_fingerprint, transaction_history), and verify it returns fraud_probability above threshold, indicating the pattern (velocity + geography) is detected despite individual amounts being low.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check correctly counts transactions within configured time window per user",
+      "minimum_level": "Integration",
+      "justification": "A mock of the database would pass even if the query is constructed incorrectly (wrong time comparison operators, off-by-one errors in window boundaries, incorrect WHERE clause, missing indexes causing wrong results under load). The failure is often in how the time window is queried in SQL or how the database handles the comparison. A unit test with `patch.object(database, 'query')` cannot catch bugs in the actual query string or index usage. Integration testing with a real test database executes the actual query and catches these subtle failures.",
+      "test_description": "Set up: configured time_window=10 minutes. Insert 5 transactions from user_id='123': 3 within the last 10 minutes, 2 older than 10 minutes. Call velocity_check.count_for_user('123'), and verify it returns exactly 3. Repeat with edge cases: transactions at the exact time boundary (at now-10min, just before, just after).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Transaction flagged by risk model but not by scoring model is held for review (models operate as OR gate)",
+      "minimum_level": "Unit",
+      "justification": "The failure is in the aggregation logic itself: using AND instead of OR, missing one model's output in the decision, or wrong condition syntax. This is pure conditional logic testable without I/O. A unit test that creates risk and scoring result objects, calls the aggregation function, and verifies the output is sufficient. No database, no external calls, no non-determinism. The models themselves are tested separately; this test only verifies the OR gate logic.",
+      "test_description": "Create RiskScore(fraud_probability=0.85, flagged=True) and ScoringScore(risk_level='low', flagged=False). Call combine_scores(risk_score, scoring_score), and verify decision is 'hold_for_review'. Repeat with: both flagged (both=True), neither flagged (both=False), risk_model flagged, scoring_model flagged.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both numeric risk score and risk model's fraud probability so reviewer can see which model flagged and why",
+      "minimum_level": "Unit",
+      "justification": "The failure is missing a required field in the output structure. A unit test that calls the output formatter with known inputs and verifies both fields are present and correct is sufficient. This is not about whether the models produced the right scores (that's tested separately), but about whether the output includes both pieces of information. No database, no model execution, no I/O required—just output structure validation.",
+      "test_description": "Call transaction_review_output(risk_score=75, fraud_probability=0.85, flagged_by_models=['risk_model', 'scoring_model']). Parse the returned JSON/dict and verify it contains 'risk_score' (value=75), 'fraud_probability' (value=0.85), and 'flagged_by' (indicates which model(s) flagged). Verify both numeric values are present and serializable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

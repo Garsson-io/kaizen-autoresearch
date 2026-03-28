@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Exponential backoff: wait time doubles with each retry, capping at maximum",
+      "minimum_level": "Unit",
+      "justification": "This tests pure backoff calculation logic (elapsed_time = Math.min(initial * 2^n, max)). Real failures are math bugs (wrong exponent, missing cap, wrong initial value). These are locally-computable and mockable—we mock rate-limit responses and verify computed wait values without needing actual time passage. The critical test: mock 5 consecutive 429 responses and verify the computed delays are [A, 2A, 4A, 8A, min(16A, max)].",
+      "test_description": "Mock the API to return 429 errors on consecutive calls. Intercept the retry delays (via fake timers or by tracking internal state) and verify they follow the pattern: 1s, 2s, 4s, 8s, then cap at max (e.g., 16s). Assert that the 6th retry respects the cap and doesn't exceed it.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Identify 429 rate-limit response and extract retry-wait duration from headers",
+      "minimum_level": "Unit",
+      "justification": "This tests response parsing: detect HTTP 429 status → extract `Retry-After` header (or fallback logic) → compute wait duration. Real failures are: wrong status code check, missing header parsing, incorrect header format interpretation. All testable with mocked HTTP responses. The test doesn't depend on real network I/O or third-party API behavior—just response-parsing logic.",
+      "test_description": "Mock HTTP responses with different rate-limit formats: (a) 429 with Retry-After: 30, (b) 429 with Retry-After: 60, (c) 429 without header (should use fallback). Verify the library correctly identifies 429 as rate-limited and extracts the right wait duration for each case.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After backoff wait, resend original request and transparently return successful result",
+      "minimum_level": "Integration",
+      "justification": "This verifies the entire retry sequence: (1) first call fails with 429, (2) wait happens, (3) second call sent with same args, (4) success returned. A Unit test checking only mock return values could pass even if the code doesn't actually wait or doesn't resend. Real failure modes: code computes wait but doesn't apply it (skips straight to retry), code mutates request before resending (wrong args), code returns error instead of success. Testing requires controlling time and verifying sequential behavior—either with fake timers + sequential mock setup or with actual async waiting. Integration level ensures actual async/await sequencing is correct.",
+      "test_description": "Set up sequential mocks: first call returns 429 with Retry-After: 1, second call returns success {result: 'ok'}. Issue one request. Verify: (a) first API call is made immediately, (b) code waits ~1s (use fake timers to confirm setTimeout was called), (c) second API call is made with identical request args, (d) caller receives {result: 'ok'} successfully. Measure actual time or use fake timers to confirm the wait genuinely happens.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After max retries exceeded, return typed QuotaExhaustedError not generic error",
+      "minimum_level": "Unit",
+      "justification": "This tests error branching: if retryCount > max, throw QuotaExhaustedError (not RateLimitError, not Error). Real failures are: wrong error type thrown, error not thrown at all, wrong retry count threshold. All testable by mocking API to always return 429 and verifying the error type/message. No real waiting or network I/O needed—just verify the decision logic and error construction.",
+      "test_description": "Mock API to always return 429. Set max retries to 3. Issue one request. Verify: (a) exactly 3 retries happen (4 total attempts: 1 initial + 3 retries), (b) error thrown has type QuotaExhaustedError, (c) error message/properties are accessible (e.g., error instanceof QuotaExhaustedError, error.message contains relevant info).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain terminates correctly; no infinite loops before surfacing error",
+      "minimum_level": "Unit",
+      "justification": "This tests the retry loop termination condition. Real failures are: off-by-one in retry counter, loop condition never met, early exit without proper error. These are logic bugs in the loop control flow. Testable at Unit level by mocking API to always return 429 and verifying the call count never exceeds (1 initial + maxRetries). The test should enforce a strict call count to catch both infinite loops (too many calls) and premature exits (too few calls). No real concurrency or timing required—just sequence and count verification.",
+      "test_description": "Mock API to always return 429. Set max retries to 5. Issue one request and catch the error. Verify: (a) API is called exactly 6 times (1 initial + 5 retries), no more, (b) no calls happen after the error is thrown, (c) the error is returned promptly (use a timeout to ensure test doesn't hang indefinitely). Use call count assertions to catch off-by-one or loop-condition bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Multiple concurrent callers in same process share single quota bucket",
+      "minimum_level": "Integration",
+      "justification": "This tests shared mutable state under concurrency. Real failures are: (1) quota is per-caller, not shared (data structure bug), (2) quota updates are racy (state corruption under concurrent access), (3) one caller's quota exhaustion doesn't affect another's retry logic. Testing requires actual concurrent async execution—not just sequential mocks. A Unit test with a shared mock object could pass even if the real code under load exhibits race conditions. Integration level: create single rate limiter, spawn 5 concurrent callers, verify they all draw from same quota pool—e.g., 10 requests total, quota allows 5, all 5 should eventually fail with QuotaExhaustedError, not some succeeding and others being queued.",
+      "test_description": "Create a single rate-limited client. Set quota to allow 5 requests. Issue 10 concurrent requests (Promise.all of 10 call() invocations). Verify: (a) exactly 5 succeed, (b) exactly 5 fail with QuotaExhaustedError, (c) the 5 failures come from different callers (not all from caller #1), (d) no caller can bypass the quota by having its own private quota counter. Monitor API call count—should be exactly 5, not 10.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Queued requests (waiting for retry slot) dispatch in submission order (FIFO)",
+      "minimum_level": "Integration",
+      "justification": "This tests queue ordering under real concurrency. Real failures are: (1) requests execute out of order (queue bug, wrong data structure), (2) requests skip queue (race condition), (3) queue allows cut-in (priority bug). Testing requires concurrent execution where requests overlap in flight and share a rate-limit slot. A Unit test with a mock queue could pass even if the real async code reorders requests. Integration level: trigger rate limit, submit 3 concurrent requests while rate-limited, release quota, verify they execute in submission order by checking API call args/timestamps. Real async execution is necessary to catch timing/ordering bugs.",
+      "test_description": "Trigger rate limit (mock API returns 429). Submit 3 concurrent requests with unique identifiers (e.g., req_id: 'A', 'B', 'C' in that order). Mock API to accept only 1 request at a time, then succeed. Verify: (a) requests complete in order A → B → C, (b) timestamps or call sequence confirm FIFO dispatch, (c) request args match submission order. Use a mock that tracks call sequence to catch out-of-order execution.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

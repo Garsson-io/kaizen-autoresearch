@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed, not only files at the root level",
+      "minimum_level": "Integration",
+      "justification": "The real failure is whether the daemon's file watcher actually emits events for files in subdirectories and the daemon processes them. Mocking the filesystem API could hide failures in watcher configuration or directory traversal. The failure boundary requires a real filesystem with real subdirectories and the real watcher (part of the Node process) actually monitoring them.",
+      "test_description": "Create a real temporary directory with nested subdirectories, start the daemon watching the root, place a file in a subdirectory (not the root), wait for processing with a timeout, verify the processed output exists for that file, then clean up the temp directory.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real filesystem structure and real watcher behavior to catch the failure. A Unit test with mocked fs API could miss the failure if the watcher isn't configured for recursive watching.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards a second processing request for the same file path within the configurable time window",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is pure logic—a data structure (Set, Map, or similar) with time-based window checks. The failure is deterministic: does the code recognize duplicate paths within the window? This requires no filesystem I/O, no watcher events, and no external systems. Time can be mocked/injected. The failure mode is purely logical.",
+      "test_description": "Create a deduplication service or inject a mocked clock, submit the same file path twice with controlled time advancement, verify the first request is marked for processing and the second is rejected (or both are rejected if outside the window), all without touching the filesystem.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test only exercises the dedup logic and clock control. No higher level is needed; Integration or System would add unnecessary complexity.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the OS emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "System",
+      "justification": "The real failure is OS/filesystem-dependent: the file watcher (OS-level facility) emits duplicate events for a single write. While dedup logic could be unit-tested, catching *actual* duplicate watcher events requires the real filesystem and real watcher lifecycle behavior, which varies by OS and filesystem. The test must trigger real duplicate events from the OS, not just inject them into a mock.",
+      "test_description": "Create a real file and write to it (or use rapid writes) to trigger real filesystem watcher events from the OS. Verify that despite receiving multiple `change` or `write` events, the file is processed exactly once by checking output artifacts or processing logs. May require OS-specific timing or write patterns.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real OS file events to catch the failure; mocking the watcher would not verify that the daemon handles actual duplicate events.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching without a restart",
+      "minimum_level": "System",
+      "justification": "The real failure is how the daemon handles OS-level directory lifecycle events (deletion and recreation). This involves watcher error handling, cleanup, and re-establishment—all OS-dependent behaviors. The watcher will emit errors or stop events when the directory is deleted; the daemon must gracefully handle these and re-attach when the directory reappears. This requires real filesystem operations and real watcher error lifecycle.",
+      "test_description": "Start the daemon watching a directory, delete the directory from the filesystem, verify the daemon handles the error gracefully (logs, pauses, or enters a recovery state), recreate the directory, verify the daemon resumes watching and processes new files placed in it without requiring a manual restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real directory removal and OS watcher error behavior; mocking watcher errors would not verify the daemon's actual error recovery against real filesystem state changes.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps",
+      "minimum_level": "Integration",
+      "justification": "The failure is whether the daemon respects file creation timestamps when multiple files arrive simultaneously. The core logic (sorting by stat.mtime or similar) could be unit-tested with injected timestamps, but the real failure is about whether real filesystem timestamps are preserved and accessible correctly. Real files with real filesystem timestamps and a real watcher are needed to verify the daemon processes them in the correct order.",
+      "test_description": "Create multiple real files in rapid succession with slightly staggered creation times, trigger the daemon to process them, verify they are processed in the order of their creation timestamps (not arrival order from the watcher). Check output timestamps or processing logs to confirm the order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real files with real filesystem timestamps and real watcher arrival to catch the failure; pure logic tests with injected timestamps would not verify actual filesystem timestamp behavior.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file still being written is not picked up for processing until writing is complete",
+      "minimum_level": "System",
+      "justification": "The real failure is that the daemon processes a file before all bytes are written. This requires detection of file-write completion, which is OS-dependent (file locking, size changes, handle state). The daemon must either check file size/lock status or wait for the watcher to stabilize. The only reliable way to test this is with real open file handles and OS-level filesystem state. Mocking a partial file or file state would not catch failures in detecting when writing has actually ceased.",
+      "test_description": "Open a file for writing without closing it, trigger the watcher (or wait for auto-detection), verify the daemon does not process the incomplete file. Then close the file handle, verify the daemon picks up the now-complete file and processes it. May require checking file size, inode changes, or lock status.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires real open file handles and OS filesystem state; mocking file state would not verify the daemon's actual in-progress file detection.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

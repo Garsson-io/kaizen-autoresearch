@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent translation that preserves meaning (not word-for-word substitution)",
+      "minimum_level": "Agentic",
+      "justification": "Verifying that a neural machine translation API produces grammatically coherent, meaningful output requires calling the real external API. Mocking the API would always return whatever test data we specify, hiding whether the actual API produces coherent output. The real failure boundary is whether the actual machine translation model produces correct translations. This cannot be verified without making a real API call and inspecting the non-deterministic LLM output.",
+      "test_description": "Call the real translation API with diverse test inputs (various languages, domains, sentence structures). Verify each output is grammatically correct in the target language and preserves the semantic meaning of the source text. Compare against known-good reference translations or use a secondary verification method (e.g., back-translation coherence check, human review of samples).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Service transparently falls back to dictionary when translation API returns 503 error",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires wiring together multiple components: the primary translator (which we can mock to return 503), the fallback lookup logic, and the real SQLite database. While we can mock the primary translator's error response, mocking the database would hide real failures like incorrect SQL syntax, missing tables, or character encoding issues. The real failure boundary is whether the fallback correctly queries and retrieves from the actual database when the primary fails. This requires an in-process integration test with a real (or in-memory) SQLite database.",
+      "test_description": "Populate an in-memory SQLite database with test phrase→translation mappings. Mock the primary translator to return a 503 error. Call the service with a phrase that exists in the fallback database. Verify: (1) the service calls the fallback after catching the 503, (2) the correct translation is returned, (3) no error is returned to the caller, (4) the fallback database query succeeded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary-based fallback returns the correct pre-stored translation for phrases in SQLite",
+      "minimum_level": "Integration",
+      "justification": "Testing that the fallback correctly retrieves stored translations requires a real SQLite database interaction. Mocking the database would hide real failures: incorrect SQL queries, missing indexes, character encoding issues, transaction isolation problems, or data persistence bugs. The real failure boundary is whether the actual SQL queries work against a real (or in-process) database with real schema and stored data. Pure unit tests with mocked database would always pass regardless of query correctness.",
+      "test_description": "Populate an in-memory SQLite database with known phrase→translation pairs (covering edge cases: special characters, multi-word phrases, empty translations). Query the fallback translator for each phrase. Verify each returns the exact correct stored translation. Test boundary cases: phrases not in database, partial matches, case sensitivity, character encoding.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes edit distance between outputs and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "While the edit distance computation itself is deterministic and could be tested at unit level, the critical failure boundary is whether the metric is correctly persisted to and retrievable from the SQLite database. Mocking the database would hide storage bugs: incorrect table schema, missing columns, serialization errors, or retrieval query failures. The real failure is 'metric is computed but not stored' or 'stored incorrectly'. Testing this requires both the real edit distance computation and real database storage/retrieval.",
+      "test_description": "Call the service with inputs that generate both primary and fallback translations. Verify: (1) edit distance is correctly computed between the two outputs (validate calculation against known test cases), (2) the metric is stored in the database, (3) the metric can be retrieved with the correct associated translation pair, (4) the stored format matches expected schema (correct table, columns, data types).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Service returns primary translation immediately while quality comparison logging happens in background asynchronously",
+      "minimum_level": "Integration",
+      "justification": "Testing that logging happens asynchronously without blocking the response requires real in-process async/concurrent behavior. Mocking the background task would hide real failures: accidentally making logging synchronous, race conditions, the service hanging while waiting for logging to complete, or deadlocks. The real failure boundary is 'the response is delayed waiting for logging' vs. 'logging happens truly in background'. This requires multiple interacting modules (response handler, async logger, background task queue) working together in-process with real async behavior.",
+      "test_description": "Set up the service with both primary and fallback available. Call the service and measure response time. Verify: (1) the response is returned immediately with the primary translation, (2) quality logging is triggered asynchronously, (3) the response time is not significantly delayed by logging computation, (4) the logging operation completes in the background without blocking the response, (5) verify via async/threading introspection or by adding a delay in the logging and confirming response isn't blocked.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

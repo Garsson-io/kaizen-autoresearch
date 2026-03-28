@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The behavior spans three integrated concerns: (1) validation logic detecting missing fields, (2) row-number tracking across the processing pipeline, and (3) the dead-letter queue mechanism capturing rejected rows. A unit test of the validation function alone would miss row-tracking bugs (e.g., off-by-one errors) and DLQ integration failures. Integration testing with real CSV input and mocked S3/DLQ interfaces tests the end-to-end pipeline and ensures rejected rows are queued with correct row numbers.",
+      "test_description": "Create a CSV with some rows missing required fields (e.g., every Nth row missing the 'email' field), process through the pipeline with mocked S3 and DLQ, verify each rejected row appears in the DLQ with the correct row number matching its position in the original CSV, and verify totals match (valid rows + invalid rows = total rows).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is pure transformation logic with no I/O, external dependencies, or statefulness. A single function accepts a date string and returns a canonicalized format. The behavior is fully deterministic, idempotent, and testable in isolation with parametrized test cases. Integration or higher levels would test unrelated infrastructure rather than the transformation itself.",
+      "test_description": "Parametrized unit test covering ISO 8601 (2025-03-28, 2025-03-28T14:30:00Z), US format (03/28/2025), European format (28/03/2025), and edge cases (leap year Feb 29, month/year boundaries, invalid dates). Each input case maps to the expected canonical format (e.g., 'YYYY-MM-DD'). Verify all variations parse correctly and produce identical canonical output regardless of input format.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests two runtime constraints: memory efficiency and timeout enforcement. A unit test with a small mocked CSV cannot exercise real memory usage or timing. A mocked version would not reveal memory leaks, inefficient streaming (e.g., loading entire CSV into memory), or timeout logic bugs. Integration testing with a large real CSV file, actual row-by-row processing, and wall-clock timing will catch all three classes of failure.",
+      "test_description": "Generate a 500K-row CSV file locally with realistic data, run the pipeline with the configured timeout value, monitor peak memory usage and wall-clock execution time, verify both metrics stay within configured limits, and verify successful completion without OOM or timeout prematurely aborting the batch.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "Retry logic must be tested against the actual S3 client library's behavior and contract, not against naive mocks. A unit test with a mocked S3 client could pass even if the real AWS SDK has different retry semantics (e.g., different backoff constants, different max attempts). Integration testing with moto (AWS SDK mock library) enables reliable error injection while respecting the real SDK's retry behavior. System testing against real S3 is impractical because transient 503 errors cannot be reliably forced.",
+      "test_description": "Configure moto to mock the S3 service and inject 503 errors on the first N read/write attempts, then succeed on attempt N+1. Run the pipeline against moto-backed S3, capture request logs, verify the pipeline retries with exponential backoff (e.g., 1s, 2s, 4s delays), does not fail the batch, and eventually succeeds. Assert that backoff intervals increase exponentially.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency depends on actual database constraints, transaction isolation semantics, and the correctness of the checkpoint/resume mechanism. A unit test with a mocked database would pass even if the real PostgreSQL schema lacks uniqueness constraints or transaction isolation is insufficient. A unit test cannot verify that the actual database enforces the idempotency guarantee. Integration testing with a real test PostgreSQL instance ensures constraints, isolation levels, and resumption logic all work together correctly.",
+      "test_description": "Set up a test PostgreSQL instance with the target table schema including idempotency constraints (e.g., UNIQUE(batch_id, row_number)). Process a CSV batch partway through (e.g., 250K of 500K rows), simulate a crash by forcibly interrupting the process, resume processing from the saved checkpoint, query the table and verify: (1) final row count is exactly 500K, (2) no duplicate rows exist, (3) all expected rows are present (no gaps).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

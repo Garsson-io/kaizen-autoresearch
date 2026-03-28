@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them.",
+      "minimum_level": "Unit",
+      "justification": "The trace ID grouping logic is a deterministic algorithm that can be tested with synthetic entries from multiple sources. Unit testing with log entries having identical trace IDs but different service fields (e.g., service='web' vs service='db') is sufficient to catch grouping failures. While multi-service integration testing has value, it's not necessary to catch the core failure boundary: entries with matching trace IDs not being grouped together.",
+      "test_description": "Create 100 log entries with trace_id='xyz-123' from three different services (source∈{web, db, cache}). Pass through grouping function. Assert all 100 entries are in the same group, ordered by timestamp within the group, and entries from other trace IDs remain separate.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services.",
+      "minimum_level": "Unit",
+      "justification": "Clock-skew-aware ordering is a pure algorithmic problem. The failure boundary—incorrect ordering under clock skew—is deterministic and detectable with synthetic timestamps. Unit testing with carefully chosen timestamp deltas (e.g., service A at t=0 calling service B which logs at t=450ms) directly tests the skew-tolerance logic without requiring real system clocks or OS-level timing.",
+      "test_description": "Unit test: Create 10 entries where timestamps differ by ±400ms (within 500ms tolerance). Verify that causality is preserved: if entry A (t=100ms) precedes entry B (t=500ms) logically, the timeline respects that order despite the clock delta, not reversing it based on naive chronological sorting.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report.",
+      "minimum_level": "Unit",
+      "justification": "Spike detection is a statistical algorithm testable with synthetic latency distributions. The real failure—missed spikes or false positives—manifests deterministically with controlled synthetic data. Unit testing with a known baseline (e.g., 98 entries at 50ms latency, 2 entries at 150ms+ latency) directly validates the p99 calculation and threshold logic without needing real production latency data.",
+      "test_description": "Unit test: Generate 100 latency samples: 98 entries at ~50ms, 1 entry at 150ms, 1 entry at 200ms (p99=150ms, baseline≈50ms, ratio=3.0x). Pass to anomaly detector. Assert anomaly_flagged=true and report lists the spike entries. Also test negative case: no spike detected when p99 ≤ 3x baseline.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported.",
+      "minimum_level": "Integration",
+      "justification": "The phrase 'without crashing the pipeline' is the critical boundary. While a unit test can verify that the JSON parser handles malformed input gracefully, only an integration test of the full pipeline confirms that parsing errors don't propagate to crash the entire process. The failure mode is a pipeline-level crash or partial failure, not a local parser error.",
+      "test_description": "Integration test: Create a log stream with 100 valid JSON entries interspersed with 10 malformed entries (missing quotes, truncated JSON, wrong types, null values). Feed entire batch to the pipeline. Assert: (a) pipeline completes without exception, (b) all 100 valid entries processed correctly, (c) metadata/report shows exactly 10 entries skipped with reason (e.g., 'JSON parse failed').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind.",
+      "minimum_level": "Integration",
+      "justification": "Throughput and backlog management require concurrent processing of multiple components—unit tests cannot measure timing or detect buffer exhaustion. 'Dropping entries' suggests queue overflow, and 'falling behind' implies latency growth under load. These are integration-level failures: the system as a whole fails under sustained rate. System-level testing (real I/O sources) would catch additional resource-limit failures, but integration testing with in-memory streams is the minimum to catch pipeline-level throughput bugs.",
+      "test_description": "Integration test: Enqueue 100,000 log entries in a test input source. Configure processor to consume at 10,000 entries/sec (10 batches over 10 seconds). Assert: (a) processed_count == 100,000 (no drops), (b) per-batch latency ≤ 100ms (not falling behind), (c) peak_memory ≤ 2x baseline (queue not growing unbounded). Measure with realistic async/concurrent code path.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.65,
+        "System": 0.35,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

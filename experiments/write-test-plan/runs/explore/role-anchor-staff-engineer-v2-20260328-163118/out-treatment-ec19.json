@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Generated function signature matches expected interface (parameter names, types, return type)",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is: the real LLM misunderstands the spec and generates wrong parameter names, missing type hints, or incorrect return types. A mock LLM that always returns code with the correct signature would hide these failures entirely. Unit-level tests of signature extraction logic only verify *our* parsing capability, not whether the LLM generates what we asked for. Only real LLM output exposes whether the model understood the interface specification.",
+      "test_description": "Call real LLM with specific interface spec: 'def process_data(records: List[dict], threshold: float) -> bool'. Parse generated code's AST to extract actual signature. Verify extracted names, types, and return type match spec exactly. Run 5+ times (non-deterministic) to catch LLM hallucinations on the interface.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real LLM (Agentic). A mock would always pass by returning the correct signature on demand, hiding real generation failures.",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.02,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated implementation passes all provided test cases on first or subsequent attempt (up to 3)",
+      "minimum_level": "Workflow",
+      "justification": "The failure mode is: the iterative refinement loop doesn't converge. This requires multiple LLM calls in sequence, each informed by test results from the prior attempt. Testing at Agentic level (single call) wouldn't exercise the refinement feedback loop. Testing at Integration level with mocks (e.g., 'first attempt fails, second passes') would let us control all outcomes and wouldn't verify that *real* LLM refinement actually improves code quality. Only real LLM calls with real test feedback expose whether refinement helps on problems the model initially misses.",
+      "test_description": "Use a code generation task known to require refinement (e.g., off-by-one bug in sorting algorithm, or subtle edge-case handling). Call real LLM with spec, run real test suite against generated code, capture failure messages, include them in next prompt, allow up to 3 iterations. Assert code passes all tests by final attempt or earlier. Verify at least one iteration was needed (first attempt failed).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test exercises multiple LLM calls (up to 3) in sequence with test feedback between them — this is Workflow, not just Agentic.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.01,
+        "System": 0.03,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, refinement step includes failure messages in next LLM prompt so model can learn",
+      "minimum_level": "Integration",
+      "justification": "The mechanical behavior is: failure messages appear in the refinement prompt. This can be tested at Integration level by mocking the LLM and inspecting call arguments. The failure mode is 'we forgot to pass test failures' or 'we pass them in wrong format' — both catchable with a mock by verifying the prompt argument contains test errors. To test the *consequence* ('the model actually learns from them'), we'd need Agentic (real LLM to verify learning happens). But the stated behavior is about inclusion, not about learning effectiveness. Unit tests of prompt-building logic miss the case where the building code is never called at all.",
+      "test_description": "Mock LLM to return code that fails provided tests (e.g., `def foo(x): return x+1` when tests expect `x+2`). Run test suite and capture errors. When refinement calls LLM a second time, inspect the prompt argument and assert it contains the actual test failure message (e.g., 'AssertionError: expected 3, got 2') and stack trace text.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test mocks the LLM and inspects the prompt string argument — Integration level. Does not require real LLM to verify the inclusion mechanism works.",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.7,
+        "System": 0.01,
+        "Agentic": 0.25,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Service stops after 3 failed attempts and returns structured error with all attempts and results",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is control-flow logic: wrong retry count (e.g., 2 or 4 instead of 3), missing or incomplete attempt records, or error structure that doesn't include all results. These are testable at Integration level with mocks (mock LLM always fails, verify loop exits at right count). Unit tests of counter logic in isolation miss integration bugs (e.g., results stored in a list but attempt object dropped). System-level tests with a real test runner could expose edge cases (e.g., test runner throws exception, not returning clean result), but the behavior statement is about 'stops after 3' — the control flow, not test runner error handling.",
+      "test_description": "Mock LLM to generate code that always fails tests (hard-coded to return 'def foo(): pass'). Mock test runner to report failures. Run loop, verify: attempt counter starts at 0, increments to 1, 2, 3. After 3rd failure, loop exits (no 4th call to LLM). Verify returned error.attempts is a list with length 3, each entry contains the generated code and test results for that attempt.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses mocks to verify control-flow logic and error structure. Does not require System-level real test runner to catch the stated behavior.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full loop produces working implementation for function typically requiring multiple attempts",
+      "minimum_level": "Workflow",
+      "justification": "This is an end-to-end test of the complete workflow: call LLM → test → refine (with feedback) → test → repeat. It requires multiple LLM calls in sequence, each informed by the prior iteration's results. The failure mode is 'the iterative refinement doesn't work in practice — even with feedback, the model doesn't converge.' Testing at Agentic level (single call) doesn't exercise the loop. Testing at Integration level with mocks (mock: 'attempt 1 fails, attempt 2 passes') would control outcomes and wouldn't verify that *real* LLM refinement on *real* test feedback actually converges. Only real LLM calls with real tests over multiple iterations can expose whether refinement solves problems a single shot cannot.",
+      "test_description": "Select a code task known to need multiple attempts (e.g., 'implement binary search handling duplicates; find first matching index'). Provide test cases including edge cases (empty array, all equal, no match). Call real LLM with spec, run real test suite, feed actual test failures into next prompt, allow 3 iterations. Assert generated code passes all tests by iteration 2 or 3. Verify first attempt actually failed (at least 1 test failed initially).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires multiple real LLM calls in sequence with test feedback — Workflow level. Mocks would hide whether real refinement converges.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.01,
+        "System": 0.03,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

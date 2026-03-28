@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Image containing explicit content is flagged and held for review, not published",
+      "minimum_level": "Agentic",
+      "justification": "The core failure being prevented is: 'an image containing explicit content is published'. This depends entirely on whether the real vision model correctly classifies the image as explicit. A mock model would always return whatever we program it to return, hiding real failures like wrong training data, poor preprocessing, or model drift. Only the real vision model can reveal whether explicit images are actually detected.",
+      "test_description": "Submit a dataset of known explicit images to the moderation service and verify: (1) the vision model classifies each as explicit, (2) each flagged image is held for review rather than published, (3) across multiple submissions, the decision is correct (not just that the mock returns the right value).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.88,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Text post with hate speech is flagged regardless of obfuscation techniques (letter substitution, unicode lookalikes)",
+      "minimum_level": "Agentic",
+      "justification": "The entire point of this behavior is that the real text model must overcome adversarial obfuscation. A mock cannot verify this—it accepts whatever rule we program. The real failure is: 'hate speech with substitution (e.g., h@te) slips through because the model isn't robust to obfuscation'. Only the real text model reveals whether it actually handles obfuscation, making Agentic the minimum.",
+      "test_description": "Generate or curate text posts containing hate speech obfuscated via (1) letter substitution (e.g., 'h@te'), (2) unicode lookalikes, and (3) phonetic replacement. Submit each to the text moderation model and verify it correctly identifies and flags all variants as hate speech.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Post passing both content checks is published rather than held or dropped",
+      "minimum_level": "Integration",
+      "justification": "This tests the orchestration decision: when both models say 'safe', what happens? The failure modes are: (1) logic bug—code calls hold() instead of publish() [Unit can catch this], (2) publish fails silently—the code calls publish() but the destination is unreachable or corrupted [Unit with mocks misses this]. Integration is the minimum because we must verify the post actually reaches the real publish destination (database, message queue, or API), not just that the code path is exercised.",
+      "test_description": "Mock both the vision and text models to return 'safe' classification. Submit an image and text post that should pass both checks. Verify: (1) neither model flags it, (2) the post is written to the real publish destination (not just queued in memory), (3) a subsequent query to the destination retrieves the published post, (4) the post is not held or silently dropped.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full moderation pipeline completes within 5 seconds from submission",
+      "minimum_level": "System",
+      "justification": "Measuring latency against a 5-second SLA requires real API calls to the vision and text models; mocked models respond in microseconds, completely masking real latency. The failure being prevented is: 'with real models, the pipeline exceeds 5 seconds due to network/processing delays'. A Unit test with mocked models would pass (total time ~10ms) but fail in production (real models take 1–4 seconds each). System level is required to include real network latency and model inference time.",
+      "test_description": "Submit multiple image-and-text posts through the full moderation pipeline using real (or production-equivalent) API calls to both the vision and text models. Measure end-to-end latency from submission to final publish decision (including vision classification, text classification, and publish). Verify that 95% of requests complete within 5 seconds; also capture and report the 99th percentile latency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.85,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Vision model unavailability triggers retry queue, not auto-approval",
+      "minimum_level": "Integration",
+      "justification": "The failure is: 'when the vision model fails, the system auto-approves posts instead of queueing them for retry, causing them to be lost'. Unit tests with mocks can verify the logic ('if exception, call queue.add()'), but a mock queue hides whether posts are actually persisted and re-processed. Integration is the minimum because we must test with a real queue (or test-double that mimics persistence) to catch failures like 'queue write fails', 'retry mechanism doesn't re-process the post', or 'queue loses data on restart'.",
+      "test_description": "Simulate vision model unavailability by making its API return an error or timeout. Submit an image post while the model is unavailable. Verify: (1) the post is not auto-approved or published, (2) the post is added to a real retry queue (with persistence confirmed), (3) after the model becomes available again, retry processing retrieves and re-evaluates the queued post.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Borderline image decisions remain consistent across multiple submissions",
+      "minimum_level": "Agentic",
+      "justification": "Consistency testing requires the real vision model because AI models can be non-deterministic: inference randomness, model versioning, cache behavior, or confidence threshold drift. A mock would always return the same result, hiding real non-determinism. The failure is: 'the same borderline image gets classified as explicit on one run and safe on another, causing inconsistent moderation decisions'. Only the real model reveals this variability.",
+      "test_description": "Identify an image that the vision model classifies with borderline confidence (near the decision threshold for explicit/safe). Submit this image 10 times to the moderation service within a short time window. Verify: (1) the model returns the same classification (explicit or safe) for all 10 submissions, (2) the moderation decision (hold vs. publish) is consistent across all submissions, (3) the classification confidence scores are stable (within a small tolerance).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.91,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -103,6 +103,8 @@ export const IterationResult = z.object({
   loss: z.number().nullable(),
   /** Change from previous best (negative = improved for loss) */
   delta: z.number().nullable(),
+  /** Model used for this iteration (e.g. claude-haiku-4-5-20251001, gpt-5.3-codex) */
+  model: z.string().nullable().optional(),
   /** Experiment-specific sub-metrics captured at eval time (keys are scorer-defined) */
   metrics: z.record(z.string(), z.number()).optional(),
   /** baseline | keep | discard | crash | no-op | hook-blocked */
@@ -180,4 +182,3 @@ export const GroundTruth = z.object({
   behaviors: z.array(GroundTruthBehavior).min(1).max(10),
 });
 export type GroundTruth = z.infer<typeof GroundTruth>;
-

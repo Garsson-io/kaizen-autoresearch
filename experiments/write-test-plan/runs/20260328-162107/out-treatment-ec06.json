@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "Subdirectory recursion is a filesystem-level behavior that depends on how the file watcher library is configured. Mocking the filesystem watcher could mask misconfigurations or incorrect path resolution logic. Real filesystem operations with actual subdirectories are required to catch failures where the daemon doesn't configure recursive watching or handles paths incorrectly.",
+      "test_description": "Create a watched directory with nested subdirectories (root/sub1/sub2/). Place a test file in root/sub2/file.txt. Start the daemon and verify the file is detected and processed through the transformation pipeline. Verify output file appears with correct transformation. Repeat for 2-3 nesting levels to ensure deep recursion works.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.9,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This tests the core deduplication state machine—a deterministic logic component. A mock can emit duplicate requests (simulating both filesystem duplication and user-triggered dupes). Failures in the logic (not filtering duplicates, wrong time window comparison, incorrect key matching) would be caught by synthetic duplicate requests without needing real filesystem behavior.",
+      "test_description": "Mock the request queue/event emitter to inject duplicate requests. Emit request for 'file.txt' at t=0. Emit identical request at t=2 (within configurable 5-second window). Verify transformation pipeline is called exactly once. Emit another request for 'file.txt' at t=6 (after window expires). Verify pipeline is called again (window expiration works). Test with different filenames, edge timestamps, and concurrent duplicates.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "Real OSes emit multiple events (change, close, modify) for a single write—this is OS-level behavior that mocks often simplify to 'one event per file'. Mocking might assume events never duplicate or come in predictable order. Real filesystem I/O is required to observe the actual event pattern and verify deduplication handles it.",
+      "test_description": "Start the daemon on a real watched directory. Write a file to disk and close it. Monitor the internal event emitter to confirm multiple filesystem events are fired for this single write (catch-all filesystem behavior). Verify the transformation pipeline is invoked exactly once despite multiple events. Inspect output directory to confirm exactly one result file, not multiple duplicates. Repeat with files of various sizes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "Directory removal and recreation are filesystem state changes. Mocking might not capture file watcher behavior when the watched directory disappears (errors, ENOENT, recovery timing). Real filesystem operations are needed to test error handling, retry logic, and recovery without restart.",
+      "test_description": "Start the daemon and verify it processes a file placed in the watched directory. Remove the entire watched directory from the filesystem. Attempt to place a file (directory no longer exists). Recreate the watched directory. Place a new file in the recreated directory. Verify the daemon detects and processes the new file without errors or restart. Check logs for appropriate error handling during removal phase and successful reattachment after recreation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.82,
+        "System": 0.18,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Unit",
+      "justification": "This tests the ordering/sorting logic, which is deterministic and stateless. Mocking file metadata (creation timestamps) allows direct testing of the sort algorithm. Failures (wrong order, ignoring timestamps, off-by-one) would be caught by synthetic test data with known timestamps.",
+      "test_description": "Mock the file queue with three files having creation timestamps [100, 50, 75]. Verify the daemon processes them in sorted order [50, 75, 100]. Mock the transformation pipeline to record call order. Assert calls occur in timestamp order, not arrival order. Test edge cases: identical timestamps (same timestamp for multiple files), very close timestamps, reverse-sorted input, single file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "Detecting incomplete writes depends on OS-level file metadata (modification time, file handles, locks). Mocking file state could miss real edge cases in how OS reports write-in-progress status, how long waits are needed, or how platform-specific behavior (Windows vs Linux) affects detection. Real file I/O is required to test actual write-in-progress scenarios.",
+      "test_description": "Start the daemon. Open a file handle for writing but do not close it. Wait for filesystem event to fire. Verify the file is NOT processed (doesn't appear in output). Keep file open for 2+ seconds to simulate slow write. Close the file. Verify the file IS processed shortly after (transformation appears in output). Test with multiple concurrent open files. Test with various write patterns (small writes, large writes, pauses between writes).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

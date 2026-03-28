@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "Filename parsing and sorting is deterministic logic fully testable in isolation. Mocking file I/O (readdir, readFile) is sufficient to verify the sort algorithm without real filesystem or database access. The core failure mode—applying migrations in the wrong order—is caught by verifying sort order before execution, not by running against a database.",
+      "test_description": "Mock readdir to return migration filenames in random order (e.g., '010-users.sql', '001-init.sql', '002-schema.sql'). Mock readFile to return their contents. Verify the runner sorts them numerically (001, 002, 010). Track mocked execute calls and assert they're invoked with filenames in ascending numeric order, not lexicographic order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency depends on correct database queries, transaction isolation, and proper reads from the _migrations metadata table. Mocking the database would hide real failures: incorrect SQL queries, data type mismatches, NULL handling, or isolation level bugs. A real test database is essential to verify that the metadata query actually works and that the runner correctly detects and skips already-applied migrations.",
+      "test_description": "Set up a real test database (PostgreSQL or SQLite). Apply one migration file and verify it's recorded in _migrations. Run the migration runner again on the same database. Verify the previously applied migration is NOT re-executed by checking database state (no duplicate table, no duplicate rows). Verify the _migrations table is unchanged (same entry, no duplicates). Verify new migrations (if any) are still applied.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Rollback behavior is database-driver-dependent and involves real transaction semantics. Mocking transactions would hide failures like incorrect ROLLBACK invocations, missing transaction boundaries, savepoint handling, or nested transaction bugs. A real database with transaction support is needed to verify that failed migrations leave no orphaned state and that subsequent migrations are not executed.",
+      "test_description": "Set up a real test database. Create a migration file that will fail (e.g., INSERT into a non-existent table or violate a constraint). Create a second migration that should not execute. Run the migration runner. Verify the failed migration's changes were rolled back by inspecting database state (no partial changes, no tables created). Verify the second migration was never attempted (no entry in _migrations table). Verify the first migration entry in _migrations shows failure status if recorded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "The issue specifies 'safe to run concurrently from separate processes,' meaning the test must verify real inter-process coordination. In-process async concurrency (Promises) would miss failures in process-local state (file locks, memory caches) or inter-process locking bugs. Real separate processes with a shared database are required to catch race conditions, missed locks, or duplicate applications of the same migration.",
+      "test_description": "Set up a real test database. Create multiple migration files. Spawn two actual Node.js child processes (via child_process.spawn) that both run the migration runner against the same database, using a barrier/latch to ensure they start concurrently. Verify each migration is applied exactly once by querying the _migrations table (exactly one entry per migration name, no duplicates). Verify both processes exit without errors. Verify database state is correct (all migrations applied, no orphaned changes). Optionally, add a slow migration to increase the window for detecting race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.25,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "Table creation and schema initialization require a real database to verify DDL execution, schema correctness, constraints, and idempotency. Mocking database commands would hide failures like incorrect CREATE TABLE statements, wrong column types, missing constraints, permission errors, or schema mismatches.",
+      "test_description": "Set up a fresh test database with no existing _migrations table. Create at least one migration file. Run the migration runner. Verify the _migrations table was created automatically by querying the database schema (table exists, has correct columns such as name and appliedAt, has appropriate constraints like PRIMARY KEY). Verify migrations were applied only after table creation (check their entries exist in _migrations). Run the runner again and verify no errors occur (table is not recreated, migrations are not re-executed).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

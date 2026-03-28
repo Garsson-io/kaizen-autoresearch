@@ -9,13 +9,14 @@
  *
  * Usage:
  *   npx tsx experiments/write-test-plan/scripts/verify.ts
+ *   npx tsx experiments/write-test-plan/scripts/verify.ts --cli codex --model gpt-5.3-codex
  *   npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.loss'
  *   npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.895 --mock-loss 23.4
  */
 
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { z } from "zod";
-import { EXP_DIR } from "./paths";
+import { EXP_DIR } from "./paths.js";
 
 const EVAL_DIR = EXP_DIR;
 
@@ -32,18 +33,30 @@ const mockIdx = args.indexOf("--mock");
 const mockValue = mockIdx >= 0 ? args[mockIdx + 1] : undefined;
 const mockLossIdx = args.indexOf("--mock-loss");
 const mockLossValue = mockLossIdx >= 0 ? args[mockLossIdx + 1] : undefined;
+const passThroughArgs = args.filter((arg, i) => {
+  if (mockIdx >= 0 && (i === mockIdx || i === mockIdx + 1)) return false;
+  if (mockLossIdx >= 0 && (i === mockLossIdx || i === mockLossIdx + 1)) return false;
+  return true;
+});
 
 let raw: string;
 if (mockValue !== undefined) {
   raw = `SCORE: ${mockValue}\nLOSS: ${mockLossValue ?? "0.0"}`;
 } else {
   try {
-    raw = execSync("./run-eval.sh", {
+    const run = spawnSync("./run-eval.sh", passThroughArgs, {
       cwd: EVAL_DIR,
       encoding: "utf-8",
       maxBuffer: 10 * 1024 * 1024,
       timeout: 600_000,
     });
+    if (run.error) {
+      throw run.error;
+    }
+    if (run.status !== 0) {
+      throw new Error((run.stderr ?? "").slice(0, 2000) || `run-eval.sh exited ${run.status}`);
+    }
+    raw = run.stdout ?? "";
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`run-eval.sh failed: ${msg}`);

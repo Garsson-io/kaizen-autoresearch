@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is an explicit image reaching users. A Unit test with a mocked vision model would pass (mocked to return 'explicit'), hiding the actual failure mode: the vision model might fail to classify edge cases, the image encoding might corrupt the data, or the API integration might break. We need to call the real vision API with a known test image to verify the entire pipeline (image preprocessing → API call → classification → holding logic) works end-to-end. We don't need full Agentic testing (testing robustness to adversarial variants) unless the behavior specifically requires it.",
+      "test_description": "Submit a pre-validated explicit test image to the moderation pipeline via the real vision API. Verify: (1) the vision API is called with properly encoded image data, (2) the returned classification is correctly parsed, (3) the post is marked for review and not published, (4) the post is removed from the publication queue or marked with a 'review' status in the database.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is obfuscated hate speech bypassing the filter. Testing with a mocked model or a few hard-coded obfuscation patterns (Unit/Integration) would miss the actual failure: the real text model may not be robust to novel obfuscation variants, or the model's behavior may vary across similar inputs due to LLM non-determinism. The behavior specifically tests adversarial robustness, which requires calling the real text model multiple times with varied obfuscation techniques and verifying consistent (or at least safe) classifications. This directly depends on real LLM behavior.",
+      "test_description": "Generate multiple obfuscated variants of known hate speech (unicode lookalikes, character substitution, leetspeak, spacing tricks, etc.). Submit each variant through the real text classification API. Verify: (1) each variant is flagged as hate speech, (2) consistency: the same obfuscated text produces the same classification across multiple submissions (or all variations fail safe by being flagged).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The real failures are: (1) a clean post is held instead of published, (2) a clean post is published to the database/queue but doesn't reach the public feed (silent drop), or (3) the logic is reversed (published when it should be held). A Unit test with mocked models can catch the first failure, but not the second. To verify the post actually reaches the publication destination (message queue, database, external API), we need Integration-level testing with real storage and messaging infrastructure. The mocking can stay (vision and text models), but the publish action must be real.",
+      "test_description": "Mock both vision and text models to return 'clean/acceptable'. Submit a post through the full pipeline. Verify: (1) the publish decision logic is called with 'clean' flags, (2) the post is written to the database or publication queue, (3) the post appears in the published feed/accessible via API, (4) the post is NOT marked for review.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "The real failure is latency exceeding the threshold in production. A Unit test (mocked I/O) would show 10ms execution time, hiding the actual bottleneck: real API calls to vision/text models, network jitter, database round-trips. An Integration test (local test DBs and model APIs) might show 1s, but production might show 5s+ due to network latency, model queue time, or real database contention. To catch real latency, we need System-level testing with actual HTTP calls to production (or realistic staging) models, realistic network conditions, and production-like database load. The test must measure end-to-end wall-clock time under realistic conditions.",
+      "test_description": "Submit a post with both image and text through the full pipeline using real (production or staging) model APIs. Measure end-to-end latency from submission to publish decision. Verify: (1) the total time is < 5 seconds, (2) sub-components (image classification, text classification, database writes, publish decision) are individually within acceptable bounds (e.g., image < 2s, text < 2s, decision + publish < 1s), (3) latency is consistent across multiple submissions (no outliers due to model queue backlog).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The real failures are: (1) the retry logic is not triggered (image auto-published or silently dropped), or (2) the retry queue is broken (image queued in code but never retried). A Unit test can catch failure #1 by mocking the vision model to return a timeout/error and verifying the code calls a retry function. However, to catch failure #2, we need to verify the post actually appears in the retry queue (database, message broker, etc.). This requires Integration-level testing with real retry infrastructure. The vision model failure can be mocked, but the queue must be real.",
+      "test_description": "Mock the vision model to return an unavailable/timeout error (simulate 500 or connection failure). Submit an image post. Verify: (1) the post is not published immediately, (2) the post is added to a retry queue (check database, message broker, or internal queue), (3) the post is marked with a retry status or scheduled for retry at a future time, (4) no auto-approval or silent drop occurs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is inconsistency: the same borderline image receives different moderation decisions (e.g., flagged then published, or vice versa) on successive submissions. A Unit test (mocked model returning a fixed value) cannot catch this—mocks are deterministic by design. An Integration test with a real model and caching might pass if caching works, but would hide LLM non-determinism: real vision models can produce different confidence scores or classifications on the same image if the model is re-evaluated without caching, or if there's version drift. The behavior specifically tests decision consistency, which inherently depends on calling the real vision model multiple times and observing whether it behaves deterministically. This is Agentic because correctness depends on real LLM behavior and non-determinism boundary.",
+      "test_description": "Submit the same borderline test image (known to be near the classification threshold) to the pipeline 5–10 times within 30 seconds. Verify: (1) the moderation decision (flag/accept) is identical across all submissions, (2) the system either uses caching/deduplication (same image → same stored decision), or the real model produces consistent output. If caching is used, verify the cache key and hit logic. If no caching, verify the real model's consistency or that the confidence score is sufficiently far from the boundary to avoid edge-case flips.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0
+      }
+    }
+  ]
+}

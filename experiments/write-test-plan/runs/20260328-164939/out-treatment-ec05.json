@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "The sorting logic is deterministic and applies only to filename ordering and execution sequence. This can be tested with a mock filesystem that returns files in random order (e.g., ['003.sql', '001.sql', '002.sql']) and a mock database that records execution order. No real I/O or external systems are required to catch the failure mode: 'code doesn't sort filenames before execution'.",
+      "test_description": "Mock the filesystem to return migration files in purposefully unsorted order. Mock the database connection. Execute the runner and verify that migrations are applied in ascending numeric order by inspecting the call sequence (which files were executed in which order) or the _migrations table order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "While the idempotency check could be mocked at Unit level, the real failure mode—'migration applied twice despite being recorded'—requires verifying actual execution behavior across consecutive runs. Mocking the _migrations query result misses subtle bugs where the SQL executes even though the metadata says it shouldn't. A real test database catches this by verifying the database state is unchanged on the second run.",
+      "test_description": "Apply a migration to a test database and verify it's recorded in the _migrations table. Run the runner again against the same database. Verify the migration statement is not re-executed by checking that: (a) the _migrations table still shows only one record for that migration, (b) any side effects from the migration (e.g., tables created, data inserted) are unchanged.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Rollback behavior depends on PostgreSQL's actual transaction semantics. Mocking a .rollback() method call does not verify that data was actually rolled back—mocks always succeed at calling methods. The real failure mode is: 'code doesn't wrap migrations in transactions' or 'code fails to rollback on error, leaving partial changes.' Only a real database with actual transaction support can verify this.",
+      "test_description": "Create a migration file with a SQL statement that will fail (e.g., syntax error, constraint violation, or reference to non-existent table). Run the runner against a test database containing initial state. Verify: (a) the failing migration raises an error, (b) any changes made before the error are rolled back (inspect the database state—should match pre-migration state), (c) no subsequent migrations in the same run are executed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Race conditions in concurrent access cannot be reliably caught without real separate processes and real database locking. Threading within a single process + mocks won't expose OS-level scheduling timing bugs or real PostgreSQL locking contention. The failure mode—'migration applied twice by accident due to race condition'—requires actual separate processes competing for the same database resource.",
+      "test_description": "Spawn two independent Node.js processes, each running the migration runner against the same test PostgreSQL database with identical migration files. Coordinate their startup to begin at approximately the same time. Let both run to completion and verify: (a) no application error or database corruption occurs, (b) each migration file is applied exactly once (inspect _migrations table—no duplicate entries), (c) the final database state is correct and consistent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.35,
+        "System": 0.6,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "The initialization sequence—'does _migrations table get created before migrations run?'—can be partially tested at Unit level with mocking (mock the query to return 'table not found', verify CREATE TABLE is called). However, Integration testing with a real empty database is more reliable because it verifies the actual DDL succeeds and the table is properly initialized in the real PostgreSQL, preventing bugs where the CREATE TABLE statement fails or the table schema is wrong.",
+      "test_description": "Start with a fresh test database that contains no tables (or drop the _migrations table if it exists). Run the migration runner. Verify: (a) the _migrations table is created with the correct schema, (b) the table is created before any migration files are applied (check _migrations metadata to confirm it was the first operation), (c) migrations are successfully applied after the table creation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

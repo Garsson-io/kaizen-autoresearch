@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Integration",
+      "justification": "The core failure mode is incorrect risk calculation despite meeting threshold conditions. This depends on: (1) configuration thresholds being loaded correctly, (2) merchant category being correctly identified from the transaction, and (3) the scoring formula being applied to the right values. A Unit test with mocked config could miss real failures in threshold lookup, data field extraction, or config loading logic. Integration level ensures the scoring module works correctly with the configuration and transaction data modules wired together.",
+      "test_description": "Create a test transaction with amount €150 and merchant category 'jewelry' against a config threshold of €100 for that category. Run through the full scoring pipeline. Verify the numeric risk score increases (e.g., from 10 to 35) when the threshold is exceeded. Also test the boundary case: a transaction of exactly €100 (at threshold) should produce consistent behavior based on whether the comparison is >= or >.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level because it must verify threshold lookup (config module) + score calculation (scoring module) + transaction data handling (data module) together. A Unit test mocking the config would miss real failures in how thresholds are retrieved or applied.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that pattern detection fails despite the model having access to the right signals. This requires: (1) access to actual user transaction history, (2) accurate geolocation parsing, (3) temporal pattern analysis across multiple transactions, and (4) the model's feature extraction pipeline to work end-to-end. A Unit test with mocked transaction history could miss real failures in how transactions are fetched, how geolocation is parsed, or how features are constructed for the model. Integration level ensures the model receives realistic (test) data in the correct format.",
+      "test_description": "Create a test user with 5 small transactions (€20 each, below individual velocity thresholds) occurring within a 45-minute window from 5 different countries (e.g., Nigeria, Philippines, Brazil, India, South Africa). Each transaction individually passes velocity and amount checks. Run through the risk model. Verify it flags the pattern as fraudulent (fraud_probability > 0.80) despite no single scoring rule triggering.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level to exercise the model's ability to correlate geolocation, temporal, and amount signals across multiple transactions. A Unit test with pre-built feature vectors would not catch failures in feature extraction from raw transaction data.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is off-by-one errors, timezone bugs, or incorrect time window boundaries in the query logic. This depends on: (1) querying the transaction history with correct timestamp filtering, (2) handling timezone-aware comparisons, (3) boundary conditions (inclusive/exclusive of the window edge). A Unit test with a pre-determined mock list of transactions could pass even if the query logic is wrong. Integration level ensures the query logic works correctly with temporal data and various edge cases.",
+      "test_description": "Create a user with 8 transactions: 4 within a configured 60-minute window, 4 outside. Query the velocity at three different clock times: (A) 30 min into window (expect count=2), (B) exactly at 60-min mark (expect count=4), (C) 75 min from start (expect count=4, because 4 transactions are >60min old). Verify boundary handling: a transaction at exactly 60.000 seconds should be counted or excluded consistently based on the >= vs > configuration.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level to verify the time window query logic handles boundaries, timezone-aware timestamps, and off-by-one edge cases. A Unit test counting a pre-built list would not catch real failures in the query construction.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "The real failure is a logic error in the combination rule: developer implements AND instead of OR, or swaps the flags. These are pure control-flow errors. A Unit test mocking both model outputs can catch all four cases: (risk=F, scoring=F), (risk=T, scoring=F), (risk=F, scoring=T), (risk=T, scoring=T). Each case produces a binary outcome (hold yes/no) that the test can verify. Integration testing would add confidence if 'held for review' has side effects (database writes), but Unit level catches the core logic bug.",
+      "test_description": "Mock scoring_model.flag and risk_model.flag, run the transaction through the decision logic, and verify all four cases: (1) risk=False, scoring=False → not held, (2) risk=True, scoring=False → held, (3) risk=False, scoring=True → held, (4) risk=True, scoring=True → held. Assert the combined decision implements OR logic correctly, not AND.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Unit level to verify the OR gate logic. Side-effect testing (whether the database write happens) would require Integration, but the core logic error is caught at Unit level with mocked model outputs.",
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "The real failure is missing or misnamed output fields that prevent the reviewer from seeing the decision evidence. This is a data structure issue, not a business logic issue. A Unit test can mock both models (scoring_model.risk_score=45, risk_model.fraud_probability=0.92) and verify the output JSON includes both fields and is correctly serialized. Real failures (missing field, wrong field name, null value) are all caught by checking the output structure.",
+      "test_description": "Mock scoring_model to return risk_score=45 with scoring_flag=False. Mock risk_model to return fraud_probability=0.92 with risk_flag=True. Run transaction through the output formatter. Verify the output is a JSON object containing: {risk_score: 45, fraud_probability: 0.92, held_for_review: true, scoring_flag: false, risk_flag: true}. Verify both scores are present and human-readable for a reviewer to understand why the transaction was held.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Unit level to verify output structure with mocked model outputs. If the output were persisted to an external system with schema validation, Integration testing would be needed, but the core structure check is a Unit-level concern.",
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    }
+  ]
+}

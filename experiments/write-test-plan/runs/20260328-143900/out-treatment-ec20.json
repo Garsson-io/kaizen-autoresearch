@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be: transitive dependencies are silently omitted from the vulnerability scan (e.g., a nested package in node_modules or a dependency of a dependency in a requirements.txt). A Unit test with mocked dependency extraction would pass with hardcoded fixtures but miss real parsing bugs in how transitive relationships are resolved. Integration testing requires realistic manifest files (package.json + package-lock.json, or requirements.txt + lock file) and exercises the actual parsing/resolution code to verify that all reachable dependencies are collected.",
+      "test_description": "Create a test fixture with a manifest containing N direct dependencies and M transitive dependencies. Parse the manifest using the actual extractor (not mocked), verify that all N+M dependencies are extracted and included in the vulnerability query list. Vary the manifest format (npm, pip, cargo, etc.) to catch format-specific parsing bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be: the query is constructed with only the package name (e.g., {\"package\": \"requests\"}) instead of {\"package\": \"requests\", \"versionRange\": \">=2.25.0,<3.0\"}. A Unit test with mocked API would pass if the mock doesn't enforce request format validation. Integration testing requires a realistic mock of the vulnerability API that validates request format and returns version-specific CVE matches, then verifies that the scanner correctly constructs version-aware queries and filters results by version range.",
+      "test_description": "Mock the vulnerability database API with format validation. For a manifest with 'requests>=2.25.0,<3.0', query the mock API, verify the request includes the version range constraint, and assert that the response includes only CVEs applicable to that range (e.g., CVE-X for 2.25.0 but not for 3.0). Test that omitting version constraints returns an error or empty results to catch hard-to-debug version mismatch bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithmic sorting logic with no I/O, external dependencies, or state mutations. A real failure would be: wrong sort order (Critical not first) or secondary sort by CVSS score not working. A Unit test with synthetic CVE data (mock objects or test fixtures) is sufficient to catch sorting bugs. No mocking of dependencies is needed—just test the comparison/sort function in isolation.",
+      "test_description": "Create a list of 10 CVEs with mixed severities (2 Critical, 3 High, 2 Medium, 3 Low) and identical CVSS scores within each severity. Sort the list and assert ordering is Critical > High > Medium > Low. Then test secondary sort: create 2 Critical CVEs with CVSS 9.8 and 7.5; assert they sort by descending CVSS. Parametrize to cover all 6 severity pairs and boundary CVSS scores.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be: accidentally modifying other entries (e.g., bumping the wrong package, or corrupting JSON syntax). A Unit test with mocked file I/O would not catch serialization bugs (e.g., losing formatting, breaking JSON structure, or reordering keys). Integration testing requires actual file parsing and serialization: read a real manifest, parse it, modify one version, serialize it back, and verify the output is valid JSON/YAML and differs only in the target dependency version.",
+      "test_description": "Create a test manifest fixture (package.json with 5 dependencies). Invoke the modifier to bump one specific dependency from 1.2.3 to 1.2.4. Read the output manifest, parse it, and assert: (a) the target dependency is now 1.2.4, (b) all other 4 dependencies are unchanged, (c) the output is valid JSON with correct indentation and no extra fields. Repeat with a 10-dependency manifest to catch off-by-one bugs in multi-entry modification.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff",
+      "minimum_level": "System",
+      "justification": "A real failure would be: the PR is never created, created on the wrong repository, created on the wrong branch, or contains the wrong diff. An Integration test with a mocked GitHub API might verify that the code *calls* the API with the right parameters, but would not catch: authentication failures, API rate limiting, branch not found errors, or the PR body/title being malformed in a way the real GitHub API rejects. System testing requires calling the real GitHub API (or a test repository) to verify the PR actually exists with the correct contents.",
+      "test_description": "Create a temporary test repository (or use a dedicated test repo with cleanup). Run the scanner with a mock vulnerability result (e.g., 'requests' has a CVE, patched version is 2.28.0). Verify a PR is created with: (a) single commit touching only requirements.txt (version bump for 'requests'), (b) PR title includes the package name and new version, (c) PR base branch is correct. After cleanup, verify the PR no longer exists and no commits remain. Test against GitHub's real API to catch parameter validation bugs.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison",
+      "minimum_level": "Unit",
+      "justification": "This is pure semver comparison logic. A real failure would be: wrong classification of major/minor/patch bumps (e.g., 1.2.3 → 2.0.0 not identified as breaking). A Unit test with synthetic version pairs (no I/O, no mocking needed) is sufficient. The semver library or comparison function is tested in isolation with a variety of version strings.",
+      "test_description": "Parametrize a test with version pairs: [(\"1.2.3\", \"2.0.0\", True), (\"1.2.3\", \"1.3.0\", False), (\"1.2.3\", \"1.2.4\", False), (\"2.0.0\", \"3.0.0\", True), (\"0.1.0\", \"0.2.0\", False), (\"0.1.0\", \"1.0.0\", True)]. For each pair, invoke the breaking-change detector and assert the expected boolean. Include edge cases: pre-release versions (1.0.0-rc1), metadata (1.0.0+build123).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output",
+      "minimum_level": "Integration",
+      "justification": "A real failure would be: PR created despite breaking change, or flag present in code but not surfaced in the output, or flag in wrong format. A Unit test with mocked PR creation could verify the function isn't called, but would not catch: the flag not being included in serialized output, the flag in the wrong JSON field, or the output format being unparseable. Integration testing exercises the full conditional logic (breaking change detection + output generation) and verifies the flag is correctly surfaced in the final output artifact (JSON, stdout, report file, etc.).",
+      "test_description": "Run the scanner with a breaking-change vulnerability (e.g., requests 2.x → 3.0.0). Verify: (a) PR creation is not invoked (mock and assert_not_called), (b) the output (JSON report or stdout) contains a review flag set to True, (c) the flag is in the expected field/format. Run with a non-breaking change (e.g., requests 2.24 → 2.25) and assert PR is created and review flag is False or absent. Verify the output format is consistent across both scenarios.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the validation and storage layer: code allowed PASS storage despite contradictory findings. A unit test of validation logic could catch missing validation, but integration testing with actual storage layer is needed to ensure the constraint is truly enforced and cannot be bypassed at the persistence layer (e.g., via direct DB writes or transaction race conditions).",
+      "test_description": "Create a round with per-dimension findings that include at least one FAIL verdict. Attempt to store a PASS review summary for that round. Verify the store operation is rejected with a validation error, not silently succeeding. Test multiple dimensions with mixed verdicts (some PASS, some FAIL) to verify even one FAIL blocks the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text",
+      "minimum_level": "Integration",
+      "justification": "The bug was that gate code read summary.verdict instead of querying findings. A unit test with mock call verification could theoretically catch this, but would fail to detect if code conditionally reads summary in some paths. Integration testing with realistic data (findings and summary contradicting each other) reliably exposes whether the gate reads the correct source—this cannot be faked with consistent mocks.",
+      "test_description": "Populate a round with stored findings showing FAIL on multiple dimensions. Manually write a summary claiming PASS (simulating the bug state). Call the gate verdict computation. Verify it returns FAIL (reading findings) not PASS (reading summary). Repeat with different dimension combinations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record",
+      "minimum_level": "Unit",
+      "justification": "This is straightforward business logic: absence of a flag should be rejected, presence should trigger audit logging. Unit tests with mock verification of the audit service call are sufficient to catch missing flag validation or missing audit record creation. No storage layer complexity or cross-module orchestration required.",
+      "test_description": "Test that calling override-summary without override_flag=True raises a validation error. Test that calling override-summary with override_flag=True and an override_reason succeeds and triggers an audit log with the reason, timestamp, and actor. Verify audit records cannot be created without all required fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.35,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff",
+      "minimum_level": "Integration",
+      "justification": "The core failure is in finalization control flow: code must check that review-agent was executed on the current diff before allowing PASS. Integration testing verifies this check happens and blocks finalization when agent hasn't re-run. If the real issue involves agent findings being stale or incorrect, Agentic testing would add confidence, but minimum infrastructure is Integration (verify the freshness check itself).",
+      "test_description": "Apply a Phase 4 fix (diff changes). Record the timestamp before it changes. Attempt finalization with PASS verdict without running review-agent on the updated diff—verify it is blocked with a freshness-check error. Then execute review-agent on the current diff and verify finalization succeeds. Test that stale agent results (executed before the Phase 4 fix) are rejected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.25,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS",
+      "minimum_level": "Unit",
+      "justification": "This is a deterministic control-flow decision: scan findings for MUST-FIX severity with unresolved status; if found, return escalation-outcome; else allow PASS. Unit tests with mock findings data are sufficient to verify the decision logic. No agent re-runs, no cross-module orchestration, no variable LLM output required.",
+      "test_description": "Create mock findings with at least one unresolved MUST-FIX-severity item. Call finalization logic and verify it returns escalation-outcome (not PASS). Verify escalation message includes the unresolved findings. Test with zero MUST-FIX items to verify finalization still allows PASS. Test with resolved MUST-FIX items (marked resolved=True) to verify resolved items do not trigger escalation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

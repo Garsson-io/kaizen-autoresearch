@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is deterministic logic with no side effects or external dependencies. The failure mode—hash collisions or inconsistency—is purely algorithmic and catchable by in-process testing. A unit test can exhaustively verify identical params → identical key and different params → different key across many combinations (including edge cases: null values, special characters, parameter ordering, type variations).",
+      "test_description": "Create unit tests that (1) hash the same parameter set multiple times and verify byte-for-byte equality; (2) hash parameter sets with single-element differences and verify they produce different keys; (3) verify commutative properties if order-independent hashing is required; (4) test edge cases (empty params, very large params, unicode, special chars). A pure mock would never miss this failure because the failure is in the hashing logic itself, not in how it's called.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "This is config-driven, deterministic logic. The failure is in the mapping between category IDs and TTL values. Unit tests can inject a config fixture and verify the computation function produces correct TTL for each category. No real infrastructure (database, filesystem I/O, network) is required because the config can be provided as an in-memory object. The logic itself—'if category==USER then return 300'—is purely deterministic.",
+      "test_description": "Create unit tests with a config fixture defining freshness rules for each data category. Test that (1) each category ID maps to the correct TTL value; (2) missing or invalid categories either default correctly or raise appropriate errors; (3) TTL computation respects the configured units (seconds, minutes, hours); (4) edge cases (zero TTL, very large TTL, floating-point precision) are handled correctly. Verify the test fails if the mapping is wrong or the computation logic has a bug.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "This behavior depends on real OS-level memory monitoring. A unit test mocking `get_memory_usage()` to return a threshold-crossing value would pass while the real memory-monitoring code fails silently or reports incorrect values in production. The failure boundary is whether the actual runtime memory pressure triggers the real monitoring function, not whether the switch-logic is correct given a mock value. Integration testing is needed to allocate actual in-process memory, monitor real heap usage, and verify the switch happens when the real memory threshold is exceeded.",
+      "test_description": "Create an integration test that (1) starts with LRU eviction enabled; (2) allocates increasingly large cache entries to approach the memory threshold; (3) monitors the strategy in real time or after threshold crossing; (4) verifies the strategy switches to LFU when memory usage actually exceeds the configured threshold; (5) confirms the switch persists across subsequent operations. Do NOT mock `get_memory_usage()`; let the real memory monitoring code run. Test both the threshold crossing and the persistence of the switched strategy.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires real PostgreSQL writes to trigger invalidation logic. Mocking the database would hide the real failure: the invalidation hook might not be wired correctly to the actual database write, or the trigger/listener mechanism might be broken. A unit test with a mocked DB could pass while the real database write produces no invalidation event. The failure boundary is whether a real DB modification actually triggers the cache invalidation code—not whether the invalidation logic is correct given a mock signal.",
+      "test_description": "Create an integration test that (1) populates a real PostgreSQL table with test data; (2) loads and caches entries from that table; (3) executes a real UPDATE or DELETE on the table; (4) verifies that the corresponding cache entries are invalidated; (5) tests multiple invalidation scenarios: single-row updates, bulk deletes, multi-key invalidations. Use a real test database (or in-memory PostgreSQL if available). Do NOT mock the database write or invalidation trigger. Confirm that subsequent reads re-fetch from the database, proving the cache was truly invalidated.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure data-structure algorithm. The failure—'evict the wrong entry'—is a logic bug in the LRU/LFU implementation, not a side effect of external dependencies. A unit test can construct a cache, simulate a known access pattern (e.g., touch items A, B, C in specific orders), fill the cache to capacity, trigger eviction, and verify the correct item was removed. No real memory allocation, no real database, no external calls needed. The test can run entirely in-process with deterministic outcomes.",
+      "test_description": "Create unit tests for both LRU and LFU: (1) For LRU: populate cache, access items in a known order, fill to capacity, trigger eviction, verify the least-recently-accessed item was removed. Test tie-breaking (same access time). (2) For LFU: populate cache, access items with different frequencies, fill to capacity, trigger eviction, verify the least-frequently-accessed item was removed. Test tie-breaking (same frequency). (3) Test edge cases: single item, two items, empty cache after eviction. (4) Verify evicted entry is no longer accessible and space is freed. Do not mock the eviction function; test the real data structure behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

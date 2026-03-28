@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is code execution despite invalid manifest. Unit-level mocking of require() could verify the loader *calls* validation, but wouldn't catch if the loader imports via a different mechanism (dynamic imports, require.resolve, etc.). We need to actually attempt code execution to verify it's prevented. Integration testing with a mock filesystem (reasonable) + real require() + a test plugin with module-level side effects (console.log, global variable) directly detects whether code runs.",
+      "test_description": "Mock fs.readFileSync to return an invalid manifest (missing 'name' field). Create a test plugin module with a module-level side effect (e.g., sets a global variable). Call the loader and verify: (1) the loader returns an error, (2) the side effect never occurs, (3) the plugin's onLoad is never called. This directly catches the real failure: code execution despite invalid manifest.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure graph algorithm problem: topological sort of plugin dependencies. The real failure is incorrect dependency resolution logic, which would show up in the order of onLoad calls. Unit testing with mocked plugin modules is sufficient: set up a dependency graph, mock onLoad hooks, track call order, and verify topological ordering. No filesystem or real imports needed—the logic is independent of execution infrastructure. Mocking is completely realistic here because we're testing the algorithm, not the import system.",
+      "test_description": "Create mock plugins A and B where A depends on B. Mock their onLoad hooks to record call order. Call the loader and assert onLoad is called in order: B.onLoad(), then A.onLoad(). Include tests with longer dependency chains (A→B→C→D) to verify the entire DAG is ordered correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Unit",
+      "justification": "Cycle detection is a graph algorithm problem. The real failure is: the loader either enters infinite recursion, hangs, or fails to detect the cycle. Unit testing with mocked plugins can verify: (1) the loader detects the cycle, (2) returns an error, (3) neither onLoad is called. Mocking is safe here because the cycle detection happens during dependency resolution, not during import. We don't need real filesystem or imports—the algorithm failure would manifest in the error returned.",
+      "test_description": "Create mock plugins A and B where A depends on B and B depends on A. Call the loader and verify: (1) the loader does not crash or hang, (2) the loader returns an error mentioning a cycle, (3) neither A.onLoad nor B.onLoad are called. Consider adding a timeout to catch infinite loops.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "The real failure involves the ordering of import and execution with respect to hook invocation. This depends on how Node.js actually handles require() and module execution, which is hard to verify accurately with mocks alone. Unit mocks of require() could verify the loader calls require before onLoad, but wouldn't catch if onLoad is called *during* require (before the module finishes executing) or if module-level side effects haven't fully completed. Integration testing with real require() and a plugin module that has observable side effects (top-level variable assignment, class instantiation) directly proves the execution order.",
+      "test_description": "Create a real plugin module that sets a module-level variable during require (e.g., global.pluginLoaded = true). The plugin exports an onLoad function. Call the loader and verify: (1) after loader completes, global.pluginLoaded is true, (2) record timestamps for require and onLoad calls, (3) assert that require fully completed before onLoad is invoked. This catches the real failure: onLoad called before module execution completes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Unit",
+      "justification": "This is an error-handling and control-flow problem. The real failure is: the loader doesn't catch the error (crashes) or doesn't correctly skip dependent plugins. Unit testing with mocked plugins and onLoad hooks that throw is sufficient: set up a dependency graph, make one plugin's onLoad throw, verify the loader catches the error, and verify which plugins are actually loaded (loaded, skipped, or errored). Mocking is appropriate because the failure is about control flow and error handling, not about import mechanisms.",
+      "test_description": "Create mocked plugins: A, B (depends on A), C (independent of A). Make A's onLoad throw an error. Call the loader and verify: (1) the loader does not crash, (2) an error is reported for A, (3) B is never loaded (skipped due to dependency), (4) C's onLoad is called successfully. Include a test where multiple independent plugins exist and verify all non-dependent plugins load despite one failure.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.83,
+        "Integration": 0.12,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

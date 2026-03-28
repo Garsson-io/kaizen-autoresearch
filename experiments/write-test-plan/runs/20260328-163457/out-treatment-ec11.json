@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to most recent 10 messages when exceeding context window",
+      "minimum_level": "Unit",
+      "justification": "The trimming logic is deterministic data-structure manipulation: take the last 10 items from a list. A real failure would be passing a non-trimmed history to the LLM (triggering API errors or cost overruns). A unit test can verify this by mocking the LLM call and asserting that only the trimmed list was passed. No I/O or database is needed.",
+      "test_description": "Create a conversation history with 15+ messages. Call the trim-and-generate function with this history. Assert that the mocked LLM received only the last 10 messages. Verify no earlier messages appear in the request payload sent to the LLM.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test directly verifies the trimming boundary without needing a real LLM or database.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses customer's question, not generic or off-topic",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is: does the actual LLM produce an on-topic response? Mocking the LLM hides this entirely—a mock can return canned on-topic text while the real model hallucinates or ignores the question. We must call the real LLM and verify semantic relevance. LLM output is non-deterministic and varies by model, version, and system message quality.",
+      "test_description": "Ask the chatbot a specific, unambiguous question (e.g., 'What is your refund policy?'). Invoke the real LLM with the customer-support prompt and user question. Capture the response. Use semantic similarity search or a second LLM call to evaluate whether the response addresses the specific question asked, not a generic template. Run 3+ times to verify consistency.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real LLM invocation is required because the failure mode (off-topic response) depends entirely on the actual model's behavior.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.15,
+        "Agentic": 0.65,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check identifies too-formal tone and triggers regeneration for casual tier",
+      "minimum_level": "Workflow",
+      "justification": "This behavior chains multiple agentic steps: (1) generate initial response (agentic), (2) evaluate tone with real LLM (agentic), (3) regenerate if flagged (agentic). A real failure occurs when the actual LLM fails to identify formal tone in production, OR when orchestration between steps breaks (e.g., not passing customer tier to tone-checker, or regeneration never called). Mocking the tone-check hides quality failures; testing regeneration alone misses orchestration failures.",
+      "test_description": "Set up a casual-tier customer. Generate a deliberately formal response (e.g., 'Pursuant to our service agreement, your inquiry has been noted.'). Run the full pipeline with real LLM calls. Verify tone-check evaluates the response, flags it as inappropriate for casual tier, triggers regeneration, and the system invokes regeneration. Verify the final response is marked casual (or different from the first). Check database logs show both responses with tone classifications and regeneration timestamps.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Multiple real agentic steps are required to catch both tone-identification failures and orchestration bugs between generation, tone-check, and regeneration.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.25,
+        "Workflow": 0.6
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "The real failure is schema violations, constraint breaches, or timestamp logic errors in the database layer. Mocking the database misses these entirely. A test database (SQLite, test Postgres, or in-memory DB) is needed to verify persistence, field validation, timestamp ordering, and data integrity. LLM response content is irrelevant; we can mock the LLM and use a fixed response.",
+      "test_description": "Call the chatbot with a test question. Mock the LLM to return a fixed response; skip tone-check. Record the request timestamp. Trigger the exchange and verify the user message, response, timestamp, and metadata are persisted in the test database. Retrieve the record and verify timestamps are sequential (user_timestamp ≤ response_timestamp), fields match expectations, and all regeneration steps (if any) are logged with their own timestamps.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test with a real (or test) database is sufficient; LLM behavior is not the failure boundary here.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Second response replaces first when tone-check triggers—customer never sees draft",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in response selection and routing logic: does the system return the regenerated response, not the rejected draft? This is orchestration that can be tested with mocked tone-check and regeneration steps. We assume those agentic steps work (mock them) and verify the response-selection logic correctly picks the final response. A real failure would be returning the wrong response variant to the customer.",
+      "test_description": "Call the chatbot and mock the initial LLM to return a response flagged as too formal by the tone-check. Mock the regeneration LLM to return a different, more casual response. Verify the customer (API caller) receives the regenerated response in the API response, not the first one. Verify database logs show both responses but only the final one is marked sent_to_customer=true. Verify the draft response is recorded for audit trail but never returned in the API payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test with mocked tone-check and regeneration steps is sufficient to catch response-selection bugs. Workflow-level testing would validate end-to-end, but is not minimum.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.25
+      }
+    }
+  ]
+}

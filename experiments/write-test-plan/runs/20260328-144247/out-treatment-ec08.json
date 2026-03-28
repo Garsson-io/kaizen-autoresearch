@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles exponentially, capped at a configured maximum",
+      "minimum_level": "Unit",
+      "justification": "This is pure calculation logic: take current wait, multiply by 2, compare to max. No I/O, no shared state, no timing involved. A mock HTTP response that returns 429 is sufficient to trigger the retry sequence, and assertions on the computed wait times verify the doubling behavior. The application of that wait is tested separately in behavior 3.",
+      "test_description": "Mock HTTP client to return 429 on consecutive calls. Configure max retries and verify the computed wait sequence: 1s → 2s → 4s → 8s, capped at configured maximum. No actual delays needed—only assertions on the calculated backoff values.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Backoff calculation is pure math; integration/system testing would add slowness (actual sleeps) without catching new failures. The real risk (delay computed but not applied) is caught in behavior 3.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Retry logic correctly identifies rate-limit response and extracts/computes appropriate wait time",
+      "minimum_level": "Integration",
+      "justification": "The parsing logic itself is pure, but it parses a real HTTP response format (429 status, Retry-After header, or JSON body). A unit mock of the response doesn't guarantee the code handles the real API's format correctly. Real risks: (1) code only checks header, not JSON body; (2) confuses milliseconds with seconds; (3) ignores missing Retry-After and uses wrong default. A mock HTTP server (nock/msw) that returns realistic 429 responses with varied Retry-After formats (header, body, missing) is needed.",
+      "test_description": "Use mock HTTP server to return 429 responses with Retry-After in different formats: as header (30 seconds), as JSON body ({retry_after: 30}), missing entirely. Verify the client correctly extracts/computes the wait time in each case. Assert correct wait time is used for the next retry.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit mock of '429 response' doesn't catch format parsing bugs. Real API responses can vary widely; integration test with realistic response formats catches off-by-one errors and format mismatches.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After wait, client resends original request and transparently returns successful result to caller",
+      "minimum_level": "Integration",
+      "justification": "Must verify the sequence: (1) detect 429, (2) compute/wait, (3) resend exact request, (4) return result to caller. A pure unit mock of HTTP and delays doesn't verify the full sequence—if the code computes the delay but forgets to resend, a mocked delay won't reveal it. Real risk: delay is applied but request is never resent, or delay is skipped entirely. Integration test with mock HTTP server that returns 429 on first call and 200 on second, plus real (short) delays, verifies the sequence actually executes.",
+      "test_description": "Mock HTTP server: first call returns 429 with Retry-After header, second call returns 200 with expected data. Measure timing and verify: request is resent only after the specified wait, and the final result returned to caller is the 200 response, not the original 429 error.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit mock can assert 'resend was called' but not verify timing/sequence. Mocking the delay itself defeats the purpose of testing whether the delay is actually applied before resend.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After configured maximum retries exhausted, client returns typed QuotaExhaustedError (not generic error)",
+      "minimum_level": "Unit",
+      "justification": "Pure counting and error construction. After N retries (N = configured max), throw the typed error. No module interactions, no shared state. Risk: off-by-one error (retries at N+1 instead of N, or at N-1). A unit test with mocked HTTP (always return 429) can verify the error type is correct after exactly max_retries failures.",
+      "test_description": "Mock HTTP to always return 429. Configure max_retries = 3. Call client and assert it throws QuotaExhaustedError (not a generic error or NetworkError) after exactly 3 failed attempts.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Error type/construction is pure logic; no concurrency, shared state, or I/O needed. Unit test is sufficient.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full retry chain (initial call, backoff retries, quota tracking) terminates correctly and does not loop indefinitely",
+      "minimum_level": "Unit",
+      "justification": "Risk is infinite loop: a logic error (missing break, incorrect loop condition) that causes the retry loop to never exit. Unit test with mocked HTTP and a test timeout can catch this. If the code hangs, the test times out and fails. Configuration: max_retries = 3, mock always returns 429, test timeout = 1 second (well under total backoff time if loop runs). If code terminates normally with QuotaExhaustedError, test passes. If code loops indefinitely, timeout triggers.",
+      "test_description": "Mock HTTP to always return 429. Set max_retries = 3. Wrap the client call with a test timeout (e.g., Jest timeout: 1s). Assert the call completes with QuotaExhaustedError before timeout. If there's an infinite loop, timeout fails the test.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Infinite loop is caught by timeout on a unit test. No real network or concurrency needed; the pure control flow is being verified.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Multiple concurrent async callers in same process all draw from and are throttled by the same shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Real risk: race conditions (two requests both think they have quota), synchronization issues (lost updates to quota counter), or isolation bugs (separate quota per request). A sequential unit test with a mocked quota bucket doesn't expose these concurrency bugs. Real async concurrency (Promise.all) is needed to stress the shared bucket and catch synchronization failures. Integration test: spawn 10 concurrent requests against mock server with quota = 5, verify all 10 are throttled after first 5 succeed.",
+      "test_description": "Mock HTTP server with shared quota counter = 5. Spawn 10 concurrent async requests (Promise.all) to the client. First 5 should succeed, remaining 5 should be throttled/retried. Verify that the quota counter is truly shared: all 10 requests see the same quota state, not isolated counters.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Shared state under concurrency must be tested with real concurrency. Sequential unit test with mocked quota is not sufficient to catch race conditions or lost updates.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Multiple waiting requests are dispatched in the order they were originally submitted",
+      "minimum_level": "Integration",
+      "justification": "Real risk: queue is unordered (e.g., Set instead of Array), or dispatch logic doesn't respect FIFO under concurrent load. A sequential unit test can't verify concurrent dispatch order—the queue is never under contention. Real async concurrency is needed to trigger the out-of-order condition. Integration test: spawn requests 1-5 in order, all blocked initially (mock server paused), then release and verify actual HTTP calls happen in 1-5 order.",
+      "test_description": "Mock HTTP server initially pauses/delays all requests. Spawn 5 concurrent async calls (req1–req5) in that order to the client. Release the mock server pause. Inspect mock HTTP call log and verify requests were dispatched/called in the original order (req1, req2, req3, req4, req5), not randomly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "FIFO ordering under concurrent load can only be verified with real concurrency. A sequential unit test with an in-memory queue mock doesn't stress the queue and won't expose reordering bugs.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

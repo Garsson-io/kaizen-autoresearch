@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires testing CSV parsing (detecting missing fields while preserving row position) and the DLQ write operation. A Unit test with mocked S3 and DLQ would miss real failures in CSV parser interaction with the schema validator, or subtle bugs in row number tracking during parsing. Integration testing with a real test CSV file and a test DLQ client (or at least transactional verification) catches the actual parsing-to-queueing pipeline.",
+      "test_description": "Load a CSV file containing rows with missing required fields (e.g., missing 'email' in a row that should have name, email, phone). Validate each row against the schema. Assert that: (1) rejected rows appear in the dead-letter queue, (2) the row number in each DLQ record matches the source CSV line number, and (3) the original row data is preserved for manual review.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure, deterministic function: parse date string in any format → normalize to canonical format. No I/O, no external dependencies, no concurrency. Real failures (parser fails on ISO 8601, US/European formats treated identically, leap-year bugs, timezone issues) are all caught by unit-testing the transformation function directly with parameterized inputs. Mocks would be unnecessary and would add no detection power.",
+      "test_description": "Unit test the date transformation function with parameterized inputs covering: ISO 8601 format ('2025-03-15'), US format ('03/15/2025'), European format ('15/03/2025'), and edge cases (leap years '2024-02-29', ambiguous dates '01/02/2025'). Assert all convert to the canonical format (e.g., 'YYYY-MM-DD').",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "This requires testing with real data volume (500k rows) and measuring actual resource consumption (memory, elapsed time). A Unit test cannot create this volume meaningfully. Real failures—unbounded buffering, O(n²) algorithms, memory leaks—are detectable by loading the actual volume, using Python memory profilers (tracemalloc), and measuring wall-clock time. We don't need subprocess isolation (System level); in-process memory profiling is sufficient and more granular.",
+      "test_description": "Generate or load a 500k-row CSV file. Run the pipeline against it. Measure peak memory usage (e.g., via tracemalloc) and elapsed time. Assert both are within configured limits. Also verify that memory is released after processing completes (no leak).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "Testing retry logic with exponential backoff requires verifying actual timing behavior of retries, not just retry count. A Unit test with a simple mock can verify the backoff formula and retry count, but cannot reliably catch timing bugs or verify that the actual retry delay sequence matches the exponential curve. Integration testing with a realistic S3 mock (e.g., moto or a test double that simulates S3 behavior) and actual sleep/wait calls allows verification of both retry logic and timing. The boundary is whether the real library call sequence—including timing—works correctly.",
+      "test_description": "Mock S3 to return 503 Service Unavailable errors on the first N requests, then succeed. Call the pipeline. Assert: (1) it retries (doesn't fail immediately), (2) the retry delays follow an exponential backoff pattern (e.g., 100ms, 200ms, 400ms, 800ms), and (3) it eventually succeeds without exhausting the configured retry limit or timeout.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "This tests idempotency and exactly-once semantics, which requires actual database transaction behavior, recovery logic, and deduplication. Pure Unit mocks cannot verify transaction commit/rollback, checkpoint resumption, or duplicate detection. Real failures—duplicate inserts after restart, partial writes, broken idempotency checks—can only be caught by writing to a real (or test) PostgreSQL instance, simulating a mid-batch restart, and verifying no duplicates exist. A test database is sufficient; we don't need System-level subprocess isolation.",
+      "test_description": "Use a test PostgreSQL instance. Write a batch of N rows, then simulate a mid-batch restart (e.g., resume from a checkpoint). Verify: (1) no rows are duplicated, (2) all rows that were successfully written before the restart are present, (3) no partial/orphaned rows exist, and (4) the final count matches the expected deduped total.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

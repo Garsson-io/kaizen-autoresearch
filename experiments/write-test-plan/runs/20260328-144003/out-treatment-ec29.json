@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields (name, DOB, insurance ID) are validated before downstream processing with clear error listing all missing items",
+      "minimum_level": "Unit",
+      "justification": "This is pure input validation with no external dependencies. A unit test can verify validation logic by calling the validator directly with incomplete patient objects. No mocks needed — the failure mode (missing validation) is entirely local. A mock would not hide anything here; incomplete data always produces the same validation error regardless of what happens downstream.",
+      "test_description": "Create test cases with each required field omitted individually, and with multiple fields missing simultaneously. Verify the validation error lists exactly which fields are missing and that upstream processing does not proceed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date of birth validation rejects future dates, dates more than 150 years ago, and non-date strings",
+      "minimum_level": "Unit",
+      "justification": "Date validation is local logic with no external dependencies. The only dependency is the current date/time, which can be easily mocked in a unit test (using libraries like freezegun in Python or jest.useFakeTimers in JS). A unit test can verify all boundary conditions: future dates, exactly 150 years ago (boundary), >150 years ago, and valid dates in range. This catches the failure mode entirely because the logic is deterministic once 'today' is fixed.",
+      "test_description": "Mock the current date to a fixed value, then test with past and future date strings, non-date strings, and boundary dates (exactly 150 years ago, just under/over the limit). Verify the validator accepts only valid historical dates.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility check sends correct patient ID and plan code to payer API and correctly interprets the three response types (eligible, not eligible, pending)",
+      "minimum_level": "System",
+      "justification": "This behavior explicitly requires calling an external API. While a unit test with a mocked API response could verify parsing logic, it cannot catch failures in the actual API contract: incorrect request format, missing fields, or real API response structure that differs from expected. The failure mode is 'we call the API wrong' or 'we misinterpret what it returns in production.' Only calling a real API (or a highly accurate sandbox/test version) catches this. A generic mock hides the risk.",
+      "test_description": "Call the payer API sandbox/test environment with real patient data (real patient ID and plan code format), capture and verify the request structure matches API documentation, then verify each of the three response types (eligible/not eligible/pending) is correctly parsed. Do not mock the HTTP call.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the payer API is unreachable, the system marks eligibility as pending and continues the intake rather than blocking",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is 'does timeout/network error handling actually work?' This requires injecting a realistic network failure (timeout, connection refused, etc.). A unit test mocking an APIError exception won't catch if the code uses a blocking call without timeouts, or catches the wrong exception type. Integration level is sufficient: use a test double (mock HTTP server or httpretty-style library) that reliably simulates a timeout, then verify the intake marks eligibility pending and continues. No need for a real network call; a deterministic, accurate test double is enough.",
+      "test_description": "Use a test double that simulates a payer API timeout or connection error. Run the intake flow and verify: (1) the system catches the error, (2) eligibility is marked 'pending', (3) the process continues to scheduling and confirmation without crashing or hanging.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The AI symptom triage correctly assigns high urgency to symptom combinations indicating emergency conditions (e.g., chest pain + shortness of breath)",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real AI medical reasoning engine produces. A unit test mocking the LLM response ('return high_urgency=True') won't catch if the actual model fails to identify the emergency condition. The failure mode is 'the real LLM doesn't flag chest pain + SOB as high urgency,' which only a real LLM call detects. Mocking the response always passes the test, hiding the real risk.",
+      "test_description": "Call the real AI medical reasoning engine with a test case of chest pain + shortness of breath. Verify the response is marked as high urgency. For confidence, have a human clinician (or a secondary AI evaluator) confirm the assessment is clinically appropriate.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The symptom triage produces a natural language explanation of its urgency assessment that a clinician can review, not just a numeric score",
+      "minimum_level": "Agentic",
+      "justification": "The quality and usefulness of the explanation depends on what the real LLM generates. A unit test can verify the response includes an 'explanation' field that is non-empty (structure), but not whether it's clinically meaningful or accurate. The failure mode is 'the explanation is unhelpful or clinically incorrect,' which only a real LLM call and human review can detect. Mocking the explanation hides the risk.",
+      "test_description": "Call the real AI triage engine with a symptom case (e.g., chest pain + SOB for high urgency, mild headache for low urgency). Verify the response includes an explanation field with natural language text. Have a clinician review a sample of explanations to confirm they are clinically sound and understandable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.1,
+        "Agentic": 0.75,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "An appointment is scheduled in the first available slot that matches the assigned urgency level — high urgency gets same-day, medium gets within 48 hours",
+      "minimum_level": "Integration",
+      "justification": "This requires testing the slot-finding logic against a real (test) calendar database. A unit test with a mocked calendar might pass even if the actual query logic is wrong (e.g., sorts slots incorrectly, doesn't filter by urgency level, returns the wrong index). The failure mode is 'the query returns the wrong slot' or 'urgency filtering is broken,' which requires hitting a real database with known data. A mock doesn't accurately reflect query behavior or slot availability logic.",
+      "test_description": "Set up a test calendar database with known time slots for providers at various urgency levels (same-day, 24-hour, 48-hour windows). Call the scheduling function with high and medium urgency patients. Verify the appointment is booked in a slot that matches the urgency requirement (same-day for high, within 48 hours for medium). Use a real test database, not a mock.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The scheduling step does not double-book a time slot even when two patients are being processed concurrently",
+      "minimum_level": "System",
+      "justification": "This is a classic race condition / database atomicity issue. A unit test with a mocked calendar will never catch this because mocks don't have real concurrency semantics. An integration test with a mock that claims to handle concurrency might still miss if the actual database locking is broken. The failure mode is 'two concurrent requests both book the same slot,' which requires actual concurrent access to a real database with proper transaction isolation. Only a system-level test with real subprocess/thread concurrency and a real database catches this.",
+      "test_description": "Spin up two concurrent client threads/processes, both attempting to schedule an appointment in the same high-urgency time slot from the same calendar database. Verify only one booking succeeds and the other either receives a conflict error or is assigned the next available slot. Use a real test database with proper ACID properties.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The confirmation message includes the patient name, appointment time, provider name, and preparation instructions appropriate to the visit type",
+      "minimum_level": "Integration",
+      "justification": "While the message formatting logic (given data, produce a message with required fields) is unit-testable, the behavior implies the message is actually generated and sent as part of the intake system. Testing only the format (unit level) might miss failures in how the message is sent or delivered. Integration level tests whether the full confirmation step executes: data is formatted correctly AND the message is sent/recorded (even to a test email provider). This catches the failure mode: 'confirmation is generated but never sent' or 'message is malformed when sent.'",
+      "test_description": "After completing a full intake (validation, insurance, triage, scheduling), capture the generated confirmation message. Verify it includes patient name, appointment time, provider name, and relevant preparation instructions (based on visit type). Optionally, verify the message is actually sent by checking a test email inbox or message log.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The full intake pipeline — validate, check insurance, triage symptoms, schedule, confirm — completes for a real patient submission without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "This is an explicit end-to-end pipeline test with multiple sequential steps, including at least one agentic step (symptom triage with real LLM). The failure mode is not any single step but the entire flow: 'what if step 3 fails silently and blocks step 4?' or 'what if two steps have incompatible data formats?' Integration tests of individual steps won't catch end-to-end orchestration failures. Workflow level is needed because the system involves multiple real external services (payer API, AI engine, calendar DB, message service) in sequence, and the LLM step introduces non-determinism that must be handled across the flow.",
+      "test_description": "Create a complete test patient submission and run it through the entire intake pipeline against test/sandbox versions of all external services (payer API sandbox, AI triage engine, test calendar database). Verify the flow completes without errors or manual intervention, and that a confirmation is sent. Check that all data flows correctly between steps (e.g., urgency from triage is used in scheduling).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

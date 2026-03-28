@@ -50,10 +50,23 @@ interface RunSummary {
 export function parseLog(logPath: string): ProbeStats | null {
   const content = readFileSync(logPath, "utf8");
   const lines = content.split("\n").filter((l) => l.trim());
+  let sawStructuredOutput = false;
 
   let stats: Partial<ProbeStats> = {
     task: basename(logPath, ".log").replace("out-treatment-", "").replace("out-baseline-", "").toUpperCase(),
     tools_used: [],
+    tools_available: 0,
+    mcp_servers: 0,
+    slash_commands: 0,
+    stop_reason: "unknown",
+    model: "unknown",
+    input_tokens: 0,
+    cache_read_tokens: 0,
+    cache_create_tokens: 0,
+    output_tokens: 0,
+    total_input: 0,
+    cost_usd: 0,
+    num_turns: 0,
   };
 
   for (const line of lines) {
@@ -85,14 +98,36 @@ export function parseLog(logPath: string): ProbeStats | null {
         stats.cache_read_tokens = u.cache_read_input_tokens ?? 0;
         stats.cache_create_tokens = u.cache_creation_input_tokens ?? 0;
         stats.output_tokens = u.output_tokens ?? 0;
-        stats.total_input = stats.input_tokens + stats.cache_read_tokens + stats.cache_create_tokens;
+        stats.total_input =
+          (stats.input_tokens ?? 0) + (stats.cache_read_tokens ?? 0) + (stats.cache_create_tokens ?? 0);
+      }
+
+      if (e.type === "probe_meta") {
+        if (stats.duration_s === undefined && typeof e.duration_ms === "number") {
+          stats.duration_s = e.duration_ms / 1000;
+        }
+        if ((!stats.model || stats.model === "unknown") && typeof e.model === "string") {
+          stats.model = e.model;
+        }
+        if (!stats.stop_reason || stats.stop_reason === "unknown") {
+          stats.stop_reason = "probe_meta";
+        }
+      }
+
+      if (!e.type && Array.isArray(e.behaviors)) {
+        sawStructuredOutput = true;
       }
     } catch {
       // skip non-JSON lines
     }
   }
 
-  if (stats.duration_s === undefined) return null;
+  if (stats.duration_s === undefined) {
+    if (!sawStructuredOutput) return null;
+    // Fallback for historical codex logs that only contain structured output JSON.
+    stats.duration_s = 0;
+    stats.stop_reason = "structured-output-only";
+  }
   return stats as ProbeStats;
 }
 
@@ -117,12 +152,13 @@ function printSummary(probes: ProbeStats[], runDir: string) {
   const totalIn = probes.reduce((s, p) => s + p.total_input, 0);
   const totalOut = probes.reduce((s, p) => s + p.output_tokens, 0);
   const totalCached = probes.reduce((s, p) => s + p.cache_read_tokens, 0);
+  const cacheHitPct = totalIn > 0 ? ((totalCached / totalIn) * 100).toFixed(0) : "0";
 
   console.log("");
   console.log(`=== Run: ${basename(runDir)} (${probes.length} probes) ===`);
   console.log(`Total time:   ${totalTime.toFixed(0)}s (${(totalTime / 60).toFixed(1)}min)`);
   console.log(`Total cost:   $${totalCost.toFixed(3)}`);
-  console.log(`Total input:  ${totalIn} tokens (${totalCached} cached, ${((totalCached / totalIn) * 100).toFixed(0)}% cache hit)`);
+  console.log(`Total input:  ${totalIn} tokens (${totalCached} cached, ${cacheHitPct}% cache hit)`);
   console.log(`Total output: ${totalOut} tokens`);
   console.log(`Avg per probe: ${(totalTime / probes.length).toFixed(0)}s, $${(totalCost / probes.length).toFixed(4)}, ${Math.round(totalIn / probes.length)} in, ${Math.round(totalOut / probes.length)} out`);
   if (probes[0]?.model) console.log(`Model: ${probes[0].model}`);
@@ -139,7 +175,7 @@ function printSummary(probes: ProbeStats[], runDir: string) {
 }
 
 // Main
-import { PATHS, getRunDir } from "./paths";
+import { PATHS, getRunDir } from "./paths.js";
 const runsBase = PATHS.runs;
 
 function buildSummary(probes: ProbeStats[], runDirName: string): RunSummary {

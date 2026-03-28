@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with invalid HMAC-SHA256 signature is rejected with 401; event is not forwarded to queue",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithm logic (HMAC comparison) plus control flow. The failure—forwarding an invalid event—can be caught by mocking the request and queue, then verifying queue.enqueue() is never called when signature doesn't match. No I/O boundary or real infrastructure needed.",
+      "test_description": "Create a request with valid body but X-Signature-256 header that doesn't match the HMAC-SHA256 of the body. Mock the queue. Verify the handler returns HTTP 401 and queue.enqueue() is never called. Test both correct signature (should enqueue) and corrupted signature (should reject).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is written to persistent queue before HTTP 200 response is sent to sender",
+      "minimum_level": "Integration",
+      "justification": "The word 'persistent' is key: the event must be durably written (to disk/DB) before response. A mock queue that returns immediately hides the real failure (response sent before durability is confirmed). Must use a real in-process persistent queue to verify the write-then-respond ordering and ensure durability.",
+      "test_description": "Use real persistent queue (SQLite, Redis, etc.). Send valid webhook request. Query the persistent store to confirm the event is durably committed. Then verify HTTP 200 was returned. Use database inspection or transactional reads to confirm the queue write was persisted before the response send completed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP 200 response without waiting for downstream event processing to complete",
+      "minimum_level": "Unit",
+      "justification": "This tests control flow: handler must not await the downstream processor before responding. A Unit test with mocked downstream (Promise that never resolves) will immediately reveal if the code incorrectly awaits it. The failure (blocking on downstream) is deterministic and will be caught by the mock.",
+      "test_description": "Mock the downstream processor to return a Promise that never settles. Call the handler with a valid request. Measure elapsed time and verify HTTP 200 is returned within milliseconds, not blocking on the downstream task. Assert that the response is sent before the mock Promise resolves.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "HTTP response arrives within 3 seconds wall-clock time even when downstream processing of concurrent earlier events is slow",
+      "minimum_level": "Unit",
+      "justification": "The core failure—blocking on downstream—can be caught with mocked downstream (10+ second delay) and concurrent requests. Use real wall-clock timing and async/await in Unit test. If code serializes requests or awaits downstream, test will measure > 3 seconds and fail. Real concurrency is testable via Promise.all() at Unit level.",
+      "test_description": "Mock the downstream processor to take 10+ seconds. Send N concurrent requests using Promise.all() (e.g., 5 simultaneous requests). Measure real elapsed time for each response from receipt to HTTP 200. Verify all responses complete within 3 seconds despite the slow downstream processing. Check response times for both early and late requests in the batch.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Event with duplicate ID is not enqueued a second time, even under concurrent receipt",
+      "minimum_level": "Integration",
+      "justification": "The failure—both concurrent requests pass dedup check and both enqueue—is a race condition that requires real concurrent reads/writes against a real dedup store. Mocking both the dedup store and concurrency would miss the actual race: both requests read 'not seen' before either writes 'seen'. Must use real concurrent requests against real dedup storage (even if in-process).",
+      "test_description": "Use real deduplication store (database or in-process). Send two concurrent HTTP requests with identical event IDs and bodies. Verify that queue.enqueue() is called exactly once (not twice) and the queue contains exactly one copy of the event. Use synchronous database inspection or atomic counters to prevent test-timing issues.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue reports full, handler returns 503 with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "This is pure exception handling logic: queue throws QueueFullException → handler catches it → returns 503 + Retry-After header. A mock queue that throws the exception will trigger the handler's error path. No real queue needed; the failure (missing header, wrong status code) is deterministic.",
+      "test_description": "Mock the queue to throw QueueFullException when enqueue() is called. Verify the handler catches it and returns HTTP 503 with a valid Retry-After header (e.g., 'Retry-After: 120'). Test both the status code and the header presence/value.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity limit and rejects events that would exceed it",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue's own capacity enforcement, not the handler. A mock queue would always have capacity; it wouldn't reveal if the real queue actually enforces limits. Must use a real persistent queue with capacity set (e.g., max 100 events) to verify that fills up and rejects overflow.",
+      "test_description": "Use real persistent queue configured with capacity limit (e.g., max 100 events). Enqueue events until queue is at capacity. Verify that the next enqueue() operation fails with a capacity-exceeded error or exception. Confirm no silent overwrites or loss of previous events. Verify the queue can be drained and accepts new events again.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

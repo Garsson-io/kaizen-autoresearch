@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check",
+      "minimum_level": "Integration",
+      "justification": "Mock-miss risk is HIGH. A pure unit test with mocked dependency resolver would pass even if transitive resolution is broken in production. Real failure: scanner queries only direct deps, misses transitive vulnerabilities. Must test with real manifest files (JSON, YAML, lock files) and wire the parser to dependency resolution logic (mocked or real). Cannot rely on string-only unit tests since lock file parsing and nested dependency extraction require integration with the file system and resolution logic.",
+      "test_description": "Load real package.json + package-lock.json (or equivalent), extract all deps, verify the complete list includes both direct dependencies (from 'dependencies' field) and transitive ones (from lock file's nested structure). Assert that a known transitive dep is present in the extracted list.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name",
+      "minimum_level": "Integration",
+      "justification": "Mock-hide risk is HIGH. A mock that always returns success would hide the bug where version ranges are omitted from the query. Real failure: query sent as 'lodash' instead of 'lodash@4.17.x', returns CVEs for all versions including unaffected ones. Must verify both (1) query is constructed with version constraints and (2) response filtering handles results that span multiple versions. Cannot catch this at unit level because query construction logic might not exercise version-range parsing.",
+      "test_description": "Mock the vulnerability API. Construct a test manifest with version constraints (e.g., 'lodash@^4.17.0'). Verify the query argument passed to the API includes the version range constraint. Mock API response with results for multiple versions (e.g., 4.17.5 and 5.0.0). Verify the scanner correctly filters results to only the queried version range.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.55,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score",
+      "minimum_level": "Unit",
+      "justification": "No mock-miss or real-infrastructure dependency. This is pure comparison logic on in-memory data structures. A unit test with constructed CVE objects covering all severity levels and edge cases (same severity, different scores) directly tests the sorting function. No external I/O, no wiring of modules.",
+      "test_description": "Create test CVE objects with different severity levels and CVSS scores: {severity: 'High', cvss: 7.5}, {severity: 'Critical', cvss: 6.0}, {severity: 'High', cvss: 8.0}, etc. Call the sorting function. Assert order is Critical (both entries), then High entries sorted by score (8.0 first, then 7.5), then lower severities.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged",
+      "minimum_level": "Integration",
+      "justification": "Mock-miss risk is MODERATE. A unit test with string parsing might pass, but real failures hide in file I/O: encoding issues, whitespace preservation, platform-specific line endings, JSON formatting. Real failure: modifying lodash version unintentionally strips comments, changes indentation, or corrupts adjacent entries. Must test with real manifest files (read from disk, modify, write back) to catch format corruption.",
+      "test_description": "Create a test manifest file with multiple dependencies and custom formatting (comments, specific indentation). Read it, modify one dependency's version (e.g., lodash 4.17.0 → 4.17.21). Write it back. Re-read the file and verify: (1) only the target dependency's version changed, (2) all other entries unchanged, (3) file formatting/encoding preserved (same indentation, newlines, no extra whitespace).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff",
+      "minimum_level": "System",
+      "justification": "Behavior explicitly requires 'real repository'. Cannot mock this—must verify against actual GitHub API, real Git operations, and real PR mechanics. Real failures include: wrong branch targets, authentication/permission issues, diff doesn't match what was intended, PR body is malformed. Integration tests against a local git repo would miss real GitHub API quirks (rate limits, branch protection, merge conflicts).",
+      "test_description": "Using a test GitHub repository (or fixture repo), instantiate the scanner with a vulnerable dependency. Trigger PR creation. Call GitHub API to verify: (1) PR exists on the real repo, (2) PR body describes the dependency update, (3) diff shows only the dependency version change (no other files modified), (4) PR targets the correct branch (e.g., main). Clean up by closing the test PR.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison",
+      "minimum_level": "Unit",
+      "justification": "Pure semver comparison logic. No I/O, no external dependencies, no state wiring. A unit test with version pairs (1.0.0→2.0.0, 1.1.0→1.2.0, 0.5.0→1.0.0, etc.) directly exercises the semver parser and comparison logic.",
+      "test_description": "Create test cases for semver transitions: (1.0.0→2.0.0 is breaking), (1.0.0→1.1.0 is not breaking), (0.1.0→0.2.0 with prerelease logic), etc. Call the breaking-change detection function for each. Assert correct classification (breaking vs. non-breaking).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output",
+      "minimum_level": "Integration",
+      "justification": "Mock-miss risk is MODERATE. Unit test with mocked PR creation could verify control flow but might miss output formatting or integration issues. Real failure: breaking change detected but PR is still created (control flow bug), or review flag is omitted from report, or log message is malformed. Must wire the breaking-change detection logic to the PR-creation decision point and verify the output format. Integration test ensures flag is correctly surfaced in the final report.",
+      "test_description": "Mock the PR creation API. Create a test scenario with a breaking version bump (1.0.0→2.0.0). Trigger the scanner. Verify: (1) PR creation mock was NOT called, (2) scanner output JSON/report contains a review flag (e.g., 'requires_manual_review': true), (3) output message explains why (e.g., 'major version bump detected'). Test both the flag presence and the message clarity.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

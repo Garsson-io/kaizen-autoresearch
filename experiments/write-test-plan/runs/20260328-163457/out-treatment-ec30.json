@@ -1,0 +1,156 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Out-of-stock products are excluded from recommendations regardless of relevance score",
+      "minimum_level": "Unit",
+      "justification": "This is attribute-based filtering logic. The real failure is: engine includes products where stock_available=false. To catch it, provide product fixtures with mixed stock status and verify the filter removes them. No database or I/O needed — the filtering decision happens on in-process Product objects.",
+      "test_description": "Create product fixtures with varying stock_available values (some true, some false), all otherwise matching user preferences. Run recommendation engine for a user whose preferences would match all products. Assert all returned products have stock_available=true and none have false.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "User-blocked product categories are excluded from results",
+      "minimum_level": "Unit",
+      "justification": "Filtering logic based on user settings. Real failure: engine includes products in blocked_categories set. Testable at Unit with fixture user object containing blocklist and product fixtures across various categories. No external data required.",
+      "test_description": "Create a user fixture with specific category_blocklist (e.g., ['electronics', 'automotive']). Create product fixtures spanning 5+ categories including blocked ones. Run recommendation engine. Assert no returned products belong to any blocked category.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Products matching user's recent browsing patterns rank higher than products with no browsing signal",
+      "minimum_level": "Unit",
+      "justification": "Tests ranking algorithm's weighting of browsing signal. Real failure: algorithm doesn't factor browsing history into scores, or browses-matching products rank equal to non-matching ones. Can be tested at Unit with browsing_history fixture and product fixtures—ranking is local algorithm logic. If browsing history is queried from database, Integration would be needed instead.",
+      "test_description": "Create user with browsing history limited to 'shoes' and 'sports'. Create product fixtures including: shoes, sports gear, clothing, electronics (with realistic relevance scores). Run recommendation algorithm. Verify: top results include shoes/sports products. Verify shoes product ranks higher than clothing product with same relevance base score.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns identical results across multiple requests for the same page if data is unchanged",
+      "minimum_level": "Unit",
+      "justification": "Pure pagination logic with no external dependencies. Real failure: ordering is non-deterministic (e.g., uses hash iteration) or pagination skips/duplicates items. Testable at Unit: generate stable recommendation set, paginate twice, compare results. No I/O required.",
+      "test_description": "Generate a fixed recommendation list for a user (e.g., 100 products in stable sort order). Request page 2 (size 20) twice with no intervening operations. Assert both responses are identical: same product IDs, same order, same count.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "At least one product from an unbrowsed category is included to avoid filter bubble",
+      "minimum_level": "Unit",
+      "justification": "Tests algorithm's diversification logic. Real failure: all results are from user's browsed categories. Testable at Unit with user fixture (limited browsing history) and comprehensive product fixture (10+ categories). Diversification logic is deterministic algorithm execution on in-process data.",
+      "test_description": "Create user with browsing history limited to 2 categories (e.g., 'shoes', 'clothing'). Create product fixture with 8+ diverse categories (including unbrowsed ones like 'electronics', 'home', 'sports'). Run recommendation engine. Assert at least one result is from a category not in user's browsing history.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "New users with no history receive popularity-based recommendations instead of empty results",
+      "minimum_level": "Unit",
+      "justification": "Tests fallback path in ranking algorithm. Real failure: returns empty set for new user, or tries to filter on non-existent history causing error. Testable at Unit with new user fixture (empty purchase/browsing history) and popularity-ranked product fixtures.",
+      "test_description": "Create a new user with purchase_history=[] and browsing_history=[]. Create product fixtures with popularity scores. Run recommendation engine for this user. Assert result is non-empty and contains products with highest popularity scores.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records correct product ID, position, and timestamp for each interaction",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A Unit test mocking the tracking backend always passes even if persistence layer loses data, corrupts fields, or has timestamp bugs. Real failure requires verifying data actually persists in storage. Integration test with real/test database catches: field mapping errors, null values, timestamp precision loss, missing records.",
+      "test_description": "Generate recommendations for a user. Simulate clicks on 2 products at specific positions (e.g., position 0 and position 4). Query tracking database. Assert each logged entry contains: correct product_id, correct position, valid timestamp within 5 second tolerance of click time. Verify exactly 2 records exist for this user.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Response time stays under 200ms for a catalog of 100,000 products",
+      "minimum_level": "Integration",
+      "justification": "REAL-INFRA + SCALE: Unit test on 100 products would pass while production with 100k products times out. Real failure (slowness) only observable at scale. Cannot mock data count. Requires Integration test with actual test database containing 100k realistic products with full indexes.",
+      "test_description": "Populate test database with 100,000 products with realistic distributions: categories (20 categories), price ranges, popularity scores, stock status. Measure wall-clock time to generate recommendations for a test user. Assert response completes in ≤200ms. Run 10 times to account for variance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.6,
+        "System": 0.3,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Purchased products are deprioritized in subsequent recommendations",
+      "minimum_level": "Unit",
+      "justification": "Tests algorithm's weighting of purchase history. Real failure: algorithm doesn't check purchase_history or doesn't reduce score for purchased items. Testable at Unit: run algorithm with user fixture, simulate purchase (update fixture), run again, verify ranking changed. If purchase history requires database queries, Integration might be needed for robustness.",
+      "test_description": "Create user with initial recommendations including product P1. Note P1's initial rank position. Mark product P1 as purchased in user's purchase_history. Run recommendation engine again for same user. Assert P1 is either absent or ranked significantly lower (e.g., moved from position 2 to position 15+) than in first run.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.4,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Recommendation results are deterministic—same request returns identical ranked list",
+      "minimum_level": "Unit",
+      "justification": "Pure algorithm determinism test. Real failure: algorithm produces different rankings for same input (e.g., uses hash iteration, random seed varies, uncontrolled floating-point rounding). Testable at Unit: call algorithm twice on identical user/product state, compare results. No I/O or external state.",
+      "test_description": "Create a user fixture with fixed purchase_history, browsing_history, and preferences. Generate recommendations twice with no intervening user activity or data changes. Assert both responses have products in identical order (verify product_id sequence is byte-identical across runs).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

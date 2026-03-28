@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in subdirectories are processed, not only files in the watched root",
+      "minimum_level": "Integration",
+      "justification": "A unit test with mocked filesystem APIs would pass even if the implementation only globs the root directory (e.g., `*.txt` instead of `**/*.txt`). The real failure boundary is: does the filesystem watcher correctly recurse into subdirectories? This requires actual filesystem structure and file discovery through the daemon's real file-watching mechanism.",
+      "test_description": "Create a temp directory with nested subdirectories, place a file in a subdirectory, start the daemon, and verify the file is processed. Verify that files in nested depths are discovered and transformed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic discards duplicate requests for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "The core logic—tracking recent file paths and checking if a new request falls within the window—can be tested in isolation with mocked/fake time. A pure unit test using a FakeTime or Clock mock can verify: (1) first request processes, (2) second request within window is discarded, (3) request after window expires processes. No real filesystem I/O is required for the dedup logic itself.",
+      "test_description": "Unit test with a mocked clock. Create dedup tracker, submit first request (verify processed), submit identical request immediately (verify deduplicated), advance clock past window, submit again (verify processed). Verify rejection happens before transformation pipeline is invoked.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Multiple OS-level filesystem events for a single file write result in exactly one processing",
+      "minimum_level": "Integration",
+      "justification": "A unit test that mocks individual filesystem events could pass even if the daemon has race conditions in its event deduplication. The real failure boundary is timing: when the OS emits events in rapid succession (e.g., file created, then content modified), does the dedup window actually catch them before the file is queued twice? This requires either real filesystem events (System) or integration-level simulation of rapid event emission through the daemon's event handler.",
+      "test_description": "Integration test that either (1) writes a real file and observes OS-emitted events, or (2) simulates rapid-fire filesystem events to the daemon's event handler. Verify the transformation pipeline is invoked exactly once, not multiple times, despite multiple events for the same file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Watched directory removal and recreation while running causes daemon to resume watching without restart",
+      "minimum_level": "Integration",
+      "justification": "A mock of the filesystem watcher would always return success, hiding the real failure: the watcher breaks when the directory is deleted and does not automatically reattach to the recreated directory. This requires actual filesystem operations—removing a directory while the daemon is watching, then recreating it—to test whether the daemon's watcher gracefully handles this state transition.",
+      "test_description": "Integration test: start daemon watching a temp directory, delete the watched directory while daemon runs, recreate the directory, add new files, and verify the daemon resumes watching and processes the new files without requiring a restart.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.92,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Multiple files arriving simultaneously are processed in order of creation timestamp",
+      "minimum_level": "Integration",
+      "justification": "While the sorting logic itself could be unit-tested with mock file objects, the real failure boundary is: does the daemon correctly extract and parse the creation timestamp from actual filesystem metadata? Different operating systems and filesystems report timestamps differently (mtime, ctime, btime), and mocking file objects would not catch bugs like reading the wrong timestamp property or misinterpreting timestamps across platforms.",
+      "test_description": "Integration test: create multiple files with staggered timestamps in rapid succession, trigger arrival events, verify files are processed in creation-timestamp order regardless of event arrival order. Verify timestamp metadata is correctly read from the real filesystem.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "File still being written to is not picked up until writing is complete",
+      "minimum_level": "Integration",
+      "justification": "Mocking a file-read operation would always return complete data, hiding the real failure: the daemon picks up and processes files while they are still being written (partial reads, truncated content). Testing this requires actual in-progress file I/O—opening a file for writing, triggering an arrival event, verifying the daemon delays processing, then completing the write and verifying processing resumes.",
+      "test_description": "Integration test: begin writing a file in stages (incomplete write), trigger filesystem event, verify transformation has not started or has stalled, complete the write, verify the daemon then processes the complete file. Confirm no partial or corrupted output is produced.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

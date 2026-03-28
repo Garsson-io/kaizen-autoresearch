@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The real failure isn't just 'does validation logic reject invalid rows?' but 'are invalid rows actually written to the DLQ table with correct metadata?'. A unit test with mocked DLQ could verify the logic, but would miss failures in actual table writes, schema mismatches, or row number metadata being lost. A real test PostgreSQL is needed to catch these.",
+      "test_description": "Load a CSV with rows missing required fields, process through the pipeline, query the test PostgreSQL DLQ table to verify: (1) invalid rows are present, (2) original row numbers are preserved in metadata, (3) valid rows do NOT appear in DLQ.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "This is pure deterministic logic — date parsing and formatting. There is no I/O, no external service calls, and no state-dependent behavior. A unit test that passes various date strings to the transformation function and asserts the output is in canonical format will catch any parsing or formatting bugs. Mocking is unnecessary.",
+      "test_description": "Unit test the date transformation function with a parametrized set of inputs: ISO 8601 ('2026-03-28'), US format ('03/28/2026'), and European format ('28/03/2026'). Assert all are converted to the canonical format (ISO 8601).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "Real failures here manifest under real I/O conditions: network latency from actual S3, real database write performance, and process-level memory and timeout behavior. A mocked S3 (moto) and local test DB (Integration) may process much faster than production, masking timeout or memory issues that only appear with real S3 latency or actual subprocess execution. System-level testing with real S3 (or S3-compatible) and real DB is needed to catch actual failures.",
+      "test_description": "Run the full pipeline with a real 500,000-row CSV loaded from real S3 (or local S3-compatible server), writing to a real PostgreSQL instance. Measure wall-clock execution time and peak memory usage. Verify: (1) execution completes within the configured timeout (e.g., 5 minutes), (2) memory usage stays below the threshold (e.g., 4GB).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.35,
+        "System": 0.6,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "The retry logic (exponential backoff, eventual success) can be validated by mocking S3 to return transient 503 errors. The moto library can simulate this reliably in-process. The real failure (pipeline fails instead of retrying) would be caught by a test that injects 503 errors and verifies the retry loop works. Real S3 (System) would add network realism but isn't necessary to catch the logic bug.",
+      "test_description": "Use moto to mock S3. Inject transient 503 errors on the first 3 read attempts, then return success on the 4th attempt. Run the pipeline and verify: (1) it catches the 503, (2) retries with exponential backoff (verify timing or retry count), (3) eventually succeeds without failing the entire batch.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is 'duplicate rows appear in the table after restart'. This depends on database-level deduplication (upsert, unique constraints, or transaction semantics). A test PostgreSQL instance is sufficient to verify the pipeline's idempotency logic and the database's duplicate-detection behavior. You don't need OS-level subprocess management or checkpoint files to test this; a test DB with the correct constraints will catch the failure.",
+      "test_description": "Populate a test PostgreSQL table with half of a batch of rows. Simulate pipeline restart by calling the resume function on the remaining rows. Query the final table and verify: (1) all rows are present, (2) no duplicates exist (check row count and unique constraints), (3) no partial/corrupted rows.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

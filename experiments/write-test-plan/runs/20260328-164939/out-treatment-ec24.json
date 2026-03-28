@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests the semantic quality of translations from a real neural machine translation (NMT) model. A mock API can return any string, including garbage. Only a real NMT API can produce the grammatically coherent, meaning-preserving output that the behavior requires. The correctness depends entirely on what the actual model produces—this cannot be simulated. Different NMT models and languages may produce different qualities of output, so repeated tests with the real API are necessary to verify this invariant holds across variations.",
+      "test_description": "Call the production or staging NMT API with diverse source texts (multiple language pairs, different input styles and domains). Evaluate the returned translations for grammatical coherence and semantic preservation using human review or a secondary semantic evaluation model. Test at least 3 language pairs and 10+ sentences per pair covering different complexity levels (simple, technical, conversational). Assert that all translations preserve the source meaning and avoid word-for-word substitution artifacts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.95,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The fallback mechanism involves querying SQLite and returning a result without error. A Unit test with mocked API and mocked database could pass even if the actual SQL query is malformed, the database connection is broken, or the data retrieval logic is flawed. A mock database masks real failures in how the fallback actually executes. The minimum level to catch failures in the complete fallback flow (error detection → database lookup → result return) requires integration with a real (test) SQLite database and verification that the database interaction actually works.",
+      "test_description": "Mock the primary translation API to raise a 503 error or HTTP exception. Set up a test SQLite database with known phrase-translation pairs. Call the service with a phrase that exists in the database. Assert the service returns the dictionary translation without raising an error to the caller. Assert the response format is correct. Repeat with phrases that do not exist in the database and verify appropriate handling (empty result or fallback message). Verify logs or metrics show the fallback was activated.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying that SQL queries are correctly constructed and executed against the database. A mock database could be set to always return an expected result, masking real failures like incorrect query syntax, wrong column names, type conversion bugs, or index issues. Real failures in the database layer (malformed queries, missing data, encoding issues) are only caught by executing actual SQL against a test database. The behavior depends on the real database schema and data state.",
+      "test_description": "Set up a test SQLite database with known phrase-translation pairs (at least 20 pairs covering various scripts, special characters, and lengths). Query the fallback translator with phrases that exist in the database and assert it returns the exact expected translation. Test non-existent phrases and assert appropriate error handling. Test edge cases: multi-word phrases, phrases with special characters and punctuation, case sensitivity, leading/trailing whitespace. Test data type conversions if the database stores numeric IDs alongside phrases. Verify queries are efficient (index usage) for large datasets.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "While edit distance computation is a deterministic algorithm testable at Unit level, the behavior includes 'stores the metric', which requires persistence. Mocking the database would mask real failures in how metrics are serialized, stored, or retrieved. Real failures could occur in the database schema (wrong column types), the storage transaction (partial writes), or data retrieval (missing metrics in subsequent queries). The complete behavior requires integration with SQLite to verify metrics are actually persisted and retrievable.",
+      "test_description": "Provide two translations (primary and fallback) with known edit distance. Call the quality tracking system and assert it computes the correct Levenshtein distance (e.g., translations differing by 3 character edits → distance 3). Verify the metric is stored in SQLite with all necessary fields (primary text, fallback text, distance, timestamp). Query the database and assert the stored metric matches. Test with multiple pairs including edge cases: identical strings (distance 0), completely different strings, single-character differences, and multi-language strings. Verify the metric persists across service restarts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "This behavior involves orchestration across multiple components and asynchronous execution. A Unit test with mocks could verify the control flow (choose primary, spawn async task) but would miss real failures in: (1) whether the async task actually executes and completes, (2) whether the quality comparison is correctly computed in the background, (3) whether the metric is actually persisted. Mocks hide the real async execution boundary and storage. Integration-level testing with real async task execution and SQLite storage is required to catch failures in the complete flow. The test must verify both the synchronous return of primary translation and the asynchronous completion of quality logging.",
+      "test_description": "Mock the primary translation API to return a specific translation. Ensure the fallback dictionary is available with at least one entry. Call the service with a source text. Assert the response returns the primary translation immediately (synchronous). Wait for background async tasks to complete (using a wait mechanism or polling). Query SQLite to verify the quality comparison metric is logged/stored with correct values. Assert the metric includes primary translation, fallback translation, and edit distance. Test that the service doesn't block waiting for the async task (returns to caller immediately). Test that quality logging occurs even if the fallback is not actually used, as long as both translators were available.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

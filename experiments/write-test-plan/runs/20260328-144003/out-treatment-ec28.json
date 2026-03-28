@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-28",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A cell containing =SUM(A1:A10) evaluates to the correct sum of the values in cells A1 through A10",
+      "minimum_level": "Unit",
+      "justification": "SUM is a single-function evaluation over in-memory cell values. The real failure boundary is local: off-by-one in range parsing, incorrect aggregation logic, or type coercion bugs. A pure unit test (create spreadsheet, set cells A1:A10 to known values, call evaluator, assert result) is sufficient and would catch these. No I/O, filesystem, or external dependency needed.",
+      "test_description": "Create a spreadsheet with cells A1:A10 set to [1,2,3,4,5,6,7,8,9,10]. Evaluate formula =SUM(A1:A10) and assert result equals 55. Also test edge cases: SUM with empty cells, SUM with mixed types (numeric and string), SUM of a single cell range.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description is unit-level: single in-process function call, no mocks or external state needed.",
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.18,
+        "System": 0.05,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A cell referencing another cell that contains a formula (e.g., =B1+1 where B1 is =A1*2) produces the correct cascaded result",
+      "minimum_level": "Unit",
+      "justification": "Cascaded evaluation tests the evaluator's ability to recursively resolve and compute dependent formulas. The failure boundary is within the evaluator logic: incorrect recursion depth, missed intermediate results, or improper value propagation. A unit test can set up a spreadsheet with both formulas in-memory and verify the result by calling the evaluator once.",
+      "test_description": "Create spreadsheet with A1=5, B1==A1*2 (evaluates to 10), C1==B1+1. Evaluate C1 and assert result equals 11. Test deeper chains (D1==C1*2, etc.) and verify intermediate values are computed. Also test cycles that should fail (B1==C1, C1==B1+1).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Single spreadsheet object, one call to evaluate a cell—returns cascaded result. No multi-step orchestration or external state.",
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.28,
+        "System": 0.04,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The engine detects a circular dependency (A1 references B1, B1 references A1) and returns a circular reference error instead of looping",
+      "minimum_level": "Integration",
+      "justification": "Circular dependency detection is a **global property** of the formula graph, not a local function. To catch a real failure (infinite loop, incorrect error reporting, or incomplete cycle detection), you need to set up actual cells with formulas and attempt to evaluate. A unit mock of the cycle detector might always return 'no cycle' without triggering the evaluator's infinite loop. The failure only manifests when evaluation is attempted on a cyclic graph.",
+      "test_description": "Create spreadsheet with A1==B1+1 and B1==A1+1. Attempt to evaluate either cell and assert a CircularReferenceError is raised. Test multi-cell cycles (A→B→C→A). Test non-cycles (A→B→A where B is not referenced by A's formula). Verify that the error is raised during evaluation, not silently stored.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires setting up the full formula graph and triggering evaluation. A unit test of a cycle-detector function alone might miss bugs in how evaluation interacts with the detector.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "VLOOKUP with an exact match returns the correct value from the lookup table, and returns an error when the key is not found",
+      "minimum_level": "Unit",
+      "justification": "VLOOKUP is a discrete function with clear input/output semantics: search a range for a key, return a value from a column. Real failures (off-by-one in column offset, case sensitivity bugs, or incorrect error handling) are caught by testing the function in isolation with various lookup tables and keys.",
+      "test_description": "Create a lookup table (2D range: column 1 has keys, column 2 has values). Test VLOOKUP with an exact match (key exists) and assert correct value is returned. Test VLOOKUP with missing key and assert #N/A error. Test edge cases: empty table, duplicate keys, wrong column index.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Single function call with provided data. No state orchestration or sequential steps.",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The IF function correctly handles nested conditions (e.g., =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\"))",
+      "minimum_level": "Unit",
+      "justification": "Nested IF tests the function's ability to correctly evaluate condition trees and short-circuit appropriately. Real failures (wrong branch taken, improper nesting, or evaluation order bugs) are caught by a unit test that provides various input values and verifies the output.",
+      "test_description": "Evaluate =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\") with A1 set to 5, 15, and 25. Assert results are \"low\", \"medium\", and \"high\" respectively. Test deeply nested IFs and verify all branches execute correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Single formula evaluation on a single cell. No complex state or multi-step orchestration.",
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.14,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "CONCATENATE joins cell values with the correct separator and handles empty cells by skipping them rather than inserting blank strings",
+      "minimum_level": "Unit",
+      "justification": "CONCATENATE is a specific function with well-defined behavior around empty-cell handling. The real failure (inserting blanks instead of skipping) is local to the function logic and caught by testing with mixed empty and non-empty inputs.",
+      "test_description": "Create cells with values ['A', '', 'B', '', 'C'] and evaluate =CONCATENATE(cell1, cell2, cell3, cell4, cell5) with a separator. Assert result is 'A-B-C' (empty cells skipped). Test all-empty cells, single cell, and all-filled cells.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Single function call with provided cell values. Function-level behavior, no orchestration.",
+      "level_probabilities": {
+        "Unit": 0.76,
+        "Integration": 0.16,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "A formula referencing a cell in a different sheet (e.g., =Sheet2!A1+1) resolves correctly when the referenced sheet exists",
+      "minimum_level": "Integration",
+      "justification": "Cross-sheet references require wiring multiple sheets together within the spreadsheet object. While the reference parser is local logic, the real failure (incorrect sheet lookup, wrong cell address resolved, or sheet not found during evaluation) can hide in the integration between sheet management and the evaluator. A unit test of the parser alone might pass while the actual sheet-cell resolution fails.",
+      "test_description": "Create a workbook with two sheets. Set Sheet2!A1 to 5. In Sheet1, evaluate =Sheet2!A1+1 and assert result is 6. Test error cases: reference to non-existent sheet, reference to sheet with different structure, cross-sheet formulas that themselves reference other sheets.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires multiple sheet objects and their integration. Not just parsing—actual resolution of sheet references during evaluation.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "When a referenced cell's value changes, all dependent formulas are recalculated in the correct topological order",
+      "minimum_level": "Integration",
+      "justification": "This tests the **ordering** of recalculation across a graph of dependencies, not just individual formula correctness. A unit test of the topological sort might pass while the actual recalculation order is wrong (evaluating dependents before their dependencies). The real failure only surfaces when multiple cells with interdependencies are updated and their values must be recalculated in the correct sequence.",
+      "test_description": "Create a spreadsheet: A1=1, B1==A1*2, C1==B1+1, D1==C1*2. Update A1 to 2. Verify all dependent cells recalculate: B1→4, C1→5, D1→10. Assert that intermediate values are correct and update events are fired in topological order (A1 → B1 → C1 → D1, never B1 before A1 updates). Test with diamond dependencies (A→B,C; B,C→D).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires setting up a dependency graph and verifying the recalculation order. Tests multiple cells and their interactions—clearly integration-level.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.76,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The undo operation after editing a formula restores both the formula text and all previously computed dependent values",
+      "minimum_level": "Integration",
+      "justification": "Undo is a multi-step operation: edit formula → compute dependents → undo → restore formula AND all dependent values. The real failure (partial restoration, incorrect undo history, or dependents not restored) manifests only when the undo system is tested as a whole, not in isolation. A unit test of undo-stack insertion might pass while actual value restoration fails.",
+      "test_description": "Create A1=1, B1==A1*2. Edit B1 to =A1+10 and verify it evaluates to 11. Undo and verify B1's formula text is restored to =A1*2 and its computed value is 2. Test multiple edits and undos. Verify that dependent cells of B1 (if any) are also restored correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Multi-step: edit, compute, undo. Tests the undo system's interaction with the evaluator and state tracking.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Saving a workbook to disk in a custom binary format and loading it back produces identical cell values and formulas—no data loss or precision change in floating-point results",
+      "minimum_level": "System",
+      "justification": "This test requires **real filesystem I/O** (save to disk, load from disk). The real failures (binary format bugs, floating-point precision loss during serialization, file corruption, or incomplete deserialization) only surface with actual disk writes and reads. An in-memory mock of serialization (e.g., to a byte array) might hide bugs in how the real binary format is written or how floating-point values are encoded/decoded.",
+      "test_description": "Create a workbook with cells containing integers, floats (0.1, π, very large numbers), strings, and formulas. Save to a temporary file using the real binary format. Close and reload the file. Verify: (1) all formula text is byte-exact, (2) all numeric values match to full precision (use exact comparison, not approximate), (3) cell count and structure identical. Test edge cases: max/min float values, denormalized floats, very long strings.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Absolutely requires real filesystem I/O and actual binary serialization/deserialization. Cannot be mocked away.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.76,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

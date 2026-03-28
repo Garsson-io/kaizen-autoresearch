@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum",
+      "minimum_level": "Integration",
+      "justification": "The real failure is not just wrong calculation (Unit detectable) but lack of enforcement: code could compute the correct backoff values but skip the actual async delay. A Unit test of the backoff function alone would pass even if the retry loop ignores the wait. Integration test with real async timing + mocked HTTP responses is minimum: mock 429 responses, measure actual elapsed time between attempts, verify times match 100ms → 200ms → 400ms progression.",
+      "test_description": "Mock HTTP client returning 429 on first 3 calls, 200 success on 4th. Instrument call timing. Measure elapsed time between retry attempts. Assert backoff sequence matches configuration (exponential up to max). Assert actual wall-clock delays are enforced.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt",
+      "minimum_level": "Unit",
+      "justification": "This is pure response parsing and numeric computation with no external dependencies. Mocking HTTP responses is sufficient: if the code misidentifies a 429 or misparses a Retry-After header, a Unit test with mocked responses will catch it immediately. No concurrency, async flow, or actual timing needed to verify parsing correctness.",
+      "test_description": "Mock HTTP response with 429 status code and Retry-After header (e.g., 'Retry-After: 120'). Call parser with mocked response. Assert: (1) rate-limit identified correctly, (2) wait time computed as 120s. Test edge cases: missing header (default), malformed values.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently",
+      "minimum_level": "Integration",
+      "justification": "Real failures: (1) request not resent, (2) request modified during retry (auth corrupted, payload altered), (3) result wrapped in retry metadata instead of transparent return. Unit mock could verify the happy path but might miss request corruption or improper result handling. Integration with mocked HTTP that tracks individual request objects is minimum: verify first request body equals second request body, result unwrapped.",
+      "test_description": "Mock HTTP: first call returns 429, second call returns 200 with response body {id: 'test-data'}. Call client.call(req). Assert: (1) HTTP called exactly twice, (2) both requests have identical bodies, (3) returned result is exactly {id: 'test-data'} with no wrapper or metadata, (4) no retry info leaked to caller.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error",
+      "minimum_level": "Unit",
+      "justification": "Error type validation doesn't require complex infrastructure. Unit test with mocked HTTP that always returns 429 will reliably trigger the exhaustion path. If code throws the wrong error type or crashes with unhandled exception, the test catches it. No concurrency, timing, or async complexity needed.",
+      "test_description": "Mock HTTP to always return 429. Configure max_retries = 3. Call client.call(req). Assert: throws QuotaExhaustedError (not generic Error, not undefined return). Verify error has expected properties (retry_count, quota_reset_time if available).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error",
+      "minimum_level": "Integration",
+      "justification": "Infinite loop is a runtime async failure. Unit test of loop structure might miss edge cases (e.g., off-by-one in retry counter, async ordering issues, promise chains). Real async execution is minimum to confirm termination. Integration with timeout + call count verification: mock 429 always, run with 5s timeout, assert completes with QuotaExhaustedError, assert HTTP call count ≤ max_retries.",
+      "test_description": "Mock HTTP to always return 429. Set max_retries = 4, Retry-After = 100ms. Call client.call(req) with 3s timeout (abort if hangs). Assert: (1) completes with QuotaExhaustedError before timeout, (2) HTTP called exactly 5 times (initial + 4 retries), (3) no promise pending state, (4) subsequent calls work (no state corruption from failed chain).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket",
+      "minimum_level": "Integration",
+      "justification": "Shared state under concurrency cannot be tested at Unit level; real async execution is essential. Real failure: each caller gets isolated quota, race conditions on quota counter, or quota not decremented correctly. Integration with real concurrent async tasks + mocked HTTP: launch M concurrent callers, mock HTTP to allow exactly N requests before 429, verify M requests total (some succeed, some fail), quota correctly pooled across callers.",
+      "test_description": "Mock HTTP to succeed on first 5 calls, return 429 thereafter. Launch 10 concurrent calls: await Promise.all([call(), call(), ..., call()]). Assert: (1) exactly 5 calls succeed (quota shared), (2) exactly 5 calls fail with QuotaExhaustedError, (3) not 2 succeed per caller or 10 succeed; quota is single pool, (4) no race condition on quota counter.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted",
+      "minimum_level": "Integration",
+      "justification": "Request ordering under concurrency is a runtime async behavior. Unit test can't verify queue discipline. Real failure: LIFO instead of FIFO, or random dispatch. Integration with real concurrent tasks + mocked HTTP that tracks dispatch order: mock quota allowing only 1 call immediately, launch 5 concurrent calls with unique IDs, verify rate-limited calls retry in submission order.",
+      "test_description": "Mock HTTP to allow first call, return 429 on calls 2–5. Launch 5 concurrent calls with IDs [A, B, C, D, E]. When quota recovers, calls [B, C, D, E] retry. Assert: (1) B, C, D, E dispatched in that exact order (not E, D, C, B), (2) can be verified by mocking with request logging or spy on HTTP call order, (3) queue is FIFO not LIFO.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

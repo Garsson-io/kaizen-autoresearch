@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is pure calculation logic—compute retry N and verify wait time = min(2^N * base, max). No I/O, no mocking needed. The failure (wrong calculation, missing ceiling) is caught by direct assertion on the computed values. Mocks cannot hide calculation bugs because we're testing the math directly.",
+      "test_description": "Unit test: call the backoff calculation function with retry counts 0..N and verify wait times follow pattern 1x, 2x, 4x, ..., up to configured max.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and extracts the wait time.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: library misses the rate-limit status code or extracts wait time from wrong header. A Unit test with a mocked response can pass if the mock happens to have the right format, but fail against the real API's actual header names/status codes. Integration testing with a fake HTTP server (or realistic response objects from the actual HTTP library) ensures the parsing logic works with the real response structure—headers, status codes, and body format that the actual API uses.",
+      "test_description": "Integration test: fake HTTP server returns a 429 with 'Retry-After: 60' header (or API-specific rate-limit response format). Verify the library correctly parses this as a rate-limit error and extracts the 60-second wait time.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.45,
+        "Integration": 0.5,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client resends the original request and returns the successful result transparently.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: library doesn't actually wait, doesn't retry, or loses the request/response. A Unit test with mocked HTTP calls and sleep cannot reliably verify timing—mocks always return instantly. Integration testing requires a fake API that returns rate-limit on the first call, succeeds on the second, and timing is under test control. This exercises the real async orchestration: detect error → wait → retry → return result.",
+      "test_description": "Integration test: fake API returns 429 on first call, then 200 with success data on retry. Verify request is resent and the success response (not the error) is returned to the caller. Timing verification: ensure wait actually occurred before retry.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After max retries, the client returns a typed QuotaExhaustedError (not a generic error).",
+      "minimum_level": "Integration",
+      "justification": "The failure is: library throws the wrong error type (e.g., generic 'Error' or 'HTTPError') or doesn't throw at all. A Unit test that mocks the API to always succeed hides error-path bugs. Integration testing requires a fake API that reliably returns 429 on every call, forcing the library to exhaust retries and verify the correct error type is thrown after the configured maximum is exceeded.",
+      "test_description": "Integration test: fake API always returns 429. After max retries (e.g., 3), verify the library throws a typed QuotaExhaustedError, not a generic Error, and includes metadata (retry count, wait times).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain terminates correctly without looping indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: infinite loop, hang, or memory leak from accumulating retry state. A Unit test of individual retry steps cannot detect whether the full chain terminates—only integration testing with multiple retries under controlled conditions can verify the state machine progresses correctly through initial failure → retry 1 → retry 2 → ... → error + cleanup. Testing requires orchestrating the full sequence with realistic timing.",
+      "test_description": "Integration test: fake API consistently returns 429. Run the full retry sequence (initial call + N backoff retries), verify it terminates with QuotaExhaustedError (not hanging), and measure that the total wall-clock time is approximately base + (1+2+4+...) * unit_time, confirming no excessive looping.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Concurrent requests from multiple async callers share the same quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: separate quota pools per request (no sharing), or race condition in shared state. A Unit test that mocks individual requests cannot detect whether quota is truly shared—mocks have no interaction. Integration testing requires multiple concurrent async requests hitting a fake API, where the quota tracking is observable across all requests. This surfaces synchronization bugs, shared-state violations, and ordering issues that exist only under concurrency.",
+      "test_description": "Integration test: launch two concurrent async requests. First request gets a rate-limit response; fake API tracks that it has seen 1 request towards quota. Second concurrent request also sees the quota reduction and must wait. Verify both requests eventually succeed but the total request count respects the shared quota, not two separate quotas.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Multiple requests waiting to be sent are dispatched in the order they were submitted.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: out-of-order dispatch (LIFO queue, random, or timestamp-based). A Unit test of queue logic might pass with mocked ordering, but real bugs emerge only when multiple async tasks are queued and dispatched under realistic concurrency. Integration testing requires launching multiple requests in sequence, having them queue during rate-limit backoff, and verifying the fake API receives them in the original submit order when the quota resets.",
+      "test_description": "Integration test: submit three requests (req1, req2, req3) in rapid succession, all hit rate-limit and queue. Fake API tracks request arrival order. After backoff, requests are retried; verify they arrive at the fake API in order [req1, req2, req3], not [req3, req1, req2] or any other permutation.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

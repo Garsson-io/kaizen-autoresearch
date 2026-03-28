@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in subdirectories of the watched root are detected and processed, not only files at the root level",
+      "minimum_level": "Integration",
+      "justification": "The failure is OS-specific: the code might omit `recursive: true` from fs.watch(), causing nested files to never trigger events. A mock fs.watch() would pass regardless. Real filesystem with subdirectories and real fs.watch() is needed.",
+      "test_description": "Create a real temporary directory with nested subdirectories. Write a file two levels deep (e.g., root/sub1/sub2/file.txt). Verify the daemon detects and processes it via real fs.watch(). Test fails if fs.watch({ recursive: true }) is not set.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic correctly discards a second processing request for the same file path within the configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is pure in-process state-machine logic. No filesystem I/O is involved in the dedup decision. Use sinon.useFakeTimers() to simulate clock advancement and verify the dedup state transitions. Mocks are sufficient and preferred here.",
+      "test_description": "Mock the clock with sinon.useFakeTimers(). Emit two identical file-arrival events 500ms apart with a 1000ms dedup window. Verify the second event is rejected by the dedup logic. Advance clock past the window and verify a third event is processed. Test fails if state machine doesn't track arrival times correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the OS emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "Integration",
+      "justification": "Real OSes emit unpredictable event sequences (e.g., 'change' + 'change' + 'close' on Unix, different on Windows). A mock cannot reliably replicate this timing and sequence. Mocking would hide the failure of the code to deduplicate across real OS event timing. Real filesystem writes trigger real fs.watch() events.",
+      "test_description": "Write to a real file on a temporary filesystem while the daemon watches. Confirm that even if fs.watch() emits multiple 'change' events (as real OSes do), the file is processed only once. Test fails if the code calls the transformation pipeline on every fs.watch() event without deduplication.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart",
+      "minimum_level": "Integration",
+      "justification": "fs.watch() behavior on directory deletion/recreation is OS-specific and timing-sensitive. Mocking would always succeed; the real failure is when fs.watch() errors or stops after directory removal, and the code doesn't re-attach. Real filesystem operations required.",
+      "test_description": "Start the daemon watching a real temporary directory. Remove the directory (triggering fs.watch() error or stoppage), verify the daemon logs/handles the error. Recreate the directory, verify the daemon detects it and resumes watching without restart. Test fails if code doesn't re-attach fs.watch() or exits.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps",
+      "minimum_level": "Integration",
+      "justification": "The real failure is: code processes files in fs.watch() event order (non-deterministic) instead of reading actual file timestamps. Could mock fs.stat() to return timestamps, but the failure involves real file metadata I/O. Integration-level test with real files ensures the code actually calls stat() and sorts by mtime/ctime.",
+      "test_description": "Create five real files in a temporary directory with staggered mtimes (e.g., file1 created first, file5 created last). Emit arrival events for all five simultaneously (or in reverse timestamp order). Verify they are processed in timestamp order (1→2→3→4→5), not event order. Test fails if code ignores timestamps and processes in event-arrival order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete",
+      "minimum_level": "Integration",
+      "justification": "The real failure occurs when the daemon attempts to read/process a file held open by another writer, resulting in permission errors or incomplete data. Mocking file handles wouldn't reliably expose this. Real file I/O with an open handle is needed to verify the daemon waits for the file to close.",
+      "test_description": "Open a real file for writing (fs.open + fs.write, keep handle open). Let the daemon's fs.watch() emit an arrival event for that file. Verify the daemon does not immediately process it (no transformation pipeline call). Close the file, verify it is then processed within a reasonable timeout. Test fails if code attempts to read/process while file is open.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

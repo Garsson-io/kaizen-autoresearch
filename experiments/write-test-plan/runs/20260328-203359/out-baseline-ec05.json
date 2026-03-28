@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "baseline",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "A pure unit test of filename sorting can pass while the real runner still mis-orders execution due to filesystem discovery, parsing, or handoff to execution logic. The failure boundary is runner modules + real migration files + database writes.",
+      "test_description": "Create a temp `migrations/` directory with out-of-order filenames (for example `010_b.sql`, `002_a.sql`, `100_c.sql`) where each migration inserts its version into a `run_log` table. Run the real migration runner against a test Postgres DB, then assert `run_log` shows execution in numeric ascending order (`2,10,100`) and `_migrations` records the same order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "This depends on persistent DB state in `_migrations` across runs. In-process mocks can miss real query/state mismatches or transaction timing around marking-applied vs execution.",
+      "test_description": "Use a migration that increments a counter table once. Run the real runner twice against the same test Postgres DB and same migration directory. Assert counter value is `1` (not `2`) and `_migrations` contains one record for that version.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Rollback correctness is a real DB transaction behavior; mocking DB calls can hide partial-commit bugs. No external subprocess is required if tested against a real local Postgres instance.",
+      "test_description": "Prepare three migrations: `001` creates/inserts valid data, `002` performs one valid write then a failing SQL statement, `003` performs another visible write. Run runner once and expect failure. Assert writes from `002` are absent (rolled back), `003` effects are absent (not attempted), and `_migrations` marks only `001` as applied.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.75,
+        "System": 0.22,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "The key risk is cross-process race behavior (locking, transaction isolation, timing). Single-process/in-memory integration tests can miss real contention failures.",
+      "test_description": "Launch two separate runner processes simultaneously against the same Postgres DB and identical migration directory (migrations include side effects that would duplicate if run twice). Wait for both to exit, then assert each migration’s side effect appears exactly once and `_migrations` has one row per version (no duplicates). Repeat multiple times to expose race windows.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "This is bootstrap sequencing across runner logic and DB schema state. A unit test can miss real startup ordering bugs involving actual DDL/DML execution.",
+      "test_description": "Against a fresh Postgres database with no `_migrations` table, include a first migration that assumes metadata tracking exists (for example checks/depends on runner’s metadata write path). Run the runner and assert it succeeds, `_migrations` exists, and the first migration is recorded/applied. Also assert no \"relation _migrations does not exist\" error occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

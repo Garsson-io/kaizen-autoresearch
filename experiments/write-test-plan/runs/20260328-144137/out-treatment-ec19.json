@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is that the LLM generates code with wrong parameter names, types, or return type despite being given the spec in the prompt. A mock LLM can pass validation tests by design, but won't reveal whether the real model respects type constraints in edge cases. We must call the real LLM with varied function specs (especially ambiguous or complex ones) to catch signature mismatches that arise from LLM interpretation errors, not just from parsing bugs.",
+      "test_description": "Call the service with a natural language description that specifies a precise function signature (e.g., 'def process_items(items: List[Dict[str, int]], threshold: float) -> Tuple[str, int]'). Make real LLM calls with several function specs that vary in complexity (simple primitives, nested generics, optional parameters). Verify the generated code's signature exactly matches the spec. Repeat with multiple LLM runs to catch non-deterministic failures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt",
+      "minimum_level": "Agentic",
+      "justification": "The real failure is two-fold: (a) the first-attempt LLM output fails tests, requiring refinement, and (b) the refinement loop actually improves the code so it passes. An Integration test with a mocked LLM that always returns correct code won't catch if the LLM produces broken code that needs multi-attempt fixing, or if the refinement doesn't actually help. We need real LLM calls to verify the model can iteratively improve its own code based on test failures, which is inherently non-deterministic and context-dependent.",
+      "test_description": "Provide test cases for a function that a naive first attempt typically gets wrong (e.g., off-by-one errors, edge case handling, type coercion). Call the real LLM to generate an implementation. Run it against the tests; expect failure on attempt 1. Verify the failure is captured and fed back to the LLM. Execute the second attempt and verify it either passes or gets closer (you may need 2–3 real calls to complete). Record both pass/fail for each attempt. This must use real LLM calls; a mocked LLM defeats the purpose of testing iterative refinement.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0.6,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes",
+      "minimum_level": "Integration",
+      "justification": "The real failure is in the plumbing: test output is lost, truncated, corrupted, or formatted incorrectly before being sent to the LLM. This is a deterministic data-flow bug (not an LLM behavior issue) and can be caught by verifying the prompt to the next LLM call includes the exact test failure message. We can mock the LLM call to a spy that inspects the prompt argument, or intercept HTTP calls. We don't need the LLM to understand or act on the messages—just that they're included.",
+      "test_description": "Generate code that fails a specific test with a known error message (e.g., 'AssertionError: expected 10, got 9'). Capture the LLM call made for the refinement attempt (mock or spy on the LLM client). Verify the prompt passed to the LLM contains the exact failure message. Check that the message is not truncated, escaped incorrectly, or mixed with unrelated data. Verify this works for multiple failure types (assertion errors, type errors, runtime exceptions).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a control-flow bug: the loop counter is wrong, or the loop continues past attempt 3, or the error response structure is malformed, or attempt data is lost during the loop. This can be caught by mocking the LLM to always return code that fails tests, running the full loop, and verifying the counter stops at 3 and the error includes all 3 attempts with their results. No real LLM needed; the business logic is deterministic once we control the test outcomes.",
+      "test_description": "Mock the LLM to always generate code that fails every test (e.g., returns a code snippet that raises a predictable exception). Call the service and let it run through all 3 attempts. Verify: (1) the loop terminates after exactly 3 attempts, (2) the returned error structure includes an array of 3 attempt records, (3) each record includes the generated code snippet, test results, and error messages, (4) the HTTP status or error type indicates failure. Verify the error structure is valid JSON/proto/whatever the service uses.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong",
+      "minimum_level": "Workflow",
+      "justification": "The real failure is that the multi-step refinement pipeline breaks under real LLM non-determinism: the LLM generates broken code on attempt 1, fails to improve by attempt 2, or the refinement mechanism doesn't properly communicate context across steps. This requires (a) real LLM calls that can actually fail and improve iteratively, (b) multiple sequential agentic steps (generate → test → refine → test again, potentially up to 3 times), and (c) a function chosen such that one LLM call typically fails but refinement typically succeeds. A single Agentic test won't catch failures in the multi-step choreography; a mocked LLM won't catch real LLM behavior. This is a Workflow test.",
+      "test_description": "Select a code-generation task where a single naive LLM call has a high failure rate (e.g., 'implement a binary search' or 'handle off-by-one errors in a range filter'). Call the service with real LLM calls and let it iterate up to 3 times. Verify: (1) the final result passes all provided tests, (2) at least one intermediate attempt failed (demonstrating refinement was needed), (3) the LLM incorporated error feedback from the failed test. Run this test multiple times (5–10 runs) because LLM behavior is non-deterministic; verify success rate is >80%. This validates both the LLM's ability to improve and the service's ability to orchestrate the full loop.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.25,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}

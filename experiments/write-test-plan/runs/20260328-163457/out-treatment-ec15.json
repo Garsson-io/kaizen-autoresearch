@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index",
+      "minimum_level": "System",
+      "justification": "The failure occurs at the boundary between the embedding service (a real HTTP API, likely OpenAI/Cohere/similar) and the vector database index. Mocking the embedding model would hide real dimension mismatches—we need the actual embedding API to verify the vector it produces has the exact dimension the DB expects (e.g., 1536 for text-embedding-3-small). Without the real embedding service, we can't catch if the embedding API changed dimensions, or if there's a shape transformation bug in the code.",
+      "test_description": "Call the real embedding service with a test query, capture the returned vector, assert its dimensionality matches the vector database index configuration (e.g., 1536 dimensions). Then attempt to insert and search with that vector in the real vector database index to verify no shape mismatch errors occur.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.35,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score",
+      "minimum_level": "Integration",
+      "justification": "The failure occurs within the vector database's search and sorting behavior, or in the code that retrieves and returns results. Mocking the vector DB would hide real bugs—code could reverse results, fail to sort, or sort in the wrong direction. We need a real vector database instance (can be a local test instance with real data) to verify the ordering contract is actually maintained.",
+      "test_description": "Populate a test vector database with known vectors and similarity scores. Execute multiple search queries and extract the similarity scores from returned results. Assert that for each search result set, the scores are monotonically decreasing (descending order). Test edge cases: single result, multiple results, and empty result sets.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of results compared to raw similarity ranking when the query has nuanced intent",
+      "minimum_level": "Agentic",
+      "justification": "The core behavior is the LLM's judgment about contextual relevance. Mocking the LLM would hide real failures: the LLM might never be called, the re-ranking prompt might be broken, or the LLM might not understand nuanced intent. Only the real LLM service can demonstrate that it actually makes the nuanced relevance judgments expected. Even with temperature=0 (deterministic), it's the real LLM's reasoning we're validating, not a mock's scripted behavior.",
+      "test_description": "Create test cases with queries containing nuanced or ambiguous intent, along with fixed result sets ranked by pure vector similarity. Call the real LLM re-ranker with these inputs and capture the returned ranking. Assert that the reranked order differs from the input order for at least some nuanced queries, demonstrating the LLM made a contextual relevance judgment.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0,
+        "Agentic": 0.95,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise",
+      "minimum_level": "Integration",
+      "justification": "The failure occurs when the similarity search returns low-score results that should have been filtered out by a similarity threshold. Mocking the vector DB would hide real bugs in threshold logic or filter application. We need a real vector database with real search results (and configurable filtering thresholds) to verify that queries with no close matches actually return empty, not noise.",
+      "test_description": "Populate a test vector database with known vectors. Submit a query with semantically different content (ensuring low similarity to all database vectors). Verify that either the result set is empty or all returned results have similarity scores above a configured minimum threshold. Test the boundary: a query that has one borderline-close match should include it; one that has no matches above threshold should return empty.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case",
+      "minimum_level": "Workflow",
+      "justification": "Latency is a system-wide property that emerges only when all components operate together: embedding API call, vector database query, LLM re-ranking call, and serialization/return. Mocking any component hides real bottlenecks. Testing embedding+DB without LLM would miss LLM latency; testing LLM alone would miss database query time. Only the full end-to-end pipeline with real services (embedding API, vector DB, LLM) reveals whether the total latency budget is met. Non-deterministic LLM latency variation also matters for median measurement.",
+      "test_description": "Execute the complete REST API pipeline (query encoding → embedding API call → vector database search → LLM re-ranking → serialization and return) 20–50 times with production-like data, varying query complexity. Measure total latency for each run. Calculate the median latency and assert it is below 2 seconds. Include both simple queries and nuanced queries to capture realistic latency distribution.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.9
+      }
+    }
+  ]
+}

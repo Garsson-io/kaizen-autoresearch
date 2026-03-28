@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is at the dead-letter queue write. A unit test with mocked DLQ cannot catch write failures, data corruption, or service unavailability that would occur in production. The DLQ (whether S3, SQS, Kafka, or file-based) is an external I/O operation whose behavior depends on real infrastructure. Additionally, row number tracking must be preserved across the actual write operation. Mocking the DLQ would pass even if the write fails or row metadata is lost.",
+      "test_description": "Using a real or containerized S3 bucket and dead-letter queue (S3, SQS, or file-based), upload a CSV file with several rows missing required fields. Run the pipeline and verify that: (a) valid rows are written to the target table, (b) rejected rows with their original row numbers are recorded in the actual dead-letter queue with correct formatting, and (c) the row numbers in the DLQ match the original line positions in the CSV file.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires actual writes to an external DLQ service, which cannot be reliably mocked. Integration-level infrastructure is necessary to catch write failures, data loss, or row number corruption in the actual DLQ.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "Date transformation is pure business logic with no I/O, no external dependencies, and no infrastructure coupling. The failure modes (e.g., incorrect format parsing, wrong output format, edge case handling) can all be caught by testing the transformation function directly with test cases for each format. CSV reading and database writing can be safely mocked; the logic being tested doesn't depend on real infrastructure behavior.",
+      "test_description": "Unit test the date transformation function directly with comprehensive test cases covering: ISO 8601 format ('2024-01-15T10:30:00Z'), US format ('01/15/2024'), and European format ('15-01-2024'). Include edge cases (month-day ambiguity, leap years, boundary dates). Mock the CSV reader and database writer; focus on verifying that all three formats produce the same canonical output (e.g., 'YYYY-MM-DD').",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure logic with no infrastructure dependencies. Mocking CSV input and database output is sufficient to test all real failures in the transformation logic itself.",
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "Real failure modes here depend on actual I/O behavior and resource constraints: (a) whether S3 streaming is properly implemented vs. loading entire file into memory, (b) database write buffering and connection pool behavior, (c) actual wall-clock execution time vs. timeout. A unit test with mocked I/O delivering data instantly would not reveal streaming inefficiencies, memory buffering issues in the actual S3 SDK, or database connection pooling behavior. Only Integration-level testing with real S3 streaming and real database writes will expose these resource management failures.",
+      "test_description": "Using real S3 (or LocalStack) and PostgreSQL, create and upload a CSV file with 500,000 rows. Run the pipeline and measure actual execution time and memory usage throughout the process. Verify that: (a) processing completes within the configured timeout (e.g., 5 minutes), (b) memory usage remains bounded (e.g., <500 MB) and does not grow with file size, (c) all 500,000 rows are successfully processed, and (d) the pipeline gracefully handles the timeout if configured to do so.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real S3 streaming, real PostgreSQL buffering, and actual wall-clock timing are necessary to expose memory bloat and timeout violations. Mocking I/O would hide streaming implementation failures and provide instant data delivery that masks performance issues.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "Retry and backoff logic can theoretically be unit tested with mocked S3 exceptions and mocked time, but Integration testing with real S3 (or LocalStack) better captures the actual failure scenarios: (a) S3 SDK exception types and behavior vary by implementation, (b) actual network timing and connection behavior matter for validating backoff intervals, (c) real transient error patterns (e.g., connection reset vs. 503 status) require SDK-level handling. A naive mock may not properly simulate all exception scenarios or timing behavior that occurs in production. Integration testing ensures exponential backoff timing is actually enforced and that the batch continues processing after retries succeed.",
+      "test_description": "Configure LocalStack (or a test S3 bucket) to return 503 Service Unavailable errors on the first 3 read requests for a specific CSV key. Run the pipeline and verify that: (a) the pipeline detects the 503 and retries the S3 read (does not fail immediately), (b) retry delays follow exponential backoff (e.g., 1s, 2s, 4s, or similar exponential growth), (c) after the retries succeed, the pipeline resumes processing normally, and (d) the entire batch completes without failing due to the transient error.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real S3 behavior and timing are needed to verify that actual S3 SDK exceptions are handled correctly and backoff timing is enforced. While a well-designed unit test could catch broken retry logic, Integration testing is more robust for catching SDK-specific and timing-related failures.",
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "This requires testing actual database state across process restarts, which cannot be reliably mocked. Real failure modes depend on: (a) transaction semantics and isolation levels in PostgreSQL, (b) unique constraints and conflict resolution, (c) the pipeline's ability to query the database on restart to detect already-written rows. A mocked database would pass even if the deduplication logic is broken (e.g., checking the wrong column, or not checking at all). Only Integration testing with a real PostgreSQL database and an actual restart cycle will catch failures where rows are silently duplicated due to transaction, constraint, or application-logic failures.",
+      "test_description": "Using a real PostgreSQL database, insert a batch of 500 rows into the pipeline. Halt the pipeline after it has successfully written approximately 250 rows. Restart the pipeline with the same batch input and verify that: (a) the pipeline detects and skips already-written rows (via unique constraint violation, application-level state checking, or idempotency key), (b) no duplicate rows appear in the target table, and (c) processing resumes from the correct position, writing the remaining ~250 rows without loss or duplication.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real PostgreSQL state, transaction semantics, and actual process restart behavior are required to catch deduplication failures. A mocked database cannot verify that unique constraints work, that transactions are isolated correctly, or that the application logic properly detects already-written rows.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.86,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
