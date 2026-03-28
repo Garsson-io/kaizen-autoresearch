@@ -127,21 +127,9 @@ Key issues already mined (ideas in `ideas/` have source attribution):
 
 ## Current failure analysis
 
-**Primary failure**: Agentic behaviors score ~5% sufficiency in EC-04.
-The model classifies "calls external AI API" as System instead of Agentic.
-**Root cause**: prompt says "depends on real LLM non-determinism" but model doesn't connect
-"external AI classification API" → "LLM non-determinism."
+See [justification-taxonomy.md](justification-taxonomy.md) for the full pattern analysis with impact rankings and representative quotes. See [ideas/](ideas/) for hypotheses targeting each pattern.
 
-**Fix candidates** (try in order of expected impact):
-1. Add concrete positive Agentic example: "classifies via AI API → Agentic because mock returns fixed label but real model varies"
-2. Explicit disambiguation: "Not every external API = Agentic; only calls where the LLM's choice itself matters"
-3. Move Agentic check before System check in key questions
-
-**Secondary failure**: Workflow gap — EC-07 b4, EC-10 b5 (GT=Workflow) predicted as Agentic.
-
-**What was tried**: read `experiments/write-test-plan/prompts/baseline.md`, `experiments/write-test-plan/prompts/treatment-l12.md`, and `experiments/write-test-plan/leaderboard.md` for full history. Don't repeat failed approaches.
-
-**Links**: [failure analysis](https://github.com/Garsson-io/kaizen-autoresearch/issues/2) · [leaderboard](leaderboard.md) · [discussion](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1)
+**Summary** (from taxonomy): U1 "can mock the API" is the highest-impact pattern (impact 40). The model treats AI APIs as mockable and talks itself out of Agentic. In 4/10 cases it explicitly acknowledges Agentic would be required, then picks lower.
 
 **Discussion ID** (for `/post-run-report`): `D_kwDORybT0s4AlROe`
 
