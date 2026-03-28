@@ -135,29 +135,3 @@ Read this before iterating. These are the ways the process itself broke, not the
 **New metric**: Loss (cross-entropy) from calibrated level_probabilities is now available. Old runs had degenerate probabilities ({level: 1.0, others: 0.0}) making their loss values meaningless. Run 20260328-142302 (loss 454.16) is the first usable loss baseline.
 
 **Lesson**: Use loss as primary metric going forward. Establish loss noise floor by running the same prompt twice.
-
----
-
-### Explore selection bias — outlier task dominates aggregate signal
-
-**What happened**: The `/explore` command selected tasks by highest loss. EC-30 (loss 67.98, ~3× corpus average) entered both the v2 (role-anchor) and v3 (precision-boundary) explore samples. EC-30 improved under both variations (-34.30 and -32.46 respectively), making the aggregate look like strong signal (-42.54 and -29.20). But EC-30 drove 81% and 111% of those aggregates — the other 3 tasks were flat or slightly worse in both cases. On the full v2 corpus run (iter21): +101.8 loss — badly disconfirmed. The explore samples were unrepresentative by construction.
-
-**Symptom**: Explore shows strong aggregate delta. Per-task breakdown reveals 1 task improved a lot, others flat or worsening. The high-loss outlier arithmetically masks the typical-task direction.
-
-**Fix**: Stratified task selection in Step 1 of `/explore` — take tasks from the middle loss tier (25th–75th percentile) rather than the top. Cap any single task at 35% of the baseline subset total. Per-task direction now shown in Step 6 comparison table with an `Improved` column and `Concentration` flag. `concentrated-signal` added as a third `explore_status` to capture this pattern when it recurs.
-
-**Lesson**: Aggregate delta on a biased sample is not a proxy for full-corpus delta. The hardest tasks are hard for specific reasons; a change that fixes their dominant failure mode won't generalize to the rest of the corpus. When the majority of selected tasks are flat or hurt while 1 outlier carries the aggregate, the signal is unreliable. Use distributed improvement (majority of tasks moving in the same direction) as the real criterion.
-
----
-
-### Enriching a lower-level definition causes the model to cap at that level (ceiling effect)
-
-**Status**: confirmed (2 data points: unit-algo-parenthetical iter 20, concrete-system-example iter 22)
-
-**What happened**: Added a parenthetical to the System definition explaining real-call failure modes (timeouts, TLS, response formats). Loss jumped from 368.08 to 490.16 (+122.08). MINE showed U1 (Agentic misses) worsened +4 and U4 (Workflow misses) worsened +3. U3 (Integration→System) did NOT improve. The model interpreted the System description as applicable to LLM API calls and stopped at System instead of escalating to Agentic.
-
-**Root cause**: A richer description of level N makes it easier for the model to justify stopping at N. For LLM API behaviors, "real HTTP calls, timeouts, response formats" sounds correct — so the model labels them System and never checks for LLM non-determinism. Same mechanism as unit-algo-parenthetical (iter 20): enriching Unit caused the model to cap at Unit for integration-wiring behaviors.
-
-**Pattern**: Adding detail to definition of level N creates a ceiling effect at N — the model stops there and under-predicts N+1. This is why concrete-agentic-example (-79.8) worked: Agentic is the HIGHEST relevant level, so adding detail there has no ceiling effect above it.
-
-**Lesson**: Definitional additions are safe ONLY at the top level you want to improve (Agentic/Workflow). Adding examples to Unit, Integration, or System definitions will pull things down from higher levels. The model has a minimize-bias pull that means it accepts any plausible justification to stop early.

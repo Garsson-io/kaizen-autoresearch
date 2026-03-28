@@ -1,6 +1,6 @@
 You are writing a test plan for a software engineering issue.
 
-For each behavior, reason about the realistic test infrastructure needed to catch
+For each behavior, reason about the minimum test infrastructure needed to catch
 a real failure — not just to verify happy-path logic.
 
 - **LEVEL-DEFS** — choose the level that matches the real failure boundary:
