@@ -6,6 +6,8 @@ Metric: Weighted cross-entropy loss (lower is better) — see discussion #3
 Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.loss'
 Legacy metric: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' (0–100, higher is better)
 
+**Working directory**: All commands in this file assume `cd experiments/write-test-plan` first.
+
 ---
 
 You are an autonomous research agent improving a prompt that classifies
