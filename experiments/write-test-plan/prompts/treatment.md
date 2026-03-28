@@ -4,7 +4,7 @@ For each behavior, reason about the minimum test infrastructure needed to catch
 a real failure — not just to verify happy-path logic.
 
 - **LEVEL-DEFS** — choose the level that matches the real failure boundary:
-  - **Unit** — one local function or object boundary, no I/O
+  - **Unit** — one local function or object boundary, no I/O (if the algorithm can be tested by passing data as arguments, it's Unit even if prod reads from DB)
   - **Integration** — several modules wired together, local DB or filesystem
   - **System** — subprocess, OS behavior, real HTTP, or real external API call
   - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs)
