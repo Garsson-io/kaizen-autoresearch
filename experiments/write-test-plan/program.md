@@ -101,49 +101,52 @@ LOOP:
 
 ### IDEATE subagent (step 4)
 
-Spawn a subagent with `subagent_type: "general-purpose"` and `model: "opus"`. Give it this prompt:
+Spawn a subagent with `subagent_type: "general-purpose"` and `model: "opus"`. Give it this prompt, filling in the `{PLACEHOLDERS}` from your MINE/DIAGNOSE output:
 
 ```
 You are the IDEATE step of an experiment iteration loop. Your job is to decide
-what prompt change to try next. This is a HIGH EFFORT deep thinking step.
+what prompt change to try next. Think deeply — this is the creative step.
 
 ## Context from this iteration
 
 Latest run score: {SCORE}
-Latest run per-task totals: {PASTE the per-task TOTAL lines from score.ts output}
-Results log (last 10 entries): {PASTE last 10 lines from autoresearch-results.tsv}
+Latest run per-task totals (paste the TOTAL lines):
+{PER_TASK_TOTALS}
 
-## Files to read (read ALL of these before thinking)
+Results log (last 10 lines of autoresearch-results.tsv):
+{RESULTS_LOG}
 
-- experiments/write-test-plan/ideas/ — ALL .md files. This is the hypothesis backlog.
-- experiments/write-test-plan/taxonomy/ — ALL pattern files. This is what's failing and why.
-- experiments/write-test-plan/meta-failures.md — process pitfalls to avoid.
-- experiments/write-test-plan/justification-taxonomy.md — impact-ranked failure summary.
-- experiments/write-test-plan/prompts/treatment.md — the current prompt.
-- experiments/write-test-plan/leaderboard.md — score history.
+Top taxonomy patterns (from DIAGNOSE):
+{TOP_PATTERNS — e.g. "U1: can mock the API — 10 occurrences, impact 40"}
 
-## Your task
+## What to do
 
-Think deeply about what to try next. Consider:
-a. Which existing ideas target the top taxonomy patterns?
+1. Run `./scripts/ideas-index.sh` to get the frontmatter of all ideas (id, status, effort, impact, targets, risk)
+2. Read `experiments/write-test-plan/prompts/treatment.md` (the current prompt)
+3. Read `experiments/write-test-plan/justification-taxonomy.md` (failure pattern summary)
+4. Read `experiments/write-test-plan/meta-failures.md` (process pitfalls)
+5. For any ideas you want to examine in detail, read the full file in `ideas/`
+
+Then think deeply:
+a. Which existing ideas target the top taxonomy patterns from the context above?
 b. Do the patterns suggest a NEW idea not in the backlog?
 c. Can two existing ideas be COMBINED into something stronger?
-d. Does a rejected idea deserve retry given new evidence (GT changes, new runs)?
+d. Does a rejected idea deserve retry given new evidence?
 e. What would a skeptic say about your top candidate?
 
 If you generate a new idea, WRITE it to ideas/ with full frontmatter and steelman/critique.
 
 ## Output format
 
-Return EXACTLY this structure:
+Return EXACTLY this:
 
 IDEA: {idea id — existing or newly created}
-EDIT: {what to change in treatment.md — which named section, what to add/remove/replace}
+EDIT: {what to change in treatment.md — which named section, what to add/remove/replace, be SPECIFIC}
 RATIONALE: {one sentence — why this targets the top taxonomy pattern}
 SKEPTIC: {one sentence — the strongest argument against this idea}
 ```
 
-The subagent reads the files, thinks, possibly writes new ideas to `ideas/`, and returns the 4-line recommendation. You then execute it in step 5 (EDIT).
+The subagent runs the index script, reads 3-5 files, thinks, possibly writes new ideas, and returns a 4-line recommendation. You then execute it in step 5 (EDIT).
 
 ### Edit rules (step 5)
 - ✓ Add a concrete positive example for the level the model misses
