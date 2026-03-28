@@ -175,3 +175,8 @@ fi
 if [[ -n "$LOSS" ]]; then
   echo "LOSS: $LOSS"
 fi
+
+# Append run stats (cost, time, tokens) to run-stats.jsonl
+echo ""
+echo "=== Run Stats ==="
+npx tsx "$SCRIPT_DIR/scripts/run-stats.ts" --append-log --run "$RUN_TS" 2>/dev/null || echo "  (no .log files — stats skipped)"
