@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends on the **actual neural machine translation model's output quality**. A mock translator can always return 'perfectly grammatical' output, completely hiding real quality failures. The only way to catch whether the real neural API produces grammatically coherent, meaning-preserving translations is to call the real API and evaluate its outputs. The result varies based on the model's non-deterministic behavior, and different source texts will produce different quality translations. Cannot be tested with mocks or deterministic stubs.",
+      "test_description": "Send a diverse set of source texts (various languages, complexity levels, idioms) to the real neural translation API. Capture the outputs. Evaluate each translation for grammatical coherence and semantic preservation using either human judgment or a secondary AI evaluator model. Verify that translations are not mere word-for-word substitutions but preserve context and intent.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test inherently requires calling the real neural API and evaluating non-deterministic outputs. It cannot be lowered to Unit/Integration/System level without losing the ability to detect real quality failures.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.87,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is: does the service correctly catch the 503 error and invoke the fallback? This requires **multiple modules wired together** (HTTP layer, error handler, fallback dictionary, response logic). A Unit test of error handling in isolation would miss failures like: fallback not being triggered, response format being broken after fallback, or the error propagating to the caller. Mocking the HTTP client to return a 503 exception is sufficient—you do not need a real HTTP server to test this. Integration with mocked HTTP is sufficient because the critical issue (correct error handling and fallback invocation) is deterministic.",
+      "test_description": "Mock the HTTP client to raise an exception simulating a 503 Service Unavailable response. Call the service with a valid input text. Verify that: (1) no exception is raised to the caller, (2) the fallback dictionary translator is invoked, (3) the returned translation comes from the fallback dictionary, not an error response. Repeat with multiple inputs to ensure fallback is consistent.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires the service, error handler, and fallback to be integrated, which requires Integration level. A Unit test alone would not verify that the fallback is actually called or that the response is correctly formatted.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This requires **real I/O against an actual SQLite database**. Mocking the dictionary would always return the 'correct' value you programmed it to return, hiding real failures like: malformed SQL queries, database schema mismatches, corrupted database, encoding issues, or missing phrases. You must hit a real (or at least real-enough, in-memory) SQLite database with test data to catch failures in query logic, indexing, and data retrieval.",
+      "test_description": "Set up a test SQLite database with a known set of phrase translations (e.g., 'hello' → 'hola', 'goodbye' → 'adiós'). Call the fallback dictionary lookup for phrases that exist in the database and phrases that do not exist. Verify that: (1) lookups for phrases in the database return the correct stored translation, (2) lookups for phrases not in the database return null or a default value, (3) case sensitivity and whitespace handling match the specification.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real database I/O is necessary to catch failures in query logic and data retrieval that a mock would hide. Cannot be reliably tested at Unit level without hitting real database operations.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "This behavior has two parts: (1) compute edit distance (deterministic algorithm—could be Unit tested in isolation), and (2) **store the metric** (requires I/O). Because the behavior explicitly states 'stores the metric', you must verify that the computed value is actually written to persistent storage. Mocking the database would pass any test, hiding failures in write logic, schema mismatches, or corrupted writes. Integration with real (or in-memory test) database is necessary to verify both computation and storage.",
+      "test_description": "Call the service with inputs where both primary and fallback translators produce results (e.g., primary API returns successfully, fallback dictionary has a match). Capture the primary output and fallback output. Verify that: (1) edit distance is computed correctly between the two outputs, (2) the computed metric is written to the database, (3) the stored metric can be retrieved and matches the computed value. Test with multiple pairs of translations to verify correctness across different edit distances.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires database writes (I/O) which mandates Integration level. A Unit test of edit distance alone would miss storage failures. The storage requirement makes the minimum Integration, not Unit.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.78,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is: does the service return the primary result immediately and log asynchronously without blocking? This requires **multiple modules integrated together** (primary translator, fallback translator, response logic, logging system). You can mock both translators to return fixed values reliably—this is sufficient to test the core logic (returning primary, not fallback, and async logging). A Unit test would miss failures like: wrong response being returned, logging blocking the response, or logging never happening. Integration testing catches these failures without requiring real neural API calls. Real API calls (System/Agentic) would add latency testing but are not necessary to catch the core failure modes.",
+      "test_description": "Mock the primary neural translator to return a known translation immediately. Mock the fallback dictionary to return a different known translation. Call the service and measure response time. Verify that: (1) the returned translation is from the primary translator (not fallback), (2) the response is returned without blocking on logging (e.g., response time is minimal, not delayed by I/O), (3) logging to a test logger is triggered asynchronously (verify via spy/mock on logger calls or by checking logs after a short delay). Verify with both available translators that primary is always preferred.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires the service, mocked translators, and logging system integrated together, which requires Integration level. A Unit test of response logic alone would not catch failures in logging behavior or translator invocation order.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.68,
+        "System": 0.18,
+        "Agentic": 0.07,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

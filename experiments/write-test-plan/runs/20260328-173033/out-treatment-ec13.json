@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is the end-to-end pipeline: image submission → vision API call → flag persisted in database → publish blocked. A unit test with mocked vision API and database hides integration failures: Does the flag actually get written? Does the publish decision respect it? Does the HTTP response handle errors correctly? We need to verify the full decision path with a real or in-memory database and verify the image is held, not published or lost.",
+      "test_description": "Submit a test image (or fixture), mock the vision API to return 'explicit_content=true', verify: (1) the flag is persisted in database/storage, (2) the endpoint returns a 'held_for_review' response, (3) the image is NOT published to users. Test with various image formats to ensure the code path handles them.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "This behavior makes a claim about the TEXT MODEL's robustness, not about our code logic. If we mock the text API to 'return true for this input', we're not testing whether the real model catches obfuscation—we're just testing that our code processes whatever response it gets. The real failure boundary is: does the REAL text model classify obfuscated hate speech correctly? That depends on the model's training and produces non-deterministic or edge-case failures we can't mock away. We need the real (or production-representative) text API.",
+      "test_description": "Submit text posts with various obfuscation techniques (letter substitution: 'h@te', unicode lookalikes: 'ᴎ' for 'n', etc.) using the REAL text classification model. Verify each is flagged. Run this multiple times to detect non-deterministic edge cases. Log examples where the model fails to flag, for retraining feedback.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.25,
+        "System": 0.05,
+        "Agentic": 0.6,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is: does an approved post actually reach publication? A unit test with fully mocked vision API, text API, and database would just verify that publish() is called—but hides real failures: Does the database write succeed? Does the publish API actually work? Is there a race condition where the post gets lost between checks and publish? We need to test the full pipeline from both checks passing through the publish side effect, with real or in-memory storage.",
+      "test_description": "Submit a post (image + text) where: (1) mock vision API returns 'not_explicit', (2) mock text API returns 'not_hate_speech'. Verify: (1) post is recorded as published in database, (2) the publish endpoint returns success/200, (3) the post appears in user feeds. Verify it is NOT in the 'held_for_review' queue. Test concurrency: submit same post twice rapidly, verify no duplicates and both are published.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Integration",
+      "justification": "A unit test with instant mocks will always pass (MOCK-MISS). The real failure boundary is: does the pipeline meet the SLA under realistic latency? We need to mock the vision and text APIs with realistic delay values (e.g., 2s per API call), measure wall-clock time through the full pipeline, and verify total < 5s. This tests parallelization, I/O ordering, and timeout handling. If failures occur only under actual network latency or high concurrency, we'd need System, but Integration with realistic mock delays is the minimum. Test at peak throughput to detect queueing delays.",
+      "test_description": "Mock vision API to sleep 2s then return result, mock text API to sleep 2s. Measure time from request submission to publish decision. Verify completes in <5s (implying APIs run in parallel, not serial). Test with N concurrent submissions to detect queuing delays. Verify no timeouts occur. If API mocks don't reveal the issue, escalate to real staging endpoints.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.35,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is: when vision API fails (timeout, 503, exception), does the code queue for retry or auto-approve? A unit test can verify logic paths, but only Integration catches if the queue mechanism actually works end-to-end. If the queue is just an in-memory list, the test is quick; if it's a real message queue or database, we need the full integration. The key: verify (1) vision API failure is caught, (2) the post is queued, (3) it's NOT auto-approved, (4) the queue survives and retries later. This is primarily code logic, not model behavior.",
+      "test_description": "Mock vision API to raise timeout exception or return 503. Verify: (1) the image post is queued (check queue storage), (2) the endpoint returns a 'queued_for_retry' response (not 'approved'), (3) the image is NOT published immediately. Verify later that retry logic calls vision API again. Test with real queue storage (or in-memory equivalent) to detect persistence failures. Test that concurrent queue operations don't lose items.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Integration",
+      "justification": "The real failure boundary is: does the caching/consistency mechanism work? If we cache the vision API's result for identical images, we should get the same decision. A unit test can verify the cache logic, but Integration is needed to test: (1) does the cache key correctly identify identical images? (2) does the cache persist across requests? (3) does concurrent access cause cache misses? (4) are there race conditions between cache check and store? We should mock the vision API but verify caching behavior end-to-end. Note: if the model itself is non-deterministic and produces different scores for the same input, that's Agentic—but caching is typically used to AVOID that variance, so we're testing code logic here.",
+      "test_description": "Submit the same test image 3 times within 5 seconds. Mock the vision API to track call count. Verify: (1) vision API is called only once (subsequent requests hit cache), (2) all 3 submissions receive the SAME moderation decision, (3) the returned scores/timestamps are identical (not just the decision), (4) cache doesn't stale after window expires. Test with different images to verify cache key is image-specific. Test concurrent submissions of same image to detect cache race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

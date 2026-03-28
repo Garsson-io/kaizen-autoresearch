@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide",
+      "minimum_level": "Unit",
+      "justification": "Key generation is a pure deterministic function with no I/O or external dependencies. Real failures (incorrect hash function, missing params, wrong param ordering, collisions) are all caught by direct function calls with controlled inputs. No mock can hide failures here because there's nothing to mock — we're testing the function's logic directly.",
+      "test_description": "Unit test that calls the key generation function with: (1) identical parameter sets multiple times and verifies identical keys; (2) parameter sets differing by one value and verifies different keys; (3) edge cases like empty params, special characters, numeric/string boundaries; (4) permuted params (different order, same content) to verify order-independence or order-dependence matches specification.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "TTL for a cache entry is computed correctly based on the data category's configured freshness rule",
+      "minimum_level": "Integration",
+      "justification": "Real failures include incorrect config field names, wrong unit conversions (ms vs seconds), missing config entries, and config parsing errors. While the TTL calculation logic itself is pure, it depends on correctly loading and applying configuration from persistent storage. Mocking the config eliminates the real failure mode of 'config wasn't loaded or parsed correctly.' We need to test the full path: read real (or test) config → apply freshness rule → compute TTL with actual time semantics.",
+      "test_description": "Integration test using a test configuration file or in-memory config store with known freshness rules (e.g., 'user_profiles: 300s', 'product_catalog: 3600s'). Load the config, call TTL computation for each category, and verify TTL = current_time + freshness_rule[category]. Verify time units are correct (seconds, not ms). Test missing category and invalid config format as error cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU",
+      "minimum_level": "Unit",
+      "justification": "The core behavior is the switch logic: if (memory_usage > threshold) then use_lfu else use_lru. This can be tested at Unit level by injecting mock memory readings and verifying the strategy selection logic. Real failures (wrong comparison operator, incorrect config field, strategy not actually switching) are all caught by direct calls with controlled inputs. We're testing the cache system's logic, not OS memory measurement accuracy (which would require System). Assumes the code has a seam for injecting memory readings; if measurement is coupled directly to OS APIs, escalate to System.",
+      "test_description": "Unit test with a controllable memory provider. Set threshold to 80%, inject memory_usage = 75%, verify strategy is LRU. Inject memory_usage = 85%, verify strategy switches to LFU. Test boundary: memory_usage = threshold (edge case for > vs >=). Test config reload: change threshold and verify strategy adapts. Verify both strategies are available and switchable, not hard-coded.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.15,
+        "System": 0.12,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows",
+      "minimum_level": "Integration",
+      "justification": "This behavior involves: (1) detecting writes to PostgreSQL (via triggers, polling, or application hooks), (2) matching affected row identifiers to cache keys, (3) removing those cache entries. To catch real failures — write listener not connected, row-to-key matching broken, invalidation not actually removing entries — requires a real (or test) PostgreSQL instance and real write operations. Mocking the database means you never test whether the listener wiring or trigger actually fires. The failure mode is 'we thought invalidation happened but it didn't,' which is only revealed with a real DB and observable state before/after the write.",
+      "test_description": "Integration test with a test PostgreSQL instance. (1) Insert row with identifier X, derive cache key, populate cache. (2) Execute UPDATE or DELETE on that row. (3) Verify cache entry was removed by attempting to retrieve it. (4) Test with multiple affected rows to verify batch invalidation. (5) Test partial matches (wildcard keys) if the system supports key patterns. (6) Verify non-affected cache entries remain intact.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.83,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full",
+      "minimum_level": "Unit",
+      "justification": "Eviction is a pure algorithm: fill cache to capacity, add one more entry, verify that the least-recently or least-frequently used entry was removed. This can be tested entirely in-process with controlled access patterns. Mocks do not hide failures here because the algorithm is deterministic given known access history. Real failures (wrong entry evicted, no eviction triggered, algorithm confused LRU with LFU) are all caught by direct cache operations with traceable access patterns. Time for LRU can be mocked/injected; frequency counters are in-memory state.",
+      "test_description": "Unit test with in-process cache. For LRU: fill cache, create known access order (entry A at T, entry B at T+1, entry C at T+2), add entry D to trigger eviction, verify entry A was removed. Repeat for different access patterns. For LFU: create known frequency counts (A: 1 access, B: 5 accesses, C: 3 accesses), fill cache, add new entry, verify A was evicted. Test ties (equal recency or frequency) and confirm behavior (FIFO tiebreaker, etc.). Verify strategy-specific logic is actually used, not mixed.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.08,
+        "System": 0.04,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    }
+  ]
+}

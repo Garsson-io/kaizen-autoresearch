@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "The ordering failure (code doesn't sort files correctly) is isolated logic detectable via mocked filesystem and mocked database execute calls. A Unit test can verify the runner sorts filenames numerically before passing them to the database executor by capturing and validating the sequence of execute() calls. A real database adds no additional failure detection beyond what a mock reveals—if the runner calls execute() in the wrong order, both will fail downstream. Conversely, a mock would not miss any failure that a real database would catch, because the real failure is in the runner's sort logic, not in database behavior.",
+      "test_description": "Verify that the migration runner reads .sql files named 001_initial.sql, 003_features.sql, and 002_schema.sql from the migrations directory, sorts them by numeric prefix, and executes them in the order 001 → 002 → 003 by mocking the filesystem and database execute method, then asserting the execute method receives migrations in ascending order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is a malformed or incorrect _migrations query (wrong table name, wrong column, wrong WHERE clause) that would be undetectable by mocks. A Unit test mocking the database response would always return the expected result, even if the actual query syntax fails against PostgreSQL. The query must work against a real schema to catch syntax errors, column mismatches, and permission issues. Integration testing with a real PostgreSQL database verifies the runner can query _migrations correctly and skip already-applied migrations.",
+      "test_description": "Verify that after applying migration 001_initial.sql (which records an entry in the _migrations table), a subsequent run of the migration suite queries the _migrations table and skips 001_initial.sql without re-executing it, using a real PostgreSQL database instance to ensure the query syntax and table access work correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback is database-specific behavior that cannot be reliably mocked. A Unit test that mocks the database and mocks transaction.rollback() would pass even if the code never opens a transaction, never sets an error handler, or never calls rollback(). Only a real PostgreSQL database under Integration testing can verify: (a) a transaction is started, (b) a statement fails (e.g., CREATE INDEX on non-existent column), (c) the rollback is actually executed, (d) the prior state is restored (tables created by earlier statements are undone), and (e) subsequent migrations are not attempted. Mocking hides the real failure mode.",
+      "test_description": "Verify that when migration 002_bad.sql contains a failing statement (e.g., CREATE INDEX idx ON nonexistent_table), the runner catches the error, rolls back all changes from that migration file (any CREATE TABLE statements issued earlier in that migration are undone), does not record it in _migrations, and does not attempt to run migration 003_followup.sql, using a real PostgreSQL database to observe the actual transaction and rollback behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.92,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Race conditions and database locking behavior are invisible to Unit and single-process Integration tests. A Unit test can't simulate two processes starting simultaneously. An Integration test with a real database but a single process also can't expose the race: both instances reading _migrations before either records, both seeing migration 001 is missing, both attempting to apply it, and filesystem or database locks determining who succeeds. Only a System-level test with multiple real Node.js processes launching concurrently against a real PostgreSQL database exposes lock contention, serialization failures, and the actual outcome of concurrent writes to _migrations. This is the true failure boundary.",
+      "test_description": "Verify that when two separate Node.js processes launch concurrently and both attempt to run the migration suite against the same PostgreSQL database, migration 001_initial.sql is applied exactly once (not twice), the _migrations table has exactly one entry for 001_initial, and both processes complete without errors or duplicate-key violations, using a real PostgreSQL database and real OS process-level concurrency (e.g., spawning child processes with spawn() and letting them start simultaneously).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.88,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "Creating the _migrations table via CREATE TABLE IF NOT EXISTS is a real PostgreSQL operation with syntax, permissions, and schema validation. A Unit test mocking table creation would pass even if the SQL is malformed, the column types are wrong, or the table creation statement is never executed. Only a real PostgreSQL database under Integration testing can verify: (a) the CREATE TABLE IF NOT EXISTS statement runs, (b) the table schema is correct and accessible, (c) subsequent migrations can INSERT into it, (d) the table exists before any migration file is executed. A mock would always succeed, hiding structural failures.",
+      "test_description": "Verify that on the first run against a clean PostgreSQL database (where _migrations does not exist), the runner executes CREATE TABLE IF NOT EXISTS to create the _migrations table with the correct schema (columns for migration name, applied_at timestamp, etc.) before attempting to execute migration 001_initial.sql, by starting with a fresh database, running the migration suite, and asserting the _migrations table exists and is empty except for entries from applied migrations.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.82,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

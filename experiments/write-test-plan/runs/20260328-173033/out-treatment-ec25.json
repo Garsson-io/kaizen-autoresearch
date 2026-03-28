@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for its merchant category",
+      "minimum_level": "Unit",
+      "justification": "This tests rule-based business logic: threshold comparison and score calculation. A Unit test can inject configuration and transaction data directly, verifying the scoring function produces the expected output. No external data source, network, or ML model is required—only deterministic rule application. The logic failure (e.g., comparing to wrong category's threshold, miscalculating score) is deterministic and reproducible.",
+      "test_description": "Verify the scoring model correctly maps each transaction's merchant category to its configured threshold, compares the transaction amount against that threshold, and produces the expected risk score. Test multiple merchant categories (e.g., groceries vs. luxury goods) to ensure each uses its own configured threshold. Include boundary conditions: transaction amount exactly at the threshold, just below, and significantly above. Verify score increases monotonically with amount and differs between categories.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires Unit-level setup only (injected config, direct function call). No database, network, or real infrastructure needed. Could be tested at higher levels but would be unnecessary overhead.",
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies fraudulent transaction pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded",
+      "minimum_level": "Integration",
+      "justification": "Testing the risk model's learned pattern detection requires the real, trained model—a mock would hide failures. The behavior asks whether the model can *identify* the pattern, not just process data. The model's feature extraction and classification depend on learned weights and training data patterns. A Unit test with a mock would always pass. Integration level (calling the real model on carefully constructed test data exhibiting the pattern) is the minimum to catch real failures: incorrect weights, broken inference, feature mismatch, or decision boundary issues.",
+      "test_description": "Load the real risk model. Create realistic transaction data exhibiting a fraudulent pattern (e.g., three purchases under the scoring model's amount threshold, from geographically distant locations, within 1 hour). Call the risk model and verify it returns a fraud probability above its classification threshold. Include a control: benign transaction patterns (normal velocity, consistent geography, single merchant category) that should not trigger fraud classification. Verify the model correctly accepts legitimate transactions.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real model inference (Integration minimum), not just data structure validation. A Unit mock would always pass if we hardcoded 'return fraud=True'. The test would fail if the real model's weights, features, or thresholds are incorrect.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in scoring model correctly counts transactions within configured time window per user",
+      "minimum_level": "Integration",
+      "justification": "Velocity counting depends on querying real transaction data from persistent storage (database, cache, etc.). A Unit mock would hide failures: wrong time window boundaries (off-by-one), incorrect timezone handling, filtering by wrong user, schema mismatches, or behavior after transaction deletion. Integration-level testing with a real or test database ensures the query correctly filters by user, applies time window boundaries correctly, and handles edge cases (boundary timestamps, timezone transitions, deleted records).",
+      "test_description": "Create a test database with transactions for multiple users at known timestamps. Configure a velocity time window (e.g., 1 hour). For a target user, verify the velocity check returns the exact count of that user's transactions within the window, excluding those outside it. Verify transactions from other users do not increase the count. Test edge cases: transactions at the exact window boundary (verify inclusive/exclusive rules), transactions spanning a timezone transition, and verify the count remains correct after a transaction within the window is modified or deleted.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real database operations to catch query/schema/timezone failures. A Unit mock could hardcode counts, hiding real failures in the time window boundary logic, user filtering, or schema changes.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Transaction flagged by risk model but not scoring model is still held for review (OR gate, not AND)",
+      "minimum_level": "Unit",
+      "justification": "This tests orchestration logic combining two boolean flags: (scoring_flagged OR risk_flagged). A Unit test can verify the OR gate with mock model outputs. The logic failure (implementing AND instead of OR, wrong flag propagation) is deterministic and reproducible. No real model, database, or external dependency is needed—only testing boolean composition. A mock scoring model and risk model can return known flag values to verify the combining function correctly implements OR.",
+      "test_description": "Create test cases for all four combinations of model outputs: (1) scoring=false, risk=true → expect hold; (2) scoring=true, risk=false → expect hold; (3) scoring=true, risk=true → expect hold; (4) scoring=false, risk=false → expect allow. Call the combining/decision function with mock model outputs and verify the result matches the OR truth table. Verify that a transaction is held if *either* model flags it.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test logic is purely boolean composition; no integration with real models needed. A Unit mock can adequately test all failure modes (AND vs OR, missed flags, etc.).",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both numeric risk score and risk model's fraud probability so reviewer can see which model flagged and why",
+      "minimum_level": "Unit",
+      "justification": "This tests output data structure and field inclusion: verify both score and probability are present and correctly labeled. A Unit test can construct mock model outputs and verify the combining function produces the expected JSON/object structure. Failures (missing fields, wrong types, incorrect labels, serialization errors) are deterministic. No real models or external dependencies are required—only data structure validation. Mock model outputs suffice to test the output formatter.",
+      "test_description": "Construct mock outputs from both models: scoring model returns risk_score=45, risk model returns fraud_probability=0.75. Call the output formatting function and verify the combined response includes all required fields: (1) 'risk_score' with value 45 and numeric type; (2) 'fraud_probability' with value 0.75 and numeric type; (3) 'flagged_by' array indicating which model(s) triggered the hold; (4) 'reason' or explanatory field. Verify the complete output serializes to valid JSON. Test with different combinations: only scoring flagged, only risk flagged, both flagged.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test validates output schema and serialization; mock model outputs are sufficient. No real models or external infrastructure required. Failure modes (missing fields, wrong serialization) are caught at Unit level.",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

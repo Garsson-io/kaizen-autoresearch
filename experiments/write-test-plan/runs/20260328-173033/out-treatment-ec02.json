@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with invalid X-Signature-256 header is rejected with 401; body is not forwarded to queue",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A pure unit test could mock the queue and verify the 401 response, but needs coordination between request validation and the queue interaction to ensure the body is truly not forwarded. Testing through the HTTP framework (integration) catches that the signature validation happens before any queue operation. Real failure: a handler that forwards first, then validates.",
+      "test_description": "Send HTTP POST request with X-Signature-256 header that does not match HMAC-SHA256(secret, body); verify HTTP 401 response is returned and queue.write() is never invoked",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is written to persistent queue before HTTP 200 acknowledgment is returned to sender",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Without proper timing instrumentation, a mock could hide race conditions where 200 is sent before the queue write completes. REAL-INFRA: The queue is I/O (even if local), and the ordering guarantee requires observing both the queue write and HTTP response flow. Real failure: response sent, process crashes before queue write completes, event lost.",
+      "test_description": "Using mocked queue with call-order tracking, send valid webhook request and verify that queue.write() is called and its promise resolves before the HTTP 200 response is sent to the client",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream processing of the event to finish",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A synchronous mock would always pass; need async mocking to test true non-blocking behavior. MOCK-HIDE: If downstream is mocked as always-fast, we won't detect if handler blocks on downstream. Need to mock downstream as slow/never-completing and verify response arrives immediately. Real failure: handler does await on downstream processor before responding.",
+      "test_description": "Mock downstream processor as an unresolved promise; send valid webhook request and verify HTTP 200 response returns immediately (before downstream processing completes)",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Fast mocks would hide latency; must use mocked-slow downstream. REAL-INFRA: Requires concurrent request handling and timing measurement across multiple event flows. Need to observe that Nth request doesn't wait for (N-1)th request's downstream processing. Real failure: queue processing is synchronous or blocking.",
+      "test_description": "Send 10 concurrent webhook requests while mocking downstream processing with 10-second delay; measure wall-clock time for each response and verify all HTTP 200 responses arrive within 3 seconds",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Event whose ID was already received is not written to queue a second time (deduplication)",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Could mock the dedup check and queue both to pass, but real failure is at the boundary between dedup state and queue operations. If dedup state is persistent, mocking both doesn't verify the persistence layer. Need to verify that repeated event IDs actually prevent duplicate writes in the queue. Real failure: dedup state is lost, or queue doesn't respect the dedup constraint.",
+      "test_description": "Send two webhook requests with identical event ID (and valid signatures); verify queue.write() is called exactly once, not twice, confirming deduplication prevents duplicate queuing",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue reports it is full, handler returns 503 with Retry-After header",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A mock can reproduce the 'queue full' error, so unit test with mocked queue error is borderline sufficient. However, testing the full error path (queue error → handler error response → correct header formatting) benefits from integration wiring. Real failure: handler doesn't check queue capacity, or doesn't set Retry-After header.",
+      "test_description": "Mock queue.write() to reject with capacity-exceeded error; send valid webhook request and verify HTTP 503 response is returned with Retry-After header present and set to a valid duration",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit and rejects events that would exceed it",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Mocks would not enforce real capacity constraints; completely hidden by mocking. REAL-INFRA: This tests the queue implementation itself (not the handler). If the queue is an external service (Redis, RabbitMQ, SQS) or complex persistence layer, must use the real thing. If the queue is a local embedded storage (SQLite, LevelDB), System-level infrastructure still needed to verify actual I/O and constraint enforcement. Real failure: queue allows overflow, or capacity accounting is incorrect.",
+      "test_description": "Using the real persistent queue implementation, fill it to the configured capacity limit; send webhook request that would exceed capacity and verify the queue rejects the write with a capacity-exceeded error",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.35,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Plugin with missing required manifest field is rejected before any code from that plugin is executed",
+      "minimum_level": "Unit",
+      "justification": "The failure is about control flow: validation must gate the import statement. We can test this with mocked fs.readFile (returning invalid manifest) and mocked import() function, verifying that import() is never called. This tests the validation logic and the conditional that prevents execution, which is sufficient to catch the real failure (skipped validation leading to code execution).",
+      "test_description": "Mock fs.readFile to return a manifest missing a required field (e.g., no 'version'). Mock the dynamic import() function with a spy. Call the loader and verify: (1) an error is thrown during validation, (2) import() is never called, (3) no side effects from the plugin occur.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A depends on plugin B, plugin B's onLoad hook is called before plugin A's",
+      "minimum_level": "Integration",
+      "justification": "The failure is about actual load order of real plugins. Although the dependency resolver algorithm is pure logic (testable at Unit), verifying the actual onLoad call sequence requires real plugin files with real import() calls. A Unit test could mock manifests and hooks, but would miss bugs in how the loader applies the resolved order, timing issues in imports, or errors in the actual module loading. Integration testing with real plugin files gives confidence that the resolver output is correctly applied to the actual load sequence.",
+      "test_description": "Create two real plugin files: pluginB (no dependencies) with onLoad that pushes its name to a shared array, and pluginA with a manifest declaring dependency on pluginB, also with onLoad that pushes to the array. Call the loader and verify the array is ['B', 'A']. Repeat with multiple dependency chains to ensure transitivity works correctly.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither",
+      "minimum_level": "Unit",
+      "justification": "Cycle detection is a pure graph algorithm that operates on manifest dependency declarations alone. The failure—missing cycle detection or incorrect cycle reporting—is caught by testing the resolver/detector algorithm in isolation with manifest objects, without requiring file I/O or real imports. A cycle A→B→A has the same algorithmic failure modes whether the manifests are objects or read from disk.",
+      "test_description": "Create manifest objects for pluginA (depends on B) and pluginB (depends on A). Call the cycle detection function and verify: (1) an error is returned, (2) the error message identifies the cycle (e.g., 'A → B → A'), (3) a status check confirms neither A nor B was loaded. Extend the test to a 3-cycle (A→B→C→A) and a self-cycle (A depends on A).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed",
+      "minimum_level": "Integration",
+      "justification": "The failure is about ordering of real module execution and hook invocation. This cannot be reliably tested with mocks alone because mocked imports do not actually execute module-scope code. The real failure scenarios (onLoad called before import completes, or import never completes) depend on actual async/await semantics and module-level side effects. We need a real plugin file that sets a module-scope flag; onLoad must verify the flag is set, proving import execution happened first.",
+      "test_description": "Create a real plugin file whose module scope sets a flag (e.g., `global.moduleExecuted = true`) and exports an onLoad hook that asserts the flag is true. Call the loader and verify: (1) the import() call completes, (2) the flag is set, (3) onLoad is called and finds the flag set. Also test that if import() is not awaited, the onLoad assertion fails, proving the test is sensitive to the ordering.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader catches the error and continues initializing remaining plugins that do not depend on the failed plugin",
+      "minimum_level": "Integration",
+      "justification": "The failure is about error handling in the context of real plugin initialization and dependency-aware continuation. While the dependency-check logic (\"does plugin C depend on A?\") is pure and testable at Unit level, the real failure modes require actual async/await error propagation and real plugin initialization: (1) unhandled promise rejections, (2) race conditions where sibling plugins are called concurrently, (3) incorrect skipping of dependent plugins due to flawed dependency resolution. Integration testing with real plugin files and real error throws catches these scenarios.",
+      "test_description": "Create three real plugin files: pluginA (onLoad throws), pluginB (no dependency on A, onLoad succeeds and pushes to a results array), pluginC (depends on A, should not load). Call the loader, verify: (1) pluginA's error is caught, (2) pluginB.onLoad is called and results array contains 'B', (3) pluginC.onLoad is never called. Test with multiple independent plugins to ensure all are initialized despite one failure.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

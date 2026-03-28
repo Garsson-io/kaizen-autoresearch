@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is incorrect backoff calculation (not exponential or not capped). This is deterministic math testable with mocked time. A Unit test with Jest fake timers can verify the backoff sequence [1s, 2s, 4s, 8s, ..., max] without needing real infrastructure. Real timing accuracy is not the failure boundary—the calculation logic is.",
+      "test_description": "Verify exponential backoff calculation: mock time with Jest fake timers, trigger N consecutive rate-limit failures, and assert wait times follow 2^N pattern up to the configured maximum (e.g., [100ms, 200ms, 400ms, ..., 30s, 30s]). Verify time advances correctly between retry attempts.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is incorrect parsing of rate-limit headers (Retry-After, X-RateLimit-Reset, or the third-party API's format). This is testable at Unit level with realistic mock response objects that match the actual API's header format (available from API docs). The parsing logic is deterministic and local. An in-process mock cannot miss this failure if the mock response format is correct.",
+      "test_description": "Verify rate-limit detection and wait-time extraction: mock HTTP responses with the third-party API's actual rate-limit headers (e.g., Retry-After, X-RateLimit-Reset), assert the library parses the header correctly, and verify the computed wait time matches the header value. Use realistic response objects that replicate the real API's format.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is: retry loop doesn't resend, or result isn't returned. Both are testable with mocked HTTP and fake timers. Mock the HTTP client to fail once with 429, then succeed on retry. Verify the library advances time through backoff and returns the success result. No real HTTP or OS behavior is required; the logic is local to the library.",
+      "test_description": "Verify the retry mechanism end-to-end: mock the HTTP client to return a rate-limit response on the first attempt and a success response on the second. Use fake timers to advance through the backoff window. Assert the library makes both calls, waits appropriately between them, and returns the success result transparently without exposing retry details to the caller.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.15,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is: after maxRetries, wrong error type is thrown (generic Error instead of QuotaExhaustedError). This is straightforward error-handling logic testable at Unit level. Mock the HTTP client to always return 429, count retries, verify the correct error type is thrown after maxRetries with appropriate context. No real infrastructure required.",
+      "test_description": "Verify error handling at quota exhaustion: mock the HTTP client to always return rate-limit responses. After maxRetries attempts with fake timers, assert the library throws QuotaExhaustedError (not generic Error) with useful context (e.g., retry count, final response, error message).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "The core failure is: retry loop doesn't exit, loops forever. This is a control-flow bug testable with fake timers and mocked HTTP. Fake timers guarantee the test cannot hang (time is mocked), so you can verify the loop terminates before (maxRetries × maxWait) without risk. The termination condition (retry counter >= maxRetries) is deterministic and local to the library.",
+      "test_description": "Verify the retry flow terminates correctly: mock the HTTP client and use fake timers. Trigger the retry loop with rate-limit responses, and assert it exits cleanly before (maxRetries × maxWait) has elapsed, surfacing either a successful result or QuotaExhaustedError, never hanging or silently failing.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "The core failure is: quota is not shared (each caller has its own quota, or concurrency causes quota tracking to diverge). A Unit test with mocked, sequential calls cannot expose this. You need real JavaScript async concurrency (Promise.all with concurrent call() invocations) to verify the shared state survives concurrent access. A single-threaded mock will not catch sharing bugs that only appear under real concurrency.",
+      "test_description": "Verify quota is shared across concurrent callers: launch 10 concurrent call() requests with a mocked API that has a quota of 5 requests before returning 429. Assert the 6th through 10th requests fail with rate-limit (not succeed independently), proving all callers draw from the same shared quota bucket. Use Promise.all to ensure true concurrency.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "The core failure is: queued requests are not dispatched in FIFO order (e.g., LIFO, random, or reordered under concurrent load). A Unit test cannot expose ordering bugs under real concurrency. You need real async concurrency (Promise.all) to queue multiple requests simultaneously and then verify dispatch order. A sequential Unit test would not trigger the concurrent scenario where reordering can occur.",
+      "test_description": "Verify FIFO dispatch order: launch 5 concurrent call() requests during the backoff window (so they queue). Spy on the HTTP client mock to record which request is retried in which order. Assert requests are dispatched in FIFO order—in the sequence they were originally submitted, not reordered or reversed under concurrent execution.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

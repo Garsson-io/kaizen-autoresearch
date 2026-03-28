@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to 10 most recent messages when full history exceeds context window",
+      "minimum_level": "Unit",
+      "justification": "This is pure logic: given N messages as input, the function must return exactly the 10 most recent in correct order. Real failures (off-by-one errors, wrong direction, failure to trim) are caught by unit tests without mocking—just create input with 15 messages and verify output. No LLM, database, or I/O dependency means mocks can't hide failures here.",
+      "test_description": "Create a conversation history with 15 messages (mixed old and recent). Call the trim function with context window set to 10. Assert the output contains exactly the 10 most recent messages in chronological order, with the oldest 5 dropped.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses the customer's question rather than producing generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "A mocked LLM can always return 'Here is your answer'—tests pass but the real LLM might hallucinate, misunderstand context, or generate off-topic content. This is not testable with mocks; real LLM output quality must be evaluated. Running the same test 100 times with the real model might yield different relevance levels (non-deterministic judgment). Requires actual LLM calls to catch failures like prompt confusion, instruction-following breakdowns, or domain-specific errors.",
+      "test_description": "Send a customer question (e.g., 'How do I reset my password?') with relevant context to the real LLM. Capture the response. Verify it addresses the specific question (not a generic template), contains domain-relevant keywords, and doesn't answer a different question. Use semantic similarity or keyword presence checks to validate relevance.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.88,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies overly formal responses for casual-tier customers and triggers regeneration",
+      "minimum_level": "Workflow",
+      "justification": "This behavior spans multiple agentic steps: (1) LLM generates initial response, (2) tone classifier (likely LLM-based per 'tone-checking step') evaluates formality, (3) if too formal, LLM regenerates with adjusted tone. A mock tone checker hides whether the real classifier works; mocking regeneration hides whether the new response is actually more casual. Real failures include: tone check always returns 'appropriate' (hidden by mock), or regeneration produces equally formal response (hidden unless regeneration is real). Testing only one step misses cross-step failures.",
+      "test_description": "Generate a test response known to be formal ('Please allow 24-48 hours for processing') with real LLM. Pass to real tone classifier with casual-tier context. Assert it's flagged as too formal. Trigger regeneration with real LLM using tone-correction prompt. Verify: (a) regeneration was called, (b) new response is returned, (c) new response uses more casual language (via keyword/sentiment analysis or second LLM evaluation). Log both responses to ensure draft is only in internal state, not customer output.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.2,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange (user message, generated response, regenerations) is persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "Pure logic (creating a record) is Unit, but persistence requires real database writes and reads. Real failures include: timestamps stored as strings instead of epoch, timezone misapplication, regenerated response not saved, ordering broken, or silent write failures. Mocking the database hides all of these. Must write to a test database and read back to verify schema, timestamp format, and data presence.",
+      "test_description": "Run a full conversation flow: send user message, generate response, trigger tone check that flags for regeneration, generate new response. Call the persist function to write to a test database. Read back all records for this conversation. Assert: (a) user message exists with correct timestamp, (b) initial response exists with earlier timestamp, (c) regenerated response exists with later timestamp, (d) records are ordered chronologically, (e) timestamps include millisecond precision for ordering accuracy, (f) regeneration count or status field is correct.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Regenerated response replaces first response; customer never sees rejected draft",
+      "minimum_level": "Integration",
+      "justification": "The replacement logic (mark old as replaced, return only new) is Unit-testable in isolation, but verifying the customer never sees the draft requires integration: calling the actual customer-facing API and verifying its response. Real failures include: API returns both responses (initial and regenerated), or draft is visible in the response object. Mocking the API response logic would miss whether the actual endpoint returns both versions. Must test via the real API (or test-harness API) to catch response-filtering failures.",
+      "test_description": "Execute a conversation where regeneration is triggered. Call the customer-facing API endpoint (e.g., GET /conversation/{id}/latest-response) that returns the response shown to the user. Assert response contains only the regenerated message, not the initial draft. Verify no field (even 'previous_response' or 'history') includes the rejected draft in the API output. Separately verify that internal database/state marks the draft as 'replaced' for audit purposes, but this internal state is never returned to customer.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

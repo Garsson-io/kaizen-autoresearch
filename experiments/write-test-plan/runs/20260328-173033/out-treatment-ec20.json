@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are correctly extracted from manifest files (package.json, requirements.txt, etc.) with accurate version constraints",
+      "minimum_level": "Unit",
+      "justification": "Dependency extraction is local parsing logic without external I/O dependencies. Transitive resolution can be tested with realistic fixture manifests. The real failure boundary is the extraction/traversal algorithm (e.g., missing nested dependencies, incorrect version constraint handling, or incomplete tree traversal). A mock extractor would pass any test; a real parser against fixture manifests catches parsing bugs.",
+      "test_description": "Create fixture manifest files with multi-level nested dependencies, invoke the extraction logic, and verify all direct and transitive dependencies are captured with correct version constraints (e.g., package A @ ^1.0 depends on B @ >=2.0; verify both A and B appear in output). Test multiple manifest formats (JSON, YAML, lock files) to catch parser-specific failures.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.3,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query enforces exact version-range matching and returns only results applicable to the queried version constraints, not all versions of a package",
+      "minimum_level": "System",
+      "justification": "The real failure is subtle: the query might construct version constraints correctly, but the API could ignore them (or the query format might be wrong). A mock always passes—it returns whatever you tell it. Only a real API call exposes bugs like: sending unescaped constraints, malformed version syntax, or the API silently ignoring constraints. Can't catch this with in-process mocks; requires real HTTP and real database behavior.",
+      "test_description": "Query the real vulnerability database API with multiple test cases: request CVEs for package@1.2.0 and verify only results matching that exact version (or within constraints like ^1.2.0) are returned; separately request package@2.0.0 and verify different results. Compare to a negative case (request non-existent version range and verify no false positives). Document actual API response schema to detect format changes.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "CVE results are sorted by severity (Critical > High > Medium > Low), with ties broken by CVSS score (descending)",
+      "minimum_level": "Unit",
+      "justification": "Pure deterministic sorting logic, no I/O or external dependencies. The failure is a comparator bug (e.g., wrong enum order, inverted score comparison, or stable-sort implementation issue). A unit test with a hardcoded list of CVE objects catches these bugs reliably. No mock can hide comparator logic errors.",
+      "test_description": "Create a list of CVE objects with mixed severities and CVSS scores (e.g., Critical/9.9, High/8.5, Critical/8.0, Medium/5.0). Sort them and verify: Critical entries appear first, both Critical entries are ordered by CVSS (9.9 before 8.0), High and Medium follow in order, and ties are consistent. Test boundary cases: all same severity, single entry, empty list.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Manifest file modification updates only the target dependency's version, preserving all other entries, formatting, and metadata unchanged",
+      "minimum_level": "Integration",
+      "justification": "The real failures are parsing/unparsing bugs and format handling: incorrect JSON/YAML serialization, whitespace loss, field reordering, or accidental overwrites. A unit test of the modification logic in isolation doesn't expose these. You need real file I/O and a real manifest library to catch round-trip errors (parse → modify → write → re-parse and verify only one field changed). Mocking the file system would hide format errors.",
+      "test_description": "Write a real manifest file (package.json, requirements.txt, pyproject.toml, etc.) with 5+ dependencies. Invoke the modification logic to bump one dependency's version. Read the file back, parse it, verify: (1) only the target dependency's version changed, (2) all other entries are identical, (3) whitespace and comments are preserved, (4) file is valid and re-parseable. Test edge cases: dependency at start, middle, and end of file; with and without comments.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff visible to users",
+      "minimum_level": "System",
+      "justification": "The real failures are opaque: authentication failures, branch/ref issues, incorrect diff computation against live repo state, API schema changes, permission errors, or network timeouts. A mock GitHub API hides all of these. Only real API calls expose: auth token validity, actual diff accuracy, repository state consistency, and API contract changes. Can't mock away these infrastructure-level failures.",
+      "test_description": "With proper authorization safeguards (test repo, cleanup hooks), call the real GitHub API to create a pull request that bumps a dependency. Verify: (1) PR is created and visible on the repository, (2) the diff shows exactly one file modified (manifest), (3) the diff shows exactly one line changed (version bump), (4) PR metadata (title, description) matches expectations, (5) PR can be retrieved via API and has the correct state. Clean up afterward.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.25,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump (e.g., 1.2.3 → 2.0.0) is correctly identified as a breaking change according to semantic versioning",
+      "minimum_level": "Unit",
+      "justification": "Semver comparison is deterministic logic: parse versions and compare major components. The failure is a parser or comparator bug (e.g., treating '2.0.0-alpha' as non-breaking, or comparing strings instead of integers). No I/O or external data needed. A unit test with version pairs (1.2.3 → 2.0.0 is breaking, 1.2.3 → 1.3.0 is not) catches these bugs. Mocking semver logic would hide the implementation error.",
+      "test_description": "Test version comparison logic with parametrized inputs: (1.0.0 → 2.0.0, true), (1.2.3 → 1.3.0, false), (1.2.3 → 1.2.4, false), (2.0.0 → 3.0.0, true), (0.1.0 → 0.2.0, true [0.x.y is pre-release, so minor bump is breaking]), and edge cases (versions with pre-release tags, build metadata). Verify classification matches semver spec.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review-required flag is surfaced in the scanner output (no auto-PR created)",
+      "minimum_level": "Integration",
+      "justification": "The real failures are: (1) the condition is evaluated but ignored (PR created anyway), (2) the flag is set but not surfaced, or (3) the flag value is wrong. A unit test of the condition logic alone misses (1). An integration test that mocks the PR creation and verifies it's never called when breaking_change=true, and also verifies the flag is set and present in output, catches all three. Requires wiring multiple components together.",
+      "test_description": "Create a test case with a detected breaking change. Mock the PR creation API. Call the scanner; verify: (1) PR creation API is never invoked (mock assertion), (2) scanner output contains a 'review_required' flag set to true, (3) flag explains the reason (breaking change detected). Also test negative case: non-breaking change should trigger PR creation and no review flag. Verify the flag is not present or false in that case.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

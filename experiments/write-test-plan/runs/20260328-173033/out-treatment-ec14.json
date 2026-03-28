@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Speech-to-text output preserves speaker labels so the summary can attribute statements to specific attendees",
+      "minimum_level": "System",
+      "justification": "The failure boundary is whether the real STT API returns speaker labels in a format the service can parse and preserve. Different STT providers (Google Cloud Speech, AWS Transcribe, Azure) return different JSON schemas. A mocked STT API in an Integration test will always return exactly what the test engineer puts in, hiding schema mismatches, missing fields, or unexpected response structures from the real provider. Only a real API call (or a fixture built from actual API output) exposes whether your parser handles the actual response format and preserves speaker data through the pipeline.",
+      "test_description": "Call the real speech-to-text API with a multi-speaker audio file. Verify that the parsed transcript includes speaker labels (name/ID) for each segment. Verify that speaker labels are not stripped or corrupted during downstream processing and remain available for the summarization step.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test correctly requires System level because it validates real API response handling, which a mock cannot replicate.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Structured summary contains at least one action item for every attendee assigned a task",
+      "minimum_level": "Agentic",
+      "justification": "The failure boundary is whether the LLM prompt and model can reliably extract and attribute action items from natural language. A mocked LLM will always return a perfect, engineer-designed response, hiding real failures: the model might miss implicit assignments ('I'll send you the report' → assign task to Alice), conflate pronouns (attributing multiple people's tasks to one assignee), or drop items in long meetings. The actual quality of extraction depends on the real model, temperature, prompt wording, and context. Running this 10 times against the same transcript with the real LLM may yield different results (different action items, different attributions) due to non-determinism. That non-determinism is the signature of an Agentic test.",
+      "test_description": "Use a real transcript with clearly stated tasks assigned to specific attendees (e.g., 'Alice, please gather feedback by Friday'; 'Bob will contact legal'). Call the real LLM with your summarization prompt. Verify the structured output includes at least one action item for each attendee who was assigned a task. Verify assignee names match the transcript. Run multiple times to check consistency (acceptable variance in phrasing, but assignee must not change).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test correctly requires Agentic level because it validates that a real LLM model with a specific prompt produces the desired extraction behavior, which is non-deterministic and cannot be reliably mocked.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions appear in the 'decisions' section, not buried in the narrative",
+      "minimum_level": "Agentic",
+      "justification": "The failure boundary is whether the LLM correctly understands the semantic distinction between decisions and narrative content, and follows the prompt's instruction to separate them. A mocked LLM (returning a perfectly structured `{decisions: [...], narrative: ...}`) hides the real issue: does the model actually recognize decisions vs. narrative, or does it sometimes dump decisions into the narrative field? The real LLM might: misclassify implicit decisions ('we're moving to vendor X' is a decision, not narrative), conflate decisions with action items, or occasionally ignore the structure instruction. Only calling the real model with your actual prompt reveals whether this categorization works.",
+      "test_description": "Use a real transcript with explicit and implicit key decisions (e.g., 'We decided to hire an external consultant'; 'Moving from Platform A to Platform B'). Call the real LLM with the summarization prompt. Verify that all decisions are extracted and appear in the 'decisions' field, not in the 'narrative' or 'action_items' fields. Verify no decisions are missing, including implicit ones. Run multiple times to assess consistency of categorization.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test correctly requires Agentic level because it validates the LLM's ability to perform semantic categorization, which depends on the real model and is non-deterministic.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "For audio > 60 minutes, service splits it into segments and processes sequentially, merging results into one coherent summary",
+      "minimum_level": "Workflow",
+      "justification": "This behavior requires testing a multi-step pipeline where each step depends on real infrastructure. The failure boundaries span: (1) segmentation logic (does it preserve context at boundaries?), (2) real STT API on long audio (does it timeout, lose quality, or fail?), (3) real LLM summarization per segment (does context carry across segments?), (4) merge logic applied to realistic LLM outputs (do real summaries merge correctly, or do duplicates and conflicts arise?). A System test calling real APIs once won't catch failures unique to long audio or multi-segment orchestration. An Integration test with mocked APIs will miss real timeouts, API-specific quirks on long audio, and merge failures on realistic (messy) LLM outputs. The test must execute the full pipeline—segmentation, transcription of multiple segments, summarization of each, and merging—to verify that orchestration works end-to-end with real agentic components (LLM called per segment with varying outputs).",
+      "test_description": "Create or obtain a real audio file > 60 minutes (or fixture with realistic STT/LLM outputs for long audio). Execute the full pipeline: upload audio, segment into parts, transcribe each segment, summarize each segment, merge into one coherent summary. Verify segmentation boundaries don't split mid-sentence or lose speaker context. Verify all action items, decisions, and speaker attributions from all segments appear in the final summary. Verify no duplicates or conflicts in the merged output. Verify the process completes without manual intervention.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test correctly requires Workflow level because it validates multi-step orchestration with real STT and LLM calls, where each segment's LLM output may vary, and the merge logic must handle realistic outputs from multiple agentic steps.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.15,
+        "Agentic": 0.2,
+        "Workflow": 0.5
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full pipeline completes without manual intervention for a real meeting recording",
+      "minimum_level": "Workflow",
+      "justification": "This is an end-to-end system validation where multiple failure modes span different levels: audio format handling (System: real file I/O), STT API errors and retries (System: real HTTP), LLM output validation against the schema (Agentic: real model may produce unexpected fields or omit required ones), and orchestration without manual intervention (Workflow: the pipeline must recover from failures or fail gracefully). A System test calling real APIs once with happy-path audio will miss: audio format edge cases the service doesn't handle, API failures that require retry logic, LLM outputs that violate the expected schema, and serialization/delivery issues. An Agentic test validating LLM output alone won't catch audio format failures or orchestration bugs. Only running the full pipeline end-to-end with real infrastructure, real audio files in various formats, and simulated API failures reveals whether the service truly completes without manual intervention.",
+      "test_description": "Execute the full pipeline end-to-end using real meeting recordings in various audio formats (MP3, WAV, M4A, WebM, etc.) and durations. Verify the service: (1) accepts and processes all formats, (2) handles STT API failures (mock a 503 error) and retries successfully, (3) validates LLM output against the expected schema and rejects or recovers from malformed responses, (4) produces a correctly serialized structured output (valid JSON, all required fields present), (5) completes delivery without human prompting. Verify no unhandled exceptions, no hung processes, and no requests for manual intervention.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test correctly requires Workflow level because it validates the full pipeline orchestration with real infrastructure, real agentic components (STT, LLM), and error handling across multiple failure modes.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.2,
+        "Agentic": 0.15,
+        "Workflow": 0.5
+      }
+    }
+  ]
+}

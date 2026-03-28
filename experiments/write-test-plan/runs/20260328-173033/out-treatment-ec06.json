@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is whether the watcher library (chokidar/fs.watch) actually fires events for subdirectory files when configured on the root. A unit test mocking fs.watch could pass even if the watcher isn't configured for recursive watching. Real filesystem operations plus the actual watcher library are required to catch the failure 'subdirectories aren't being watched'.",
+      "test_description": "Create files in subdirectories of the watched root using real filesystem operations. Verify the daemon detects and processes them. Test with multiple nesting levels (e.g., root/subdir1/file.txt and root/subdir1/subdir2/file.txt).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This is pure in-process logic: maintain a map/set of recently-seen paths and check if a new request falls within the time window. The failure is in the deduplication algorithm itself, not in filesystem or timing infrastructure. Mocked time and storage are sufficient to catch bugs in the logic (e.g., off-by-one in time window, forgot to clean up old entries).",
+      "test_description": "Unit test the deduplication logic: create a deduplicator, submit the same path twice within the time window, verify the second is rejected. Test boundary conditions: just before timeout (should be rejected), just after timeout (should be accepted). Mock time to control window expiration.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is what the real OS actually emits when a file is written. Different OSes (macOS, Linux, Windows) emit different numbers of events (1-4+ per write) with different timings. A unit test mocking filesystem events could pass even if the deduplication fails under real OS conditions (e.g., events come faster than the time window allows, or events have different event types). Real filesystem I/O and real OS event emissions are required.",
+      "test_description": "Write a file to the watched directory from a separate process/thread. Capture all events the daemon receives. Verify exactly one processing attempt occurs despite multiple OS events. Repeat with different file sizes and write patterns (large file, small file, multiple rapid writes) to trigger different event sequences.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "The failure is 'the daemon cannot resume after directory deletion/recreation'. Testing requires: (1) real filesystem deletion of the watched directory, (2) verification the daemon process remains running and doesn't crash, (3) real filesystem recreation and verification the daemon detects new files. Integration with real filesystem operations and the actual daemon process can catch this. The 'without restart' means we verify the process continues running, not that we need system-level testing of crashes or signal handling.",
+      "test_description": "Start daemon watching a directory. Delete that directory while daemon runs. Verify daemon doesn't crash (process still alive). Recreate the directory. Place a file in it. Verify daemon processes the file. Check logs/metrics to confirm no restart occurred between deletion and successful processing of new file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Unit",
+      "justification": "The failure is in the sorting/ordering logic: the algorithm doesn't sort files by mtime, or sorts them incorrectly. This is a pure algorithm test. Mocked file metadata (timestamp values) is sufficient to catch bugs like 'missing sort call', 'reverse sort', 'tie-breaking on filename incorrectly'. Real filesystem mtimes aren't necessary to validate the sorting algorithm itself.",
+      "test_description": "Unit test: create test data with file metadata including multiple mtime values in random order (e.g., mtimes: [500, 100, 300]). Call the ordering function. Verify output is sorted by mtime (e.g., [100, 300, 500]). Test edge cases: equal mtimes (verify consistent tie-breaking), single file, empty list.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "The failure is 'the daemon processes a file before it's fully written on the real filesystem'. Testing requires: (1) real file I/O (actually write to the watched directory from another process), (2) real filesystem state (file size, inode, mtime), (3) verification that the daemon waits until writing stops. Mocking file size checks could pass even if the daemon processes mid-write on a real filesystem. Real I/O and real filesystem behavior are essential.",
+      "test_description": "From a separate process, open a file in the watched directory and write data incrementally (or hold it open without closing). Verify the daemon does NOT process it while the file is being written (e.g., check output directory is empty). Close/complete the file. Verify daemon then processes it. Test with various file sizes and write speeds to ensure the 'stable size' or 'close detection' mechanism works.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}
