@@ -75,7 +75,13 @@ LOOP:
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
-  4. PICK — choose one idea (low effort + high impact + targets top pattern)
+  4. IDEATE — this is a HIGH EFFORT thinking step. Read ALL of ideas/, then think deeply:
+     a. Which existing ideas target the patterns found in steps 1-3?
+     b. Do the taxonomy patterns suggest a NEW idea not yet in ideas/?
+     c. Can two existing ideas be COMBINED into something stronger?
+     d. Does a rejected idea deserve retry given new evidence (GT changes, new runs)?
+     e. What would a skeptic say about your top candidate?
+     Write new ideas to ideas/ if you generate them. Then pick ONE to try.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — ./run-eval.sh (or verify.ts). Monitor progress.

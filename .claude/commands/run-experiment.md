@@ -1,6 +1,6 @@
 ---
 name: run-experiment
-description: Run the full experiment iteration loop with mandatory MINE and META steps.
+description: Run the full experiment iteration loop with mandatory MINE, META, and IDEATE steps.
 argument-hint: "<experiment-name> [--iterations N]"
 ---
 
@@ -12,16 +12,25 @@ Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional
 
 | File | Why |
 |------|-----|
-| `experiments/<name>/program.md` | **Your instructions.** Loop definition, metric, edit rules. Follow this. |
+| `experiments/<name>/program.md` | **Your instructions.** The iteration loop, metric, edit rules. This is the authority — follow it. |
 | `experiments/<name>/meta-failures.md` | Process mistakes to avoid repeating. |
 | `experiments/<name>/leaderboard.md` | What's been tried and what scored what. |
+| `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns — what goes wrong and why. |
 | `experiments/<name>/prompts/` | All prompt variants — study what works vs what failed. |
-| `experiments/<name>/taxonomy/README.md` | Failure patterns from the model's own reasoning. |
-| `experiments/<name>/ideas/README.md` | Hypothesis backlog. Check `status` before retrying. |
-| `.claude/skills/autoresearch/references/core-principles.md` | The methodology — git as memory, one change per iteration, mechanical verification. |
-| `.claude/skills/autoresearch/references/autonomous-loop-protocol.md` | The 8-phase protocol — how to review, ideate, commit before verify, handle noise, recover from being stuck. |
-| `.claude/skills/autoresearch/references/results-logging.md` | TSV logging format for `autoresearch-results.tsv`. |
+| `experiments/<name>/taxonomy/` | Raw reasoning patterns from each run. Read the README and all pattern files. |
+| `experiments/<name>/ideas/` | Hypothesis backlog. Read the README and ALL idea files. Check `status` before retrying. |
+
+## The IDEATE step requires high-effort thinking
+
+Step 4 of the loop (IDEATE) is the most important creative step. Do NOT rush it. Read all ideas, then think deeply:
+- Which existing ideas target the patterns from MINE and DIAGNOSE?
+- Do the patterns suggest a NEW idea not in the backlog?
+- Can two ideas be COMBINED into something stronger?
+- Does a rejected idea deserve retry given new evidence?
+- What would a skeptic say about your top candidate?
+
+Write new ideas to `ideas/` if you generate them. Then pick ONE to try.
 
 ## Execute
 
-Follow `program.md`. If no baseline exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
+Follow `program.md`. It has the complete loop. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
