@@ -1,7 +1,7 @@
 ---
 id: failure-mode-taxonomy
 title: Give the model a failure mode taxonomy — map failure types to levels
-status: proposed
+status: rejected
 effort: medium
 expected_impact: high
 targets:
