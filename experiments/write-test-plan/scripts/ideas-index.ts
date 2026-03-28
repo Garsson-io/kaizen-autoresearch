@@ -58,8 +58,11 @@ export function parseFrontmatter(content: string): Record<string, unknown> {
       currentKey = kvMatch[1];
       const value = kvMatch[2].trim();
 
-      if (value === "" || value === "null") {
-        // Could be a list starting on next line, or null
+      if (value === "null") {
+        // Explicit null — not a list
+        result[currentKey] = null;
+      } else if (value === "") {
+        // Empty value — could be a list starting on next line
         currentList = [];
       } else if (value.startsWith("[") && value.endsWith("]")) {
         // Inline array: [a, b, c]

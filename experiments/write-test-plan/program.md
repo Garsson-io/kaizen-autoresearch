@@ -72,6 +72,15 @@ Report all three scores in `leaderboard.md`.
 
 ## The iteration loop (follow this exactly)
 
+### Baseline policy (permanent)
+
+- Do **not** run a fresh baseline at the start of every `/run-experiment` invocation.
+- Use the latest baseline already recorded in `experiments/write-test-plan/autoresearch-results.jsonl` for the current model/corpus as the reference loss.
+- Only run a new baseline when:
+  - no baseline exists yet for the current setup, or
+  - corpus/model/scoring changed and prior baseline is not comparable.
+- After any kept iteration, the new best kept loss becomes the comparison target for subsequent iterations.
+
 ```
 LOOP:
   1. MINE — use extract-thinking.ts to pair thinking blocks with outputs and detect self-aware errors:
@@ -100,15 +109,28 @@ LOOP:
      It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)
-       If the idea returned by IDEATE has explore_status: null, run:
-         /explore write-test-plan <idea-id>
-       Signal: proceed to EDIT using the winning variation's diff
-       No-signal: do NOT edit. Return to IDEATE with a new idea.
+       If the idea returned by IDEATE has explore_status: null:
+         a. Write N variation treatment.md files into runs/explore/ dirs
+         b. Run: npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id>
+            (see scripts/explore.ts header for all options: --dry-run, --tasks, --seed, etc.)
+       Signal (exit 0): proceed to EDIT using the winning variation's diff.
+       Concentrated-signal (exit 3): weak evidence — re-run with different tasks or proceed cautiously.
+       No-signal (exit 2): do NOT edit. Return to IDEATE with a new idea.
        Already-set: use the recorded explore result — no new run needed.
+
+       Cross-references:
+       - READ `docs/explore-tool.md` WHEN you need to understand the tool itself:
+         CLI options, stratification algorithm, signal classification rules, JSON schema,
+         modular API, validation, resume support.
+       - READ `.agents/skills/explore/SKILL.md` WHEN you need the step-by-step agent workflow:
+         what dirs to create before running, how to invoke the script, how to interpret
+         results and decide next steps, when to commit.
+       - READ `ideas/README.md` WHEN you need to understand explore_status field semantics
+         or how IDEATE should prioritize explored vs unexplored ideas.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — experiments/write-test-plan/run-eval.sh (or verify.ts). Monitor progress.
-  8. SCORE — compare loss to baseline. Any decrease in loss → keep. Same or increase → git revert.
+  8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
   9. LOG — append one JSON line to experiments/write-test-plan/autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
@@ -318,6 +340,17 @@ npx tsx experiments/write-test-plan/scripts/run-stats.ts --run 20260328-155121
 npx tsx experiments/write-test-plan/scripts/run-stats.ts --all
 npx tsx experiments/write-test-plan/scripts/run-stats.ts --json
 
+# EXPLORE: pre-screen idea variations on stratified task subsets
+# READ docs/explore-tool.md for full tool reference (CLI, algorithm, JSON schema, API)
+# READ .agents/skills/explore/SKILL.md for the agent workflow (create dirs, run, decide)
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id>               # full auto run
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --dry-run     # preview plan
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --score-only  # re-score existing
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --summary     # reprint past results
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --json        # machine-readable
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --seed 42     # seeded randomization
+npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --tasks ec-03,ec-14  # explicit tasks
+
 # View ideas
 npx tsx experiments/write-test-plan/scripts/ideas-index.ts --table
 npx tsx experiments/write-test-plan/scripts/ideas-index.ts --by-status
@@ -345,6 +378,9 @@ npx tsx experiments/write-test-plan/scripts/score.ts \
 | `extract-thinking.ts --taxonomy-lines` | Plain text lines | Append to taxonomy/ |
 | `results.ts --json` | JSON array of IterationResult | History in machine-readable form |
 | `run-stats.ts --json` | JSON array of ProbeStats | Cost/token data in machine-readable form |
+| `explore.ts <id>` | Per-task heatmap table | Explore pre-screening results |
+| `explore.ts <id> --json` | JSON ExploreOutput | Machine-readable explore results |
+| `explore.ts <id> --summary` | Summary table from log | Reprint past explore results |
 
 ### Ground-truth file naming
 
