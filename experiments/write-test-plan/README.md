@@ -37,11 +37,15 @@ Row weights: Unit=1, Integration=2, System=3, Agentic=4, Workflow=4.
 
 ```bash
 npm install
-cd experiments/write-test-plan
-./run-eval.sh                          # full corpus, treatment
-./run-eval.sh --round 2                # adversarial anchoring
-./run-eval.sh --condition baseline     # baseline reference
-./run-eval.sh --single ec-04           # debug one task
+# Prefer repo-root invocation to avoid cwd path mistakes:
+experiments/write-test-plan/run-eval.sh                      # full corpus, treatment
+experiments/write-test-plan/run-eval.sh --round 2           # adversarial anchoring
+experiments/write-test-plan/run-eval.sh --condition baseline
+experiments/write-test-plan/run-eval.sh --single ec-04
+
+# For TypeScript helpers from any cwd, use the wrapper:
+experiments/write-test-plan/scripts/run.sh score.ts --output-dir latest
+experiments/write-test-plan/scripts/run.sh results.ts --summary
 ```
 
 See [program.md](program.md) for the full command reference.

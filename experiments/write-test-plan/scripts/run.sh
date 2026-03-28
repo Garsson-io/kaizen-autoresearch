@@ -11,4 +11,12 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-cd "$EXP_DIR" && exec npx tsx "scripts/$1" "${@:2}"
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <script.ts> [args...]" >&2
+  exit 1
+fi
+
+SCRIPT_NAME="$1"
+shift
+
+cd "$EXP_DIR" && exec npx tsx "scripts/$SCRIPT_NAME" "$@"

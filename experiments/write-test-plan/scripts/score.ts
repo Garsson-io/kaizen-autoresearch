@@ -19,9 +19,11 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ProbeOutput, GroundTruth, LEVEL_INDEX } from "../src/schema.js";
+import { PATHS, REPO_ROOT, getRunDir } from "./paths.js";
 
 function parseFile(path: string): unknown {
   const raw = readFileSync(path, "utf-8");
@@ -164,6 +166,26 @@ function fmt(n: number, decimals = 1): string {
   return `${(n * 100).toFixed(decimals)}%`;
 }
 
+function resolveInputPath(raw: string): string {
+  const cwdResolved = resolve(raw);
+  if (existsSync(cwdResolved)) return cwdResolved;
+  const repoResolved = resolve(REPO_ROOT, raw);
+  if (existsSync(repoResolved)) return repoResolved;
+  return cwdResolved;
+}
+
+function resolveRunDirArg(raw: string): string {
+  const direct = resolveInputPath(raw);
+  if (existsSync(direct)) return direct;
+  try {
+    const asRunName = getRunDir(raw);
+    if (existsSync(asRunName)) return asRunName;
+  } catch {
+    // Ignore and fall back to original input for clearer downstream errors.
+  }
+  return direct;
+}
+
 
 /**
  * Build a metrics object from a list of ScoreResults.
@@ -192,10 +214,10 @@ function main() {
   const get = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
   const jsonMode = args.includes("--json");
 
-  const outputFile = get("--output");
-  const gtFile = get("--gt");
-  const outputDir = get("--output-dir");
-  const gtDir = get("--gt-dir");
+  const outputFile = get("--output") ? resolveInputPath(get("--output")!) : undefined;
+  const gtFile = get("--gt") ? resolveInputPath(get("--gt")!) : undefined;
+  const outputDir = get("--output-dir") ? resolveRunDirArg(get("--output-dir")!) : undefined;
+  const gtDir = get("--gt-dir") ? resolveInputPath(get("--gt-dir")!) : PATHS.groundTruth;
 
   const results: ScoreResult[] = [];
   // In --json mode, send human-readable display to stderr so stdout carries only JSON
@@ -209,6 +231,10 @@ function main() {
     results.push(scoreOutput(output, gt));
   } else if (outputDir && gtDir) {
     const files = readdirSync(outputDir).filter(f => f.endsWith(".yaml") || f.endsWith(".yml") || f.endsWith(".json")).sort();
+    if (files.length === 0) {
+      console.error(`No output files found in ${outputDir}`);
+      process.exit(1);
+    }
     for (const file of files) {
       const base = file.replace(/^out-[a-z]+-/, "").replace(/\.(yaml|yml|json)$/, "").replace(/^(ec)(\d+)$/, "$1-$2");
       const gtExt = ["json", "yaml", "yml"].find(e => existsSync(`${gtDir}/${base}.${e}`)) ?? "json";
@@ -225,6 +251,11 @@ function main() {
     console.error("Usage:");
     console.error("  score-probe.ts --output <file.yaml> --gt <gt.yaml>");
     console.error("  score-probe.ts --output-dir <dir/> --gt-dir <gt-dir/>");
+    process.exit(1);
+  }
+
+  if (results.length === 0) {
+    console.error("No scorable outputs found (all files were skipped or invalid)");
     process.exit(1);
   }
 

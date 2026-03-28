@@ -7,6 +7,8 @@ Verify: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.loss'
 Legacy metric: npx tsx experiments/write-test-plan/scripts/verify.ts | jq '.score' (0–100, higher is better)
 
 **Working directory**: Repo root. All paths are relative to the repo root (e.g. `experiments/write-test-plan/scripts/results.ts`).
+If you need to run TS helpers from arbitrary cwd, use `experiments/write-test-plan/scripts/run.sh <script.ts> ...`.
+Do not `cd experiments/write-test-plan` and then use `experiments/write-test-plan/...` prefixes in the same command.
 
 ---
 
@@ -72,10 +74,20 @@ Report all three scores in `leaderboard.md`.
 
 ```
 LOOP:
-  1. MINE — extract BOTH thinking blocks AND justifications from experiments/write-test-plan/runs/latest/.
-     The .log files contain stream-json with thinking blocks (raw reasoning) and the .json files
-     have justification fields (post-hoc rationalization). Mine BOTH — the thinking often contains
-     correct reasoning that the model overrides in the final output. Append [runN] to taxonomy/.
+  1. MINE — use extract-thinking.ts to pair thinking blocks with outputs and detect self-aware errors:
+     ```bash
+     # Human-readable table of errors + self-aware flags:
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest
+
+     # Lines ready to append to taxonomy/:
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
+
+     # Machine-readable JSON (all 173 behaviors with direction/gt/justification/thinking):
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --json
+     ```
+     The script pairs each behavior's structured output (justification, predicted level) with the
+     model's internal thinking from the .log file. It also flags self-aware cases where thinking
+     contains correct reasoning the model overrides. Append --taxonomy-lines output to taxonomy/.
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
@@ -87,6 +99,12 @@ LOOP:
      It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
      It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
+  4.5. EXPLORE (optional — skip if idea.explore_status is already set)
+       If the idea returned by IDEATE has explore_status: null, run:
+         /explore write-test-plan <idea-id>
+       Signal: proceed to EDIT using the winning variation's diff
+       No-signal: do NOT edit. Return to IDEATE with a new idea.
+       Already-set: use the recorded explore result — no new run needed.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — experiments/write-test-plan/run-eval.sh (or verify.ts). Monitor progress.
@@ -94,6 +112,8 @@ LOOP:
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
   9. LOG — append one JSON line to experiments/write-test-plan/autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
+     Capture `metrics` from `verify.ts` output (`jq '.metrics'`) and include in the JSONL record.
+     Always include `model` (e.g. `claude-haiku-4-5-20251001`, `gpt-5.3-codex`) so results can be compared across models.
      Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
   10. COMMIT RUNS — git add experiments/write-test-plan/runs/<timestamp>/ and commit the output JSONs.
   11. NEXT ITERATION — update task list: clear completed tasks, create fresh tasks for
@@ -157,6 +177,10 @@ Top taxonomy patterns (from DIAGNOSE):
 3. Read `experiments/write-test-plan/justification-taxonomy.md` (failure pattern summary)
 4. Read `experiments/write-test-plan/meta-failures.md` (process pitfalls)
 5. For any ideas you want to examine in detail, read the full file in `ideas/`
+6. Check `explore_status` on each candidate idea:
+   - `explore_status: signal`    → prioritize; use the recorded winning variation diff
+   - `explore_status: no-signal` → deprioritize; skip unless no other options
+   - `explore_status: null`      → viable candidate; will require EXPLORE before full run
 
 Then think deeply:
 a. Which existing ideas target the top taxonomy patterns from the context above?
@@ -180,6 +204,7 @@ DIFF:
 ```
 RATIONALE: {one sentence — why this targets the top taxonomy pattern}
 SKEPTIC: {one sentence — the strongest argument against this idea}
+EXPLORE: {yes|skip}   — yes if explore_status is null, skip if already set or trivial reorder
 META_NOTE: {optional — any observation about process patterns, e.g. "3 rejections from replacements confirms add-not-replace hypothesis"}
 ```
 
@@ -238,7 +263,7 @@ See [justification-taxonomy.md](justification-taxonomy.md) for the full pattern 
 
 ## Corpus coverage
 
-Full corpus is dynamically discovered from `corpus/*.md` files (currently 20 tasks, EC-01 through EC-20).
+Full corpus is dynamically discovered from `corpus/*.md` files (currently 30 tasks, EC-01 through EC-30).
 
 **Task catalog**: `corpus/catalog.json` contains metadata for each task (title, domain, difficulty, adversarial technique, labels). This is the source of truth for corpus composition — read it instead of hardcoded tables.
 
@@ -257,8 +282,11 @@ All tasks run in parallel. `--single ec-09` for fast single-task debug.
 ## Useful commands
 
 ```bash
-# Run full eval (10 tasks in parallel, treatment prompt)
+# Run full eval (30 tasks in parallel, treatment prompt) — outputs SCORE: and LOSS: lines
 experiments/write-test-plan/run-eval.sh
+
+# Get machine-readable JSON {score, loss} — use this for the metric, NOT score.ts
+npx tsx experiments/write-test-plan/scripts/verify.ts | jq '{loss: .loss, score: .score}'
 
 # Run a specific condition
 experiments/write-test-plan/run-eval.sh --condition baseline
@@ -268,20 +296,60 @@ experiments/write-test-plan/run-eval.sh --prompt experiments/write-test-plan/pro
 experiments/write-test-plan/run-eval.sh --round 2
 experiments/write-test-plan/run-eval.sh --round 3
 
-# Score existing outputs
-npx tsx experiments/write-test-plan/scripts/score.ts --output-dir runs/latest/ --gt-dir ground-truth/
+# Score existing outputs — human-readable table (NOT JSON; don't pipe to jq)
+npx tsx experiments/write-test-plan/scripts/score.ts \
+  --output-dir experiments/write-test-plan/runs/latest/ \
+  --gt-dir experiments/write-test-plan/ground-truth/
+
+# MINE: extract thinking + justifications, detect self-aware errors
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --json
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --task EC-04
+
+# View iteration history
+npx tsx experiments/write-test-plan/scripts/results.ts --last 10
+npx tsx experiments/write-test-plan/scripts/results.ts --summary
+npx tsx experiments/write-test-plan/scripts/results.ts --keeps
+
+# View run cost/token stats (--run for specific run, --all for all runs)
+npx tsx experiments/write-test-plan/scripts/run-stats.ts
+npx tsx experiments/write-test-plan/scripts/run-stats.ts --run 20260328-155121
+npx tsx experiments/write-test-plan/scripts/run-stats.ts --all
+npx tsx experiments/write-test-plan/scripts/run-stats.ts --json
+
+# View ideas
+npx tsx experiments/write-test-plan/scripts/ideas-index.ts --table
+npx tsx experiments/write-test-plan/scripts/ideas-index.ts --by-status
+npx tsx experiments/write-test-plan/scripts/ideas-index.ts --json
 
 # Single task debug
 npx tsx experiments/write-test-plan/scripts/run-probe.ts \
   --task EC-04 --condition treatment \
   --issue-file experiments/write-test-plan/corpus/ec-04.md \
   --prompt-file experiments/write-test-plan/prompts/treatment.md \
-  --out experiments/write-test-plan/runs/debug/out.json
+  --out experiments/write-test-plan/runs/debug/out-treatment-ec04.json
 
 npx tsx experiments/write-test-plan/scripts/score.ts \
-  --output experiments/write-test-plan/runs/debug/out.json \
+  --output experiments/write-test-plan/runs/debug/out-treatment-ec04.json \
   --gt experiments/write-test-plan/ground-truth/ec-04.json
 ```
+
+### Script output formats (important — don't mix these up)
+
+| Script | Output | Use for |
+|--------|--------|---------|
+| `verify.ts` | JSON `{score, loss}` | Machine-readable metric; pipe to `jq` |
+| `score.ts` | Human-readable table | Per-task breakdown; **not JSON, don't pipe to jq** |
+| `extract-thinking.ts --json` | JSON array of BehaviorThinking | MINE step analysis |
+| `extract-thinking.ts --taxonomy-lines` | Plain text lines | Append to taxonomy/ |
+| `results.ts --json` | JSON array of IterationResult | History in machine-readable form |
+| `run-stats.ts --json` | JSON array of ProbeStats | Cost/token data in machine-readable form |
+
+### Ground-truth file naming
+
+GT files are named `ec-NN.json` (with hyphen): `ground-truth/ec-01.json` through `ground-truth/ec-30.json`.
+Use the scripts above — they all handle naming correctly. Don't hardcode `ec01.json` (no hyphen) in Python.
 
 ---
 

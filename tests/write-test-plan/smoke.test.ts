@@ -5,6 +5,8 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "child_process";
 import { join } from "path";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
 import {
   REPO_ROOT, EXP_DIR, EXP_SCRIPTS,
   FIXTURE_RUN, FIXTURE_GT_DIR, FIXTURE_OUTPUT, FIXTURE_GT,
@@ -34,6 +36,14 @@ function tsxFromSubdir(script: string, args: string[]) {
     "npx",
     ["tsx", join(EXP_SCRIPTS, script), ...args],
     { cwd: join(EXP_DIR, "corpus"), encoding: "utf8", timeout: 30_000, env: { ...process.env } }
+  );
+}
+
+function runHelperFrom(cwd: string, script: string, args: string[]) {
+  return spawnSync(
+    join(EXP_SCRIPTS, "run.sh"),
+    [script, ...args],
+    { cwd, encoding: "utf8", timeout: 30_000, env: { ...process.env } }
   );
 }
 
@@ -86,6 +96,16 @@ describe("score.ts --output / --gt", () => {
     ]);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("EC-01");
+  });
+
+  it("fails fast for empty --output-dir", () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "score-empty-"));
+    const r = tsx("score.ts", [
+      "--output-dir", emptyDir,
+      "--gt-dir", FIXTURE_GT_DIR,
+    ]);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("No output files found");
   });
 });
 
@@ -271,6 +291,15 @@ describe("cwd independence — scripts work from any directory in the repo", () 
     expect(r.stdout).toContain("TOTAL");
   });
 
+  it("score.ts: accepts repo-root-relative paths even when cwd is experiment dir", () => {
+    const r = tsxFromExpDir("score.ts", [
+      "--output-dir", "tests/write-test-plan/fixtures/runs/test-run-001",
+      "--gt-dir", "tests/write-test-plan/fixtures/ground-truth",
+    ]);
+    expect(r.status, `stderr: ${r.stderr}`).toBe(0);
+    expect(r.stdout).toContain("EC-01");
+  });
+
   it("verify.ts --mock: works from any cwd (no filesystem deps)", () => {
     const r = tsxFromExpDir("verify.ts", ["--mock", "0.9", "--mock-loss", "50"]);
     expect(r.status).toBe(0);
@@ -293,4 +322,58 @@ describe("cwd independence — scripts work from any directory in the repo", () 
     expect(ids(fromExpDir)).toEqual(ids(fromRoot));
     expect(ids(fromSubdir)).toEqual(ids(fromRoot));
   });
+});
+
+describe("run.sh helper — category cwd regression coverage", () => {
+  const cases: Array<{
+    name: string;
+    script: string;
+    args: string[];
+    expectInStdout: string;
+  }> = [
+    {
+      name: "verify.ts via --mock",
+      script: "verify.ts",
+      args: ["--mock", "0.9", "--mock-loss", "50"],
+      expectInStdout: "\"score\":90",
+    },
+    {
+      name: "score.ts with fixture paths",
+      script: "score.ts",
+      args: ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT],
+      expectInStdout: "TOTAL",
+    },
+    {
+      name: "extract-thinking.ts with fixture run",
+      script: "extract-thinking.ts",
+      args: ["--run-dir", FIXTURE_RUN, "--json"],
+      expectInStdout: "\"task\"",
+    },
+    {
+      name: "ideas-index.ts --json",
+      script: "ideas-index.ts",
+      args: ["--json"],
+      expectInStdout: "\"id\"",
+    },
+    {
+      name: "results.ts --json",
+      script: "results.ts",
+      args: ["--json"],
+      expectInStdout: "\"iteration\"",
+    },
+    {
+      name: "run-stats.ts --json with fixture run",
+      script: "run-stats.ts",
+      args: ["--run", FIXTURE_RUN, "--json"],
+      expectInStdout: "\"duration_s\"",
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name} works from deep subdirectory via run.sh`, () => {
+      const r = runHelperFrom(join(EXP_DIR, "corpus"), c.script, c.args);
+      expect(r.status, `stderr: ${r.stderr}`).toBe(0);
+      expect(r.stdout).toContain(c.expectInStdout);
+    });
+  }
 });
