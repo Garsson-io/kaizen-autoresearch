@@ -9,7 +9,7 @@
  *   npx tsx scripts/run-stats.ts --json                 # JSON output
  */
 
-import { readdirSync, readFileSync, existsSync } from "fs";
+import { readdirSync, readFileSync, existsSync, appendFileSync, realpathSync } from "fs";
 import { join, basename } from "path";
 
 interface ProbeStats {
@@ -150,10 +150,55 @@ function printSummary(probes: ProbeStats[], runDir: string) {
 import { PATHS } from "./paths";
 const runsBase = PATHS.runs;
 
+function buildSummary(probes: ProbeStats[], runDirName: string): RunSummary {
+  return {
+    run_dir: runDirName,
+    probes: probes.length,
+    total_duration_s: probes.reduce((s, p) => s + p.duration_s, 0),
+    total_cost_usd: probes.reduce((s, p) => s + p.cost_usd, 0),
+    total_input_tokens: probes.reduce((s, p) => s + p.total_input, 0),
+    total_output_tokens: probes.reduce((s, p) => s + p.output_tokens, 0),
+    avg_duration_s: probes.reduce((s, p) => s + p.duration_s, 0) / probes.length,
+    avg_cost_usd: probes.reduce((s, p) => s + p.cost_usd, 0) / probes.length,
+    avg_input_tokens: probes.reduce((s, p) => s + p.total_input, 0) / probes.length,
+    avg_output_tokens: probes.reduce((s, p) => s + p.output_tokens, 0) / probes.length,
+    model: probes[0]?.model ?? "unknown",
+    tools_available: probes[0]?.tools_available ?? 0,
+    mcp_servers: probes[0]?.mcp_servers ?? 0,
+  };
+}
+
 const args = process.argv.slice(2);
 const runArg = args.includes("--run") ? args[args.indexOf("--run") + 1] : undefined;
 const showAll = args.includes("--all");
 const jsonOut = args.includes("--json");
+const appendLog = args.includes("--append-log");
+
+// --append-log: parse latest run, append one JSON line to run-stats.jsonl, print summary
+if (appendLog) {
+  const runDir = getRunDir(runsBase, runArg);
+  const runDirName = basename(realpathSync(runDir));
+  const logs = readdirSync(runDir).filter((f) => f.endsWith(".log")).sort();
+
+  if (logs.length === 0) {
+    console.error(`No .log files in ${runDir} — skipping stats`);
+    process.exit(0);
+  }
+
+  const probes = logs.map((f) => parseLog(join(runDir, f))).filter(Boolean) as ProbeStats[];
+  if (probes.length === 0) {
+    console.error(`No parseable logs in ${runDir} — skipping stats`);
+    process.exit(0);
+  }
+
+  const summary = buildSummary(probes, runDirName);
+  const logPath = join(PATHS.runs, "..", "run-stats.jsonl");
+  appendFileSync(logPath, JSON.stringify(summary) + "\n");
+
+  printSummary(probes, runDir);
+  console.log(`\n→ Appended to run-stats.jsonl`);
+  process.exit(0);
+}
 
 if (showAll) {
   const dirs = readdirSync(runsBase).filter((d) => /^\d{8}-\d{6}$/.test(d)).sort();
@@ -166,21 +211,7 @@ if (showAll) {
     if (probes.length === 0) continue;
 
     if (jsonOut) {
-      summaries.push({
-        run_dir: dir,
-        probes: probes.length,
-        total_duration_s: probes.reduce((s, p) => s + p.duration_s, 0),
-        total_cost_usd: probes.reduce((s, p) => s + p.cost_usd, 0),
-        total_input_tokens: probes.reduce((s, p) => s + p.total_input, 0),
-        total_output_tokens: probes.reduce((s, p) => s + p.output_tokens, 0),
-        avg_duration_s: probes.reduce((s, p) => s + p.duration_s, 0) / probes.length,
-        avg_cost_usd: probes.reduce((s, p) => s + p.cost_usd, 0) / probes.length,
-        avg_input_tokens: probes.reduce((s, p) => s + p.total_input, 0) / probes.length,
-        avg_output_tokens: probes.reduce((s, p) => s + p.output_tokens, 0) / probes.length,
-        model: probes[0]?.model ?? "unknown",
-        tools_available: probes[0]?.tools_available ?? 0,
-        mcp_servers: probes[0]?.mcp_servers ?? 0,
-      });
+      summaries.push(buildSummary(probes, dir));
     } else {
       printSummary(probes, runPath);
     }
