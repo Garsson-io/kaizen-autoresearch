@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "While the core sorting logic could be tested with mocked file paths at Unit level, real failures arise from filesystem discovery behavior—which varies across OSes (Unicode handling, case sensitivity, directory ordering). Production runs against real filesystems. To catch OS-specific issues with file discovery and ordering, the test must use actual .sql files on disk.",
+      "test_description": "Create a temporary directory with actual .sql migration files using various numeric prefixes (01_init.sql, 02_users.sql, 10_permissions.sql, 9_settings.sql). Run the migration runner and verify: (a) discovery finds all .sql files, (b) ordering is strictly ascending by numeric prefix, (c) non-migration files (e.g., .txt, .bak) are ignored, (d) edge cases work (padding variations, Unicode characters, multiple dots in names).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem I/O to catch actual file discovery and OS-level ordering issues; mocked paths would hide real failures.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency depends on the _migrations metadata table persisting state and being correctly consulted. Mocking database calls would hide real issues: transaction isolation failures, schema mismatches, or incorrect state checks. A real database is necessary to verify that the metadata table survives restarts, correctly records applied migrations, and prevents re-execution.",
+      "test_description": "Run the migration runner twice against a real test PostgreSQL database. First run applies all migrations and creates the _migrations table. Second run verifies: (a) no migration SQL statements are re-executed (query logs or side-effect checks), (b) the _migrations table contains all previously applied migrations, (c) the database state is unchanged from the end of the first run, (d) a third run also exhibits the same idempotent behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real database to verify state persistence and the actual mechanics of the idempotency check.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Automatic rollback correctness depends on actual database transaction semantics. Mocking transaction behavior would hide real issues: partial commits, savepoint failures, or database-version-specific rollback quirks. A real database is required to verify that failed migrations are truly rolled back and that the runner halts further processing.",
+      "test_description": "Create a migration sequence with a valid migration, followed by an intentionally broken migration (e.g., invalid SQL syntax, unique constraint violation, or missing table reference), followed by another valid migration. Run the migration runner once and verify: (a) the broken migration fails with an error, (b) its changes are rolled back (inspect the database to confirm affected tables/data remain unmodified), (c) no further migrations after the failure are attempted, (d) all migrations before the failure remain fully applied and committed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real database to verify actual transaction rollback; mocks cannot reliably test rollback semantics.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Concurrency correctness depends on real distributed race conditions, database-level locking, and process synchronization. Mocking or using threads cannot reliably trigger deadlocks, lock timeouts, or ordering failures that occur when separate OS processes contend for the same database resources. Production runs separate processes; the test must match that reality to catch real failures.",
+      "test_description": "Start two separate Node.js processes simultaneously via subprocess (not threads), both running the same migration set against a shared test PostgreSQL database. Verify: (a) both processes complete without deadlock, timeout, or corruption, (b) the _migrations table contains exactly N entries (no duplicates, no missing migrations), (c) the final database state is identical to a single-process baseline run with the same migrations, (d) no migrations appear partially applied or recorded twice.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires actual separate OS processes and a real database to trigger real race conditions and process-level synchronization issues.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.25,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "Verifying table creation, schema correctness, and initialization order requires a real database. Mocking database operations would hide issues: schema mismatches, permission errors, or transaction ordering failures. An actual fresh PostgreSQL instance is necessary to ensure the table is created with the correct schema before any migrations run.",
+      "test_description": "Start with a completely fresh PostgreSQL database containing no _migrations table. Run the migration runner once. Verify: (a) the _migrations table is created with the correct schema (columns: id, name, applied_at or similar), (b) the table is created before any migration file is applied, (c) all migration files are applied after table creation, (d) the final _migrations table contains exactly N entries (one per migration file), (e) a second run does not attempt to recreate the table or cause schema conflicts.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real fresh database to verify initialization order and table creation logic; mocks would hide real schema and permission issues.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

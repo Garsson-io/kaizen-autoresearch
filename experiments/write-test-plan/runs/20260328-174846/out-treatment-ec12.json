@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "Verifying that invalid rows reach a dead-letter queue requires testing against actual queue infrastructure (Postgres table, local Kafka, or moto SQS). Mocking the queue write at the function level would hide failures in message serialization, ordering guarantees, metadata encoding, and queue connection handling. The real failure—missing row number, garbled message format, or failed queue write—only surfaces when integrating with realistic queue infrastructure.",
+      "test_description": "Set up a real local queue system (Postgres dead-letter table, local Kafka, or moto SQS). Process a CSV with rows missing required fields (blank strings, NULLs in required columns). For each invalid row, verify it appears in the dead-letter queue with: (1) original row number from source CSV preserved, (2) complete original row data intact, (3) error reason explaining which field was missing. Scatter invalid rows throughout the CSV (e.g., rows 5, 47, 200) to verify ordering and batch handling. Assert message format consistency, no missing entries, and no duplicates in DLQ. This catches failures in serialization, metadata preservation, and queue client behavior that mocks would hide.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real local queue infrastructure; function-level mocks would hide serialization, metadata, and queue-client failures. Integration is the minimum level.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "Date transformation is deterministic pure logic with no external dependencies. All failure modes (incorrect parsing, format mismatch, edge cases) are caught by testing the function directly with various inputs. No I/O, no database, no API calls—just string input transforming to string output.",
+      "test_description": "Parametrized unit test covering all supported formats: ISO 8601 ('2024-01-15'), US ('01/15/2024'), European ('15.01.2024'). Assert all inputs convert to canonical format (e.g., '2024-01-15'). Add edge cases: leap year dates (Feb 29, 2024), month boundaries (Jan 31, Feb 1), century boundaries (1900, 2100), and invalid inputs (Feb 30, 13/01/2024). Assert invalid inputs raise specific ValueError. No integration, no mocks needed—this is pure function testing.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Pure logic with no external dependencies. Unit level is sufficient and optimal; Integration would add unnecessary complexity.",
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.03,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "Memory and timeout behavior only manifest under real load. Testing with small datasets (100 rows) or mocks would hide memory leaks, inefficient streaming, or buffer management issues. The failure—OOM kill, timeout exception, or resource exhaustion—is only triggered by processing a realistically-sized dataset.",
+      "test_description": "Generate a test CSV with 500,000 rows matching production schema (same columns, realistic data distribution, typical field sizes). Run the pipeline with configured timeout (e.g., 5 minutes) and memory limit (e.g., 2GB). Measure wall-clock execution time and peak memory usage (via psutil, /proc/self/status, or system resource monitor). Assert: (1) execution completes before timeout with exit code 0, (2) peak memory usage stays below configured limit, (3) all 500,000 rows successfully processed, (4) no OOM killer invoked or out-of-memory exceptions. Use local CSV file (no need for real S3—memory profiling is independent of I/O source). This requires real dataset; mocks and small samples would miss memory exhaustion and timeout failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot test memory pressure or timeout behavior without a real 500K-row dataset. Integration (local large file) is the minimum level.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "Testing retry-and-backoff behavior requires realistic S3 error simulation. Pure function-level mocks (e.g., MagicMock returning 503) cannot replicate how boto3 actually handles transient errors, connection pooling, and backoff calculation. Using moto to mock S3 at the HTTP boundary provides realistic error semantics. The real failure—unhandled 503, incorrect backoff timing, or premature batch failure—only surfaces with realistic S3 interaction.",
+      "test_description": "Set up moto to mock S3 with a test bucket and CSV object. Configure moto to return HTTP 503 (Service Unavailable) on the first 3 read attempts to the CSV file, then succeed on attempt 4. Run the pipeline and verify: (1) pipeline does not fail the batch; instead, it retries and succeeds, (2) all rows from CSV are fully processed despite transient errors, (3) actual retry delays match the configured exponential backoff formula (e.g., 1s, 2s, 4s, 8s—verify via mock call log timestamps or pipeline debug logs), (4) backoff timing is exponential (not linear, not random). Assert no permanent failure and no partial batch writes. Function-level mocks would not catch boto3 connection handling, timeout behavior, or backoff calculation errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Realistic S3 simulation via moto is necessary to catch backoff and retry failures; function-level mocks would hide boto3-specific behavior. Integration is the minimum level.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "Testing idempotency across restarts requires real PostgreSQL constraint semantics (primary key enforcement, unique constraints, transaction rollback behavior). Mocking the database would hide failures caused by partial transaction rollback, lost constraint violations on retry, or re-inserted rows due to missing upsert logic. The real failure—duplicated rows in the actual database—only surfaces when writing to real Postgres with actual constraints and transaction semantics.",
+      "test_description": "Set up a real local PostgreSQL test database with the target table, including a primary key or unique constraint on the row identifier. (A) Run the pipeline to process a batch of 100 rows, but interrupt mid-batch after exactly 50 rows are written to Postgres (e.g., send SIGTERM to the pipeline process). (B) Verify: 50 rows in Postgres, 50 rows unprocessed. (C) Restart the pipeline from the beginning (or with resume logic if implemented). (D) Verify no duplicates by querying: SELECT COUNT(*) vs COUNT(DISTINCT primary_key)—both should equal 100. Assert: all 100 rows eventually present, unique constraint still enforced, no constraint violations logged during restart. Run multiple times to test transaction rollback behavior under different failure points. Mocks would not catch actual Postgres constraint behavior, transaction semantics, or idempotency failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real Postgres constraints and transaction semantics are required to catch idempotency failures; mocks would hide constraint conflicts and rollback issues. Integration is the minimum level.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

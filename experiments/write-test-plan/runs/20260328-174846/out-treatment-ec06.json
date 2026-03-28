@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed, not only files in the root directory.",
+      "minimum_level": "Integration",
+      "justification": "The failure is real: fs.watch() without `{ recursive: true }` doesn't emit events for subdirectories on non-macOS systems, or the code explicitly checks only the root directory. A mock fs.watch that emits subdirectory events would always pass, hiding that the real watcher isn't configured correctly. You need a real filesystem with actual subdirectory structure and real fs.watch behavior to catch this OS-specific issue.",
+      "test_description": "Create a real directory structure (root with nested subdirectories), place a test file 3 levels deep, start the daemon watching the root, verify the file is processed. Repeat on Windows and Linux to catch missing `recursive: true` option.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This is pure state-machine logic: track file paths + timestamps, reject requests within the window. The failure is a logic bug (wrong comparison operator, off-by-one error in timing), not an infrastructure issue. You can test the full behavior with mocked fs.watch events and mocked timers (jest.useFakeTimers()) without touching real I/O.",
+      "test_description": "Mock two fs.watch events for the same file path separated by 50ms (with a 100ms window configured). Verify the file is processed once (first event accepted) and the second is discarded. Use fake timers to control timing precisely.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "Real OS behavior: Windows fs.watch can emit 3–5 events for a single file write; Linux emits 1–2; macOS varies. If the dedup window is too short (e.g., 50ms) or logic is wrong, the file gets processed multiple times. Mocking multiple events would pass if dedup exists, but wouldn't catch that the dedup window is insufficient for real OS event timing. You need a real file write and real fs.watch to see the actual event frequency.",
+      "test_description": "Write a 10MB file to the watched directory (triggering real fs.watch events), capture all emitted events in a list, verify exactly one processing occurs. Repeat on Windows/Linux to observe OS-specific event counts and verify dedup handles them.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "Integration",
+      "justification": "The failure is real: fs.watch throws an error or closes silently when the watched path is deleted. If the code doesn't have proper error handling and watcher re-establishment, the daemon stops watching. Mocking an error event would always pass if error handling exists, but wouldn't catch that the re-opened watcher isn't actually listening. Real filesystem operations (rm -r, mkdir) and real fs.watch recovery behavior are needed.",
+      "test_description": "Start daemon watching a real directory, delete it (rm -r), capture the error event, verify the daemon closes the watcher cleanly. Then recreate the directory, trigger a new file write, verify the daemon re-establishes the watcher and processes the file.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Unit",
+      "justification": "The core logic—sorting files by birthtime—can be tested with mocked fs.watch events (emit in wrong order) and mocked fs.stat() calls (return various birthtimes). A pure Unit test verifies the sort is correct. Secondary concern: whether birthtime is reliably available on the target filesystem (some old filesystems don't support it, or have OS-specific precision). For 'does the code sort' the answer is Unit; for 'is birthtime reliable on my OS' it's Integration.",
+      "test_description": "Mock fs.watch to emit events for 3 files out of chronological order. Mock fs.stat to return birthtimes. Verify the daemon processes files in birthtime order, not event order. For Integration: create real files with controlled birthtimes, verify processing order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "Integration",
+      "justification": "The failure is real: the code reads a file before its write completes, processes partial data, or crashes. Detection methods (checking file size growth, testing file locks, using fs.open with exclusive flags) are OS-specific and unreliable when mocked. Mock fs.stat() always returns 'complete', hiding that the real file lock/size-check logic doesn't work on the target OS. You need a real file being written and real lock/size semantics.",
+      "test_description": "In a background thread, write a large file slowly to the watched directory. Verify the daemon does NOT process it while it's being written (no output file created). After the write completes, verify the daemon processes it. Use real fs.stat() and locking behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

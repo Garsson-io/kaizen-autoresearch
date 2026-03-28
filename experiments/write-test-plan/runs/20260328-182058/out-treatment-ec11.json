@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The conversation history passed to the LLM is trimmed to the most recent 10 messages when the full history exceeds the context window.",
+      "minimum_level": "Unit",
+      "justification": "The trimming logic is deterministic code—if history > 10 messages, keep the last 10. A Unit test mocking the LLM call can verify that when 15 messages are input, exactly the last 10 are passed to the LLM. The real failure (trimming doesn't happen, or wrong messages selected) is caught by checking what arguments the mock receives. No I/O boundary crossed; logic is local to this function.",
+      "test_description": "Unit test that constructs a conversation with 15 messages, mocks the LLM call, invokes the trim-and-send logic, and asserts that the mock LLM received exactly the most recent 10 messages (by argument inspection). Verify both correct count and correct ordering (last-10, not first-10).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "Whether the response addresses the question depends entirely on what the real LLM produces—this is non-deterministic behavior. A mock that always returns an on-topic response would hide the real failure: the LLM generating a generic or off-topic reply in production. This failure can only be caught by sending a real customer question to the real LLM and validating the semantic content of the response. Mocking would eliminate the very failure mode we need to detect.",
+      "test_description": "End-to-end test that sends a specific customer question (e.g., 'How do I reset my password?') to the chatbot with a real LLM call, captures the generated response, and validates it addresses the question via keyword matching, semantic similarity, or a secondary LLM-based evaluation. Run with multiple questions to catch consistent off-topic behavior.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "The tone re-check is itself an LLM call (or AI classifier) that evaluates formality—its classification is non-deterministic and depends on real model behavior. A mock tone-check would always return a predictable result, missing the real failure: the actual LLM classifier not identifying formality correctly on responses it's never seen in training. The regeneration trigger logic could be Unit-tested with a mock, but the critical failure is in the tone classification itself, which requires the real LLM to expose.",
+      "test_description": "Test that generates a deliberately formal response using a crafted prompt, sends it to the real tone-check LLM with customer tier 'casual', and verifies the tone classifier correctly flags it as 'too formal'. Then confirm that the regeneration logic is triggered in response. Repeat with multiple formality levels to ensure boundary accuracy.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "Persistence correctness requires a real database (or test database with real schema)—mocking the database would hide failures like missing fields, incorrect timestamps, connection errors, or transaction rollbacks. The real failure is data not reaching storage or being stored incorrectly. This crosses an I/O boundary (database write/read) and requires validating actual data state, not just mocked calls. Schema validation, timestamp ordering, and complete data capture all depend on real database interaction.",
+      "test_description": "Integration test that constructs a conversation with initial and regenerated responses, invokes the persistence layer against a real test database, then queries the database directly to verify: (1) all fields are stored (user message, initial response, regenerated response, regeneration marker), (2) timestamps are monotonically increasing, (3) records can be retrieved by user ID and timestamp range. Include a test for concurrent writes to catch race conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior requires multiple agentic steps in sequence: (1) the real LLM generates an initial response, (2) the real tone-check LLM evaluates it, (3) the real LLM regenerates if flagged. Only a real tone-check can trigger the regeneration scenario; a mock tone-check would mask failures where the actual classifier doesn't trigger. Additionally, the outcome (customer sees only final response) must be verified against a real database. The failure depends on the real LLM tone-check behavior AND the full persistence logic, making this a workflow-level test that can't be reduced to lower levels without missing critical failure modes.",
+      "test_description": "End-to-end workflow test: (1) Send a customer question with crafted context to the real LLM to generate a formal initial response, (2) Call the real tone-check LLM and confirm it flags the response as too formal for a casual customer, (3) Invoke the regeneration step with the real LLM to produce a more casual response, (4) Persist both interactions to a test database, (5) Query the database as the customer would and verify only the final response is returned—never the rejected formal draft. Validate timestamps show the regeneration sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0,
+        "Agentic": 0.15,
+        "Workflow": 0.65
+      }
+    }
+  ]
+}

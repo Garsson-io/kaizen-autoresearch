@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior fundamentally requires the real AI vision model to correctly identify explicit content. A mock model can simulate returning 'flagged', but it cannot verify that the *actual* model detects explicit images. The real failure mode is: an image with explicit content reaches users because the model fails to classify it. This cannot be caught by mocking—only by testing with a real vision model that might misclassify or have blind spots.",
+      "test_description": "Submit real images with explicit content to the system using the actual vision model. Verify each image is flagged in the moderation database and does not appear in the published feed. Test a diverse range of explicit content (varies by policy) to ensure the model's classification is working. This test fails if the real model returns a non-flagged result or if the system publishes the image despite the flag.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.15,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "Testing robustness to obfuscation requires the real text model's actual behavior. A mock model could be set to return 'flagged' for any input, but this doesn't test whether the real model actually handles obfuscation techniques. The real failure mode is: obfuscated hate speech bypasses the real model and is published. Mocking prevents verification of the model's actual robustness. Only the real model can demonstrate (or fail to demonstrate) obfuscation resistance.",
+      "test_description": "Generate or curate text samples with hate speech obfuscated using known techniques (numeric substitution, unicode lookalikes, intentional misspellings). Submit these to the real text model and verify they are all flagged. Run this test multiple times with varied obfuscation approaches to ensure robustness. A failure occurs if the real model classifies an obfuscated hate speech sample as safe.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the publish orchestration logic given that both checks have passed. The real failure modes—publish database write fails, publish endpoint fails, wrong state transition—can be caught by wiring together the orchestration, database, and publishing modules with mocked models returning 'safe'. Mocking the models is sufficient here because the test is about whether the publish path executes correctly when given passing results; model accuracy is tested separately in behaviors 1–2. A pure in-process mock of the models would miss failures in the downstream publish logic, but not failures in model classification.",
+      "test_description": "Create test posts (both text and image) known to pass both content checks by mocking the vision and text models to return safe classifications. Verify the post is inserted into the published collection/feed, with correct timestamp and metadata. Verify it does NOT appear in the moderation review queue. Run this with real database (not in-memory) to catch write failures. A failure is detected if the post is held for review, dropped, or published with corrupted data.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "Latency SLAs cannot be reliably tested without real infrastructure. Integration-level tests with mocked models and artificial delays cannot measure actual model latency or network overhead. The real failure—pipeline exceeds 5 seconds in production—can only be caught by measuring the actual end-to-end latency with real models (Agentic) and real network/database (System adds the infrastructure layer). System level is necessary to catch network timeouts, database query delays, and subprocess overhead that mocking would hide.",
+      "test_description": "Submit a post with both image and text through the full pipeline using real models and real infrastructure (actual databases, any external vision/text APIs if applicable). Measure end-to-end latency from submission to publish-decision completion. Run at least 50 submissions and verify 99th percentile latency is under 5 seconds. Test during peak load conditions if feasible. A failure is detected if any submission takes longer than 5 seconds or if the 99th percentile latency approaches the limit.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "System",
+      "justification": "Testing unavailability realistically requires simulating actual failure conditions of the real model service. An Integration-level test mocking the vision model to throw an exception can test basic error handling, but it misses realistic failure modes: network timeouts with partial connection state, service returning errors with rate-limit headers, connection pool exhaustion, and retry backoff interactions. The real failure—posts are auto-approved when the model is down—is most likely to occur due to network-level issues that only System testing exposes. A mock exception at Integration level hides these infrastructure-level failure modes.",
+      "test_description": "Make the real vision model service unavailable (either by stopping it, blocking network access, or using a test double that simulates network timeout/service error). Submit image posts and verify they are added to a retry queue with correct metadata (submission time, retry count). Verify posts are NOT published or auto-approved. After the service is available again, verify queued posts are re-processed. Test various unavailability conditions: connection timeout, HTTP 503 service unavailable, connection reset. A failure is detected if any post is auto-approved while the model is unavailable.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.25,
+        "System": 0.65,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "Consistency depends on the real model's behavior, not just the caching/deduplication logic. A mock model set to always return the same result would hide real inconsistency in the actual vision model. The real failure—the real model returns different classifications for the same borderline image—requires testing with the actual model. While caching logic can be tested at Integration level, this behavior is specifically about model consistency, which is an Agentic-level property. Some AI models may return different confidence scores or edge-case classifications on repeated calls, and these non-deterministic behaviors only emerge with real models.",
+      "test_description": "Select borderline images (close to classification boundaries) and submit the same image 10 times within a 60-second window. Capture the moderation decision for each submission. Verify all 10 submissions return identical moderation decisions (both classification and any confidence/severity metadata). Test with real vision model calls to catch non-determinism. If a caching/deduplication layer is present, verify it correctly identifies and re-uses results from prior calls. A failure is detected if the same image receives different moderation decisions across submissions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.15,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

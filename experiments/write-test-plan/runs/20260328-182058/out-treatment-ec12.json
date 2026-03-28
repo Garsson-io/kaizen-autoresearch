@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number",
+      "minimum_level": "Integration",
+      "justification": "The validation logic itself is a pure function testable at Unit level, but the complete behavior—'appear in the dead-letter queue with the original row number'—requires verifying actual I/O to the DLQ. Mocking the DLQ write would hide serialization bugs, actual write failures, or row number tracking loss during pipeline execution. A Unit test of validation alone doesn't verify the row survives the full pipeline to the DLQ. Integration-level testing with a real or testable DLQ (e.g., local Kafka, RabbitMQ, or an in-memory queue mock) is needed to catch failures in row tracking, DLQ serialization, and end-to-end flow.",
+      "test_description": "Set up a test CSV with rows missing required fields. Run the pipeline against it, capture the DLQ output, and verify: (1) invalid rows are written to the DLQ, (2) the original row number is preserved in the DLQ message, (3) valid rows are not in the DLQ. Use a testable DLQ (e.g., in-memory mock or local test instance).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format",
+      "minimum_level": "Unit",
+      "justification": "This is a pure, deterministic transformation with no external dependencies, no I/O, and no non-determinism. The transformation function takes a string input and produces a canonical date output. All failure modes—wrong parsing logic, incorrect output format, unhandled edge cases—are caught by input/output verification in a single function. Mocking adds no value; the logic is entirely in-process. Parametrized Unit tests covering all input formats (ISO 8601, US, European) and edge cases (invalid dates, null values) are sufficient.",
+      "test_description": "Write a parametrized Unit test that exercises the date transformation function with multiple format inputs: ISO 8601 (2026-03-28), US (03/28/2026), European (28/03/2026), and edge cases (invalid dates, null/empty strings). Assert each produces the expected canonical output (e.g., 2026-03-28 or a consistent timestamp format).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory",
+      "minimum_level": "Integration",
+      "justification": "This is a performance and resource constraint behavior that cannot be tested in isolation with mocks. The failure boundary is real file I/O, real memory usage under sustained processing, and real elapsed time. Mocks would always succeed instantly with no memory pressure, completely hiding the issue. To catch real failures, the pipeline must: (1) read a large CSV from actual storage (S3, local file, or realistic S3 mock), (2) process all 500K rows, (3) actually measure memory consumption and elapsed time. This requires Integration-level infrastructure: either real file I/O with measurement tools or an in-memory test dataset large enough to stress the pipeline. If the pipeline streams rows efficiently, it passes; if it loads all rows into memory, the test will OOM or timeout.",
+      "test_description": "Create or mock a 500K-row CSV file. Run the pipeline end-to-end with memory and time profiling enabled. Measure peak memory usage and wall-clock completion time. Assert that: (1) completion time < configured timeout (e.g., 5 minutes), (2) peak memory < configured limit (e.g., 2GB), (3) all rows are processed (no early exit). Use tools like memory_profiler or psutil to capture actual resource usage.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.85,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch",
+      "minimum_level": "Integration",
+      "justification": "The retry logic can be isolated and Unit tested with mocked S3 (using boto3-stubs or moto) and mocked time.sleep. However, the complete behavior—'retries...rather than failing the entire batch'—requires testing the retry logic in the context of the full pipeline's batch processing. A Unit test might verify retry counts and backoff delays in isolation, but would miss failure modes like: (1) the batch fails despite retries succeeding, (2) retry state is lost across pipeline stages, (3) the pipeline abandons the batch prematurely. Mocking S3 to always succeed (the common case) hides whether retry logic is even invoked. Integration-level testing with moto (injecting 503 on first call, 200 on retry) and verifying the full batch completes is needed to catch these contextual failures.",
+      "test_description": "Use moto to mock S3 such that the initial read returns 503 (Service Unavailable), then subsequent calls return 200 with valid data. Mock time.sleep or use a mock clock to record backoff delays. Run the pipeline against this mocked S3 and assert: (1) the read is retried (not failed on first attempt), (2) backoff delays follow the configured exponential schedule (e.g., 1s, 2s, 4s...), (3) the pipeline eventually succeeds and completes the batch, (4) the batch is not marked failed or abandoned.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch",
+      "minimum_level": "System",
+      "justification": "Idempotency across process restarts is fundamentally about database state durability and recovery. This cannot be tested with mocks because the entire failure mode is: 'the real database allows duplicates after a restart.' Mocking the database would never reveal this—you control what the mock returns. To catch the real failure, the test must: (1) start the pipeline and write rows to a real (or realistic) database, (2) kill or pause the pipeline mid-batch, (3) restart the pipeline, (4) verify the database contains no duplicates. This requires System-level infrastructure: real PostgreSQL (or test instance), subprocess management (to actually kill/restart the process), transaction log handling, and potential recovery mechanisms. The failure boundary is the combination of process restart semantics, database recovery, and the pipeline's idempotency key/constraint strategy.",
+      "test_description": "Set up a test PostgreSQL instance with a unique constraint on the idempotency key (e.g., batch_id + row_id). Start the pipeline processing a CSV with 1000 rows. After ~500 rows are written, kill the pipeline process. Restart it with the same batch ID. Let it complete. Query the database and assert: (1) all rows are eventually written, (2) no duplicates exist (count of each unique key = 1), (3) the final row count = expected count. Verify the pipeline uses idempotency keys or transaction IDs to avoid re-inserting already-processed rows.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0.07
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "The core behavior is a deterministic scoring function applying configured rules (threshold comparison, score formula) to transaction data. A Unit test can verify the logic by passing configured thresholds and transaction data directly to the function, catching bugs in: threshold comparison, merchant-category mapping, and score calculation. No external I/O is needed. While configuration *origin* (file/DB loading) is a separate concern, testing that the function applies a given threshold correctly is pure function logic. Mocking the scoring function itself would hide bugs, but calling the real function with configured parameters is sufficient.",
+      "test_description": "Unit test of the scoring function with configured merchant-category thresholds. Arrange: transaction with amount $1500, merchant category 'travel' with $1000 threshold. Act: call scoring function with transaction and config. Assert: risk score is ≥ 75 (or configured threshold-based score). Parameterized: transactions under threshold, at threshold, over threshold, multiple categories, edge amounts (e.g., $999.99 vs $1000.01). Verify threshold comparison logic, merchant-category lookup, and score formula.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires only Unit-level infrastructure (configured parameters passed directly, no DB or external calls). Catches real logic bugs (wrong comparison operator, missing merchant lookup, incorrect formula).",
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.25,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Integration",
+      "justification": "The behavior depends on the *real* risk model's ability to detect multi-factor patterns in transaction context (purchase history, device fingerprint, merchant category, geography). Mocking the risk model to always return 'fraudulent' completely hides whether it actually recognizes the specific pattern. The realistic test must: (1) use the actual risk model (trained classifier, in-process or external), (2) construct realistic transaction context data with the pattern (5 small purchases across geographies), (3) verify the real model produces the correct fraud probability. This catches real failures (model doesn't learn the pattern, model weights are stale, pattern is not in training data). Minimum is Integration (in-process real model) or System (external API).",
+      "test_description": "Integration test with real risk model and realistic transaction context. Arrange: construct transaction context with 5 purchases <$50 each within 2 hours from 5 different geographies (e.g., purchases in NY, CA, TX, FL, London), same device, fast velocity, no amount-threshold breach, normal merchant categories. Act: call real risk model with this context. Assert: fraud_probability > 0.9 (model recognizes the pattern). Parameterized: test pattern with varying numbers of purchases, time windows, and geographies. Verify model captures the combined signal even when individual rules don't trigger.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires real model (not mock) and realistic multi-factor data structure. Would be hidden by a Unit test with mocked model. Catches the critical failure: model doesn't actually detect the pattern.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "Velocity checking has boundary-condition traps that a mock would hide: off-by-one errors in the count, incorrect time-window boundary handling (transaction exactly at window edge), timezone/clock-skew bugs, or filtering logic applied backwards. Mocking the transaction lookup would pass even if the real time-window logic is broken. Testing requires: (1) a real or test transaction data store (local DB or in-memory with timestamps), (2) ability to create transactions with controlled timestamps, (3) verify the count is correct for edge cases. Example bug: time-window filter uses '<' instead of '<=', causing count = 2 when it should be 3. Only caught with real data and real filter applied.",
+      "test_description": "Integration test with test database or in-memory transaction store. Arrange: insert user's transactions with specific timestamps: 3 transactions in last 30 minutes, 5 in last 24 hours. Configured velocity window: 1 hour. Act: call velocity-check function for user with time-window config. Assert: count = 3 (only last-hour transactions). Parameterized: no transactions in window, some in window, transactions at boundary (timestamp exactly at window edge), clock-skew scenarios (now is T, transaction at T-3600 should be excluded, T-3599 included). Verify correct boundary handling and off-by-one logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real transaction data store (with timestamps) to catch boundary bugs. Mocking the query would hide off-by-one and boundary-condition failures. Unit test with passed-in transaction list could work but is brittle to real data format.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Unit",
+      "justification": "The behavior is purely combinatorial logic: if (scoring_model_flags OR risk_model_flags) then hold_transaction. Testing all four input combinations—(safe, fraud), (fraud, safe), (fraud, fraud), (safe, safe)—with mocked model outputs is sufficient to verify the OR logic. A bug here (e.g., using AND instead of OR, or not holding on risk-model flag) is caught immediately by Unit test. No external dependencies, no real models, no DB needed. The failure (wrong gating logic) is a logic bug, not a data/integration bug.",
+      "test_description": "Unit test of fraud-decision gating logic with mocked model outputs. Parameterized test cases: (1) scoring_risk=safe, risk_fraud_prob=0.95 → assert transaction_held=true, (2) scoring_risk=fraud, risk_fraud_prob=0.05 → assert transaction_held=true, (3) both fraud → assert held, (4) both safe → assert not_held. Mock scoring model to return fixed risk scores (safe=20, fraud=80). Mock risk model to return fixed probabilities. Verify the OR gate correctly combines outputs: if *either* model flags, transaction is held.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires only Unit-level mocking of two models and verification of combinatorial logic. Catches the real bug (AND instead of OR, or missing one model's flag in hold decision).",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Unit",
+      "justification": "The behavior is about verifying the response/output data structure includes required fields with correct values and types. Mocking both models (scoring_model returns risk_score=72.5, risk_model returns fraud_prob=0.87) and verifying the response includes both values, properly labeled and serialized, is a Unit-level schema test. No real models, databases, or external calls needed. Real failure: missing field, wrong field name, incorrect serialization, or wrong data type. All caught by Unit test with mocked inputs.",
+      "test_description": "Unit test of output formatter/response builder. Arrange: mock scoring model to return risk_score=72.5; mock risk model to return fraud_probability=0.87. Act: call fraud-detection service endpoint with mocked models. Assert: response includes fields 'scoring_model_risk_score'=72.5 (numeric), 'risk_model_fraud_probability'=0.87 (numeric), both present and correctly typed. Verify response is JSON-serializable, includes labels so reviewer knows which model produced which score, and both values are included (not omitted). Parameterized: edge values (score=0, probability=1.0, missing fields), verify no fields are dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires only Unit-level mocking and schema verification. Catches real failures (missing field, wrong label, incorrect serialization). No integration needed unless the output transformation is complex (unlikely).",
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.15,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

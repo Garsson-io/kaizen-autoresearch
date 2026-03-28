@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "Verifying semantic coherence and meaning preservation requires calling the real neural translation API and evaluating its output. Mocking the translator hides failures where the real model produces degraded or incoherent output. To catch this failure, you need a semantic evaluator (another AI model, or human review) that assesses whether the translation preserves meaning. A pure Unit test with a mock translator would always pass because the mock can be configured to return any string.",
+      "test_description": "Call the real translation API with diverse test inputs across different languages and domains (e.g., idioms, technical text, slang). Use an automated semantic evaluator (e.g., a second LLM comparing source-target semantic similarity, or BLEU/METEOR metric against reference translations) to verify outputs preserve meaning and exhibit grammatical coherence. Catch real failures like model degradation, deployment issues, or API misconfiguration that break translation quality.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.25,
+        "Agentic": 0.65,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Error handling logic can be tested with mocking (mock the API to return 503), but the fallback lookup depends on a real SQLite database. A Unit test with fully mocked databases would miss issues with the actual database schema, query syntax, or connection handling. Integration testing with a real SQLite database (populated with test phrases) and a mocked HTTP client is the realistic minimum to verify the fallback is triggered and the caller receives a response without error propagation.",
+      "test_description": "Mock the translation API HTTP client to raise/return a 503 status code. Populate a real SQLite database with test phrase mappings. Invoke the service with a known phrase, verify: (1) the primary translator is attempted, (2) the 503 error is caught internally, (3) the fallback lookup succeeds and returns the correct phrase, and (4) no error is raised to the caller—the response is successful.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This is a database query correctness test. Mocking the database would hide failures like incorrect SQL syntax, wrong column names, type mismatches, or index/schema issues. A real SQLite database is necessary to verify the query actually retrieves the expected phrase. The realistic failure is 'query returns wrong data' or 'query fails,' both of which only surface with a real database.",
+      "test_description": "Create a real SQLite database with a known schema and populate it with phrase mappings (e.g., 'hello' → translated phrase). Invoke the fallback translator with queries for existing phrases (exact and partial matches if supported) and verify the correct pre-stored translation is returned. Test edge cases: missing phrase (should return null/not-found), case sensitivity, special characters in phrases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.95,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "This behavior spans computation (edit distance algorithm) and persistence (storing in database). The edit distance computation itself is testable at Unit level, but the realistic failure boundary is storage: the metric must actually be saved to the database and retrievable. Integration testing with a real database (or at least a mock that verifies the INSERT statement) is needed to catch issues like missing columns, serialization errors, or connection failures. Testing only the algorithm in isolation misses data persistence bugs.",
+      "test_description": "Invoke the service with known primary and fallback translations. Verify: (1) the edit distance is computed correctly (e.g., 'hello' vs 'hallo' = 1 edit). Capture or mock the database transaction and verify the metric is persisted: query the database to confirm the edit distance value, timestamp, and associated translation IDs are correctly stored and retrievable. Test edge cases: identical strings (distance 0), completely different strings (maximum distance), empty strings.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires verifying both the primary path (correct translation is returned) and the background side effect (quality metrics are logged to database). Unit testing with all mocks would not catch failures in background task execution, database logging, or async/task queue issues. Integration testing with a real database and a task execution mechanism (real or mocked background task runner) is necessary to verify the quality metrics are actually persisted after the response is returned.",
+      "test_description": "Mock the primary translator to return a known translation, configure the real/mocked fallback, and invoke the service when both translators are available. Verify: (1) the response to the caller returns the primary translation immediately, (2) the background task (logging quality metrics) is enqueued/triggered, and (3) after the background task completes, the database contains the quality comparison record (edit distance, timestamp, etc.). Test timing: ensure the response is not delayed by background logging.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

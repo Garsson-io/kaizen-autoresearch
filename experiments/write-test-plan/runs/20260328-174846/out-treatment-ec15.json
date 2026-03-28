@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index",
+      "minimum_level": "System",
+      "justification": "A mocked embedding service can hardcode the correct dimension, hiding real issues like model misconfiguration, API endpoint changes, or service incompatibility. The real failure boundary is at the actual embedding API call—it might return vectors of unexpected dimension if the model has changed, the endpoint is wrong, or the service behaves differently. Only calling the real embedding API (System level) catches dimension mismatches before they cascade to vector DB insertion errors.",
+      "test_description": "Call the real embedding API (e.g., OpenAI text-embedding-3-small) with representative query strings of varying lengths and special characters. Verify that each returned vector has the expected dimension (e.g., 1536). Also test boundary cases like empty queries and very long queries to ensure dimension consistency across edge cases.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score",
+      "minimum_level": "Integration",
+      "justification": "Mocking the vector DB allows arbitrary result ordering without revealing ranking bugs. The real failure occurs when the actual vector DB's ranking logic fails—index corruption, incorrect similarity computation, or sorting bugs. Catching this requires a real or local vector DB instance loaded with known test vectors, querying with a test vector, and verifying the returned order matches descending similarity. Unit tests cannot exercise the actual ranking logic; Integration is the minimum level.",
+      "test_description": "Insert a set of 10+ vectors with known, varied similarity scores to a real or local vector DB instance (e.g., pgvector, Weaviate). Query with a test vector, capture returned results with their similarity scores, and assert that scores are strictly in descending order. Repeat with different query vectors and result set sizes to cover ranking under different conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent",
+      "minimum_level": "Agentic",
+      "justification": "Mocking the LLM to always return a different order passes the test while the real LLM might produce nearly identical rankings to raw similarity, failing to capture nuanced intent. LLM outputs are non-deterministic and context-dependent—the same query may produce slightly different rankings on successive calls. Only the real LLM can validate whether it actually reorders results based on semantic understanding of nuanced intent (e.g., distinguishing 'AI books by computer scientists' from 'AI books by philosophers'). Calling the real model multiple times is required to catch ineffective re-ranking.",
+      "test_description": "For a query with known nuanced intent (e.g., 'machine learning papers on interpretability, not general surveys'), retrieve top-5 results from similarity search alone. Call the real LLM re-ranker (e.g., Claude, GPT-4) with the top-5 and original query. Run this end-to-end test 10+ times and verify that the re-ranked order differs from similarity order in at least 70% of runs. Capture the re-ranked lists to inspect for semantic improvements in result order.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise",
+      "minimum_level": "Integration",
+      "justification": "Mocking the vector DB to return empty when configured to do so hides threshold-logic bugs in the actual implementation. The real failure occurs when the live vector DB returns low-similarity results and the filtering logic fails to reject them, or when the similarity threshold is set too low. This requires testing against a real or local vector DB with known data and a query vector orthogonal to all indexed vectors, verifying the threshold filtering works in practice.",
+      "test_description": "Load a real or local vector DB with a curated set of vectors (e.g., 50 product embeddings). Execute a query with an embedding vector that is orthogonal or far from all indexed vectors (e.g., from a completely different domain). Verify that the result set is empty and contains zero items. Repeat with multiple similarity threshold values (0.3, 0.5, 0.7) to ensure threshold logic is applied correctly at different sensitivity levels.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case",
+      "minimum_level": "Workflow",
+      "justification": "Mocking all dependencies (embedding API, vector DB, LLM) hides real latency bottlenecks—network round-trips, API queuing, model inference time, and serialization overhead. Latency is inherently non-deterministic and varies across runs due to network conditions, service load, and model inference variability. Only executing the full pipeline with real services over real networks, measured across many runs (100+), can establish reliable median latency and catch when the system violates the 2-second SLA. This is a Workflow test: multiple Agentic steps (embedding, LLM re-ranking) sequenced with System infrastructure (vector DB, network).",
+      "test_description": "Execute 100+ real end-to-end queries through the full pipeline: (1) call embedding API on diverse queries, (2) search the real vector DB, (3) fetch top-K results, (4) call real LLM re-ranker, (5) serialize and return response. Measure wall-clock latency for each query. Compute the median latency and verify it is < 2000 ms. Log the 50th, 75th, 95th, and 99th percentile latencies. Vary query complexity and result set sizes to ensure the SLA holds under realistic conditions.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

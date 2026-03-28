@@ -1,0 +1,111 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid HMAC signature rejects request with 401, body not enqueued",
+      "minimum_level": "Integration",
+      "justification": "Signature validation is deterministic crypto (pure function), but the failure is at the handler level: rejection must prevent enqueueing. In Node.js, handlers are typically framework-bound (Express, Fastify), so testing the actual HTTP endpoint is the realistic minimum. A Unit test of the validation function alone won't catch orchestration bugs (e.g., validation returns false but handler continues). Integration testing with real HTTP routing and mocked queue catches this.",
+      "test_description": "Call the webhook handler HTTP endpoint with a request containing an intentionally mismatched HMAC-SHA256 signature in X-Signature-256 header. Verify handler returns 401 status and queue client's enqueue() is never invoked. Use a spy/mock on the queue to confirm the body was rejected before any enqueue attempt.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Persistent queue write completes before HTTP 200 acknowledgment is sent",
+      "minimum_level": "Integration",
+      "justification": "This is a timing/ordering guarantee: the queue write operation must finish before the response is sent. A Unit test with a mocked queue that resolves instantly would always pass, even if the code does `await queue.write()` vs `queue.write() // no await`. The real failure emerges under actual I/O latency. Integration testing with a real persistent queue (in-memory or local DB) reveals if the await is present and ordering is correct.",
+      "test_description": "Call the webhook handler with a valid request. Instrument the queue client to track when write() resolves. Measure wall-clock time from handler start to HTTP response sent. Assert that response is not sent until after queue write promise resolves, confirming the handler awaits the write before returning 200.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "HTTP 200 response returned without waiting for downstream processing",
+      "minimum_level": "Unit",
+      "justification": "The failure is pure control flow: the handler must not await downstream processing. If the handler calls `await processor.process(event)` instead of `enqueue(event)` and returning, a Unit test with a slow mocked processor will fail when it doesn't receive the response before processing finishes. No real I/O or subprocess needed; mocking the processor and measuring response latency catches this.",
+      "test_description": "Mock the downstream processor to delay 10 seconds before completing. Call the webhook handler with a valid request. Verify the handler returns HTTP 200 within 100 ms (before processor finishes). Spy on processor invocation to confirm it's called asynchronously and doesn't block the response.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds even with slow concurrent downstream processing",
+      "minimum_level": "Integration",
+      "justification": "This is a performance assertion under realistic load. A Unit test with instant mocks will never reveal latency issues. The failure is hidden when downstream is mocked away—real I/O latency (queue writes, processor load) must be present. Integration testing with a real queue and slow-ish processor (or load simulator) is the minimum realistic setup to catch sub-3-second SLA violations under concurrent load.",
+      "test_description": "Set up Integration test with a real persistent queue and a mock processor that takes ~2 seconds per event. Send 10 concurrent valid webhook requests in rapid succession. For each request, measure wall-clock time from handler invocation to HTTP 200 received. Assert all responses arrive within 3 seconds, confirming the handler doesn't block on downstream even under load.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Event with duplicate ID not enqueued twice (idempotency enforced)",
+      "minimum_level": "Unit",
+      "justification": "The handler must deduplicate by event ID. If deduplication is in-process (in-memory Set) or backed by a mocked service, a Unit test catches the failure: call handler twice with same event ID, verify enqueue is called exactly once. If deduplication requires a real persistent store query, Integration becomes minimum. Without implementation details, Unit is the conservative choice—it catches the most common case.",
+      "test_description": "Call the webhook handler twice with valid requests containing the same event ID. Spy on the queue client's enqueue() method. Assert it is called exactly once, not twice. Verify that the second request is rejected or deduplicated before reaching the queue.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.5,
+        "Integration": 0.45,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Queue-full error triggers 503 response with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "The handler's error-handling path is pure logic: catch queue-full error, return 503 with Retry-After. Mocking the queue to throw 'Queue capacity exceeded' and verifying the response code and header is sufficient; no real queue needed. This is a straightforward error handling test.",
+      "test_description": "Mock the queue client's enqueue() to throw an error with code 'QUEUE_FULL'. Call the webhook handler with a valid request. Assert HTTP 503 is returned and the response includes a Retry-After header (e.g., 60 seconds).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces configured capacity limit, rejecting overflow",
+      "minimum_level": "System",
+      "justification": "This behavior tests the queue's own capacity enforcement, not the handler. A mock queue will never fill up, hiding the failure that the real queue doesn't enforce limits. A real persistent queue (Redis, RabbitMQ, or local SQLite) is required. If it's a locally-instantiated library, Integration suffices; if a remote service, System is needed. Either way, mocks are insufficient.",
+      "test_description": "Create a real persistent queue instance with capacity limit set to 100 events. Using the actual queue client (not mocks), enqueue 100 events successfully. Attempt to enqueue the 101st event. Verify the queue rejects it with an overflow error, confirming the capacity enforcement is real and operational.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.5,
+        "System": 0.45,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}
