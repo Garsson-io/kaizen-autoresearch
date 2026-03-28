@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources (metrics endpoint, issue tracker API, deployment log)",
+      "minimum_level": "Integration",
+      "justification": "Data flow across multiple collection modules must be tested together. Unit tests of individual source collectors won't catch failures where data is dropped during aggregation, lost in format conversion, or filtered out before reaching the summary step. We need the collectors and aggregator wired together.",
+      "test_description": "Mock all three source APIs to return known test payloads (e.g., 5 metrics items, 3 issues, 2 deployments). Trigger data collection. Verify the dataset passed to the summary generator is a single coherent structure containing all three source datasets with correct fields and counts. Assert that if any source's data is missing from the aggregated payload, the test fails.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is necessary; unit tests of individual collectors wouldn't verify data survives aggregation. A mock that always succeeds but passes through all fields correctly is sufficient—we don't need real API behavior, just correct plumbing."
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting",
+      "minimum_level": "Integration",
+      "justification": "Graceful error handling must be tested by triggering a real failure mode at the source. A mock that raises an exception (TimeoutError, HTTPError, etc.) simulates unavailability without requiring real network failures. The behavior under test is the fallback path—that the report completes and marks the missing section—not the mechanism of the failure itself.",
+      "test_description": "Mock the three source APIs. Configure one (e.g., metrics endpoint) to raise an exception when called. Trigger the report generation. Verify: (a) the report completes and is generated, (b) the report contains a visible 'data unavailable' or equivalent note in the section for the failed source, (c) the other two source sections are populated normally, (d) no exception propagates to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration level is correct. A System-level test with real network failures would be more thorough but is not necessary to validate the fallback logic itself."
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data (e.g., counts, dates, statuses)",
+      "minimum_level": "Agentic",
+      "justification": "Summary accuracy depends on what the real LLM produces. A mocked summary that returns a hardcoded good result would hide hallucinations, omissions, and misrepresentations. The LLM's ability to ground its output in the input data cannot be tested without calling a real model.",
+      "test_description": "Create input data with specific, unambiguous values: '7 critical bugs', 'deployment on 2026-03-28 15:34 UTC', '3 blocked issues', etc. Call the real summary generator. Extract key numeric and date values from the generated narrative. Assert that each key input value appears in the summary output (or is accurately paraphrased without distortion). Flag hallucinated values not present in the input.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic is mandatory. The behavior is fundamentally dependent on real LLM output quality. Mocking would always pass, defeating the test's purpose."
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report—from data collection through email delivery—reaches the configured recipient's inbox correctly with accurate content",
+      "minimum_level": "Workflow",
+      "justification": "Multiple real steps in sequence: data collection (Integration with mocked sources), LLM-based summary (Agentic—requires real LLM), email delivery (System—requires SMTP or API). End-to-end wiring tests that (a) data survives transformation through the pipeline, (b) the email is composed correctly, (c) delivery doesn't silently fail. Testing each step in isolation would miss failures at integration seams.",
+      "test_description": "Execute the full pipeline: mock the three source APIs with realistic test data, call the real summary generator, and deliver via a test email service (MailHog, test SMTP, or a mock that captures sent messages). Verify: (a) the email is captured/delivered, (b) correct recipient(s), (c) subject is reasonable, (d) body contains the generated summary, (e) all three source sections are represented in the email, (f) no data is corrupted or truncated in transit.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Workflow level is necessary. Testing the collector in isolation, the summary generator in isolation, and the mailer in isolation would each pass independently but might fail when composed together due to incompatible data formats or timing issues."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run",
+      "minimum_level": "Integration",
+      "justification": "Testing the fallback path (file save) and retry mechanism requires: (a) mocking email failure, (b) verifying file is written, (c) triggering a re-run and verifying the retry logic executes. We don't need real SMTP timeouts; mocked exceptions suffice to test the control flow. The re-run must actually invoke the retry path, requiring integration between the generator and scheduler.",
+      "test_description": "Run 1: Mock the email service to raise an exception. Trigger the report generator. Verify: (a) a report file is written to the configured local directory with expected content, (b) an error or warning is logged. Run 2: Mock the email service to succeed. Manually or via scheduler trigger another run. Verify: (a) the scheduler/retry logic detects and processes the saved report file, (b) the report is sent via email, (c) the file is deleted or marked as sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is sufficient. The retry mechanism and file I/O can be tested with mocked email failures. A System-level test with real SMTP would be more realistic but adds little value beyond what mocking provides."
+    }
+  ]
+}

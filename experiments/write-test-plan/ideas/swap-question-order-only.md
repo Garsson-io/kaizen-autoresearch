@@ -1,7 +1,7 @@
 ---
 id: swap-question-order-only
 title: Move Agentic question before System question (minimal reorder, no text change)
-status: proposed
+status: rejected
 effort: low
 expected_impact: medium
 targets:

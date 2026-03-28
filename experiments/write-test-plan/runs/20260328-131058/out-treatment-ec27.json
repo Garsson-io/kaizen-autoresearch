@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The traveling-salesman heuristic produces a route that is no more than 1.5x the length of the optimal route for inputs up to 20 stops.",
+      "minimum_level": "Unit",
+      "justification": "This is pure algorithmic computation with no I/O, external APIs, or subprocess calls. The failure boundary is entirely within the heuristic function. A mock cannot simulate the traveling-salesman problem itself—we must test the actual algorithm against known instances with verified optimal solutions.",
+      "test_description": "Feed the heuristic standard TSP benchmark instances (e.g., 10-stop and 20-stop grids with known optimal solutions) and verify the computed route length is ≤1.5x the optimal length for each instance. Parametrize across at least 5 diverse problem sizes. This catches fundamental algorithm failures (wrong distance metric, no optimization steps, early termination bugs).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test runs pure computation with no mocks, fully testable at Unit level."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The delivery time window estimates are computed correctly from the distance between consecutive stops and the configured average speed for the road type.",
+      "minimum_level": "Unit",
+      "justification": "This is a calculation-based behavior with no external dependencies. The failure boundary is the formula logic itself. We can mock the distance lookup to provide known inputs and verify the time calculation (time = distance / speed) is applied correctly. A mock that always returns correct time would pass even if the actual calculation is broken.",
+      "test_description": "For each road type (highway, city, rural), mock the distance_between() function to return known distances [1, 5, 10, 100 miles], then verify that time_estimate = distance / configured_speed. Parametrize across road types with different configured speeds (e.g., highway=55mph, city=25mph, rural=35mph). Include edge cases like distance=0 and very long distances. This catches formula errors, unit mismatches, wrong road-type lookups, or configuration typos.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocking distance allows testing calculation in isolation; formula errors will be caught."
+    },
+    {
+      "behavior_id": 3,
+      "description": "The shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount.",
+      "minimum_level": "Unit",
+      "justification": "This is a validation rule over numeric inputs with no external dependencies. The failure boundary is the validator function itself. We can test the decision logic in isolation by providing mocked time estimates. A naive mock validator that always accepts would hide rejection logic failures.",
+      "test_description": "Create test cases with mocked total_estimated_time and driver_remaining_hours: (1) total=5h, remaining=4h → expect rejection with excess=1h, (2) total=4h, remaining=4h → expect acceptance (boundary case), (3) total=3.99h, remaining=4h → expect acceptance, (4) total=0.1h, remaining=0.05h → expect rejection with excess=0.05h. This catches comparison operator errors (< vs ≤), incorrect excess calculation, and boundary condition bugs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Validator is a pure function testable with mocked inputs at Unit level."
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address in the list fails geocoding (API returns no results), the service skips that stop and optimizes the remaining addresses, reporting which addresses were skipped.",
+      "minimum_level": "Integration",
+      "justification": "This behavior spans multiple modules: the geocoding API client, skip-handling logic, reporting mechanism, and route optimization. While the geocoding API can be mocked, the failure mode isn't just in the mock response—it's in how the service integrates the skip. A Unit test of only the skip logic might pass while the overall flow breaks (e.g., skip is handled but not reported, or report is sent but skip isn't integrated into the route, or service crashes on partial failure). The real failure boundary spans: geocoding → skip handling → reporting → route re-optimization.",
+      "test_description": "Create an input list of 3 addresses: [addr_A, addr_B, addr_C]. Mock the geocoding API to return no results for addr_A (simulating API failure) and valid coordinates (50.5, 100.5) and (51.5, 101.5) for addr_B and addr_C respectively. Call service.optimize_route(address_list). Verify: (a) the returned route contains exactly 2 stops (not 3), (b) the returned report includes addr_A in skipped_addresses, (c) route coordinates use only addr_B and addr_C coordinates (addr_A not included), (d) delivery items intended for addr_A are absent from the route (no phantom items). This catches integration failures: missing skip logic, broken reporting, route including failed addresses, or items going to wrong locations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires multiple components (geocoding mock, skip handler, reporter, optimizer) wired together; mocking alone cannot verify the integration, requiring Integration level."
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses in the input list are consolidated into a single stop with combined delivery items, not visited twice.",
+      "minimum_level": "Integration",
+      "justification": "While a Unit test could verify that a consolidation function merges items correctly, the actual failure—'not visited twice'—is a service-level property that emerges from consolidation being integrated into route optimization. A Unit test of consolidation alone might pass while the service still visits duplicates twice if consolidation is skipped or not wired into the optimizer. The failure boundary spans data normalization → route optimization.",
+      "test_description": "Create an input list where address A appears twice: first occurrence with delivery items [item_1, item_2], second occurrence with items [item_3]; plus address B appearing once with [item_4]. Call service.optimize_route(address_list). Verify: (a) the final route visits each unique geographic location exactly once (verify by checking route stop count and coordinates—should be 2 unique coordinates), (b) location A in the route includes all 3 items [item_1, item_2, item_3] combined with no duplicates, (c) the route is valid (no two route stops at the same coordinate), (d) total items in route equals 4 (none lost). This catches consolidation being skipped entirely, items lost during consolidation, or route optimizer creating duplicate visits despite consolidated input.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires the full service pipeline (consolidation → optimization → validation) to work correctly; a Unit test of consolidation alone would miss route-level failures, requiring Integration level."
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when it exceeds the context window",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A mocked LLM accepts any input without validation. REAL-INFRA: We must verify the actual input sent to the LLM client is truncated, not hidden by a mock. A unit test of the trimming function alone cannot catch failures where the full history is accidentally passed to the LLM. We need an integration test that spies on or captures the LLM API call to verify the history parameter contains only the last 10 messages.",
+      "test_description": "Integration test with an LLM client spy: load a conversation with 15+ messages, call the chatbot, verify the captured LLM request includes only the last 10 messages. Verify that messages beyond position N-10 are not in the request payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Spying on the LLM client call verifies the actual input; this cannot be reliably tested with a unit test of the trimming logic alone."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Correctness entirely depends on what a real LLM produces. MOCK-MISS: A mock LLM always returns whatever we program it to return; mocking hides the real failure of an off-topic response. Only a real LLM call can reveal whether the model actually understands the question and generates a relevant response. No mock can substitute for this.",
+      "test_description": "Agentic test: submit a real, specific customer question (e.g., 'How do I reset my password?') to the chatbot with a real LLM call. Capture the response and use semantic similarity (embedding-based) or a second LLM call to evaluate whether the response actually addresses the question. Assert that relevance score exceeds a threshold (e.g., >0.8 cosine similarity).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing relevance requires observing actual LLM behavior; unit/integration tests with mocks would pass even if the LLM produces nonsense."
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: A mocked tone checker always behaves as we program it; it never evaluates a real response. MOCK-HIDE: If the tone checker is heuristic-based, mocking it hides whether it correctly identifies formality in actual LLM output. If it uses an LLM, LLM-DEP: we need a real call to get a response we can check. Regeneration is triggered by the tone decision, so the tone checker's accuracy on real responses is critical.",
+      "test_description": "Agentic test: (1) construct a casual-tier customer context, (2) seed or engineer a scenario where the LLM produces a formal response (e.g., 'Kindly allow me to facilitate your inquiry' vs. 'Hey, I'll help with that'), (3) run the tone checker with the real response, (4) verify it flags the response as too formal, (5) verify a regeneration is triggered. Capture the second response and verify it uses more casual language.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The tone checker must evaluate a real LLM response to catch failures in formality detection. Mocking the checker or the LLM hides this."
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, regenerations, timestamps) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS/MOCK-HIDE: A mocked database always succeeds and returns success; it hides persistence failures (schema mismatches, missing fields, wrong timestamps, connection issues). REAL-INFRA: We must verify that the real database stores the data correctly. A unit test of persistence logic without a real DB cannot catch schema violations or transaction failures.",
+      "test_description": "Integration test with a real test database (or in-memory equivalent): (1) call the chatbot with a message that generates a response, (2) query the database directly and verify the record exists with all required fields (user message, response, timestamps), (3) verify timestamps are within an acceptable delta of the test time, (4) verify regeneration entries are also present if tone regeneration occurred, (5) verify no duplicate or orphaned records.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Real database access is required to catch persistence errors; mocking the database would pass even if persistence logic is broken."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: This behavior spans multiple agentic steps in sequence: (1) LLM generates response, (2) tone checker evaluates it, (3) LLM regenerates if needed, (4) the regenerated response is sent and the first is discarded from the customer view. LLM-DEP: Correctness depends on both real LLM calls producing a formal first response and a suitable second response. MOCK-HIDE: Mocking any step hides real failures in coordination (e.g., first response accidentally cached and returned despite rejection, or customer-facing API returning the wrong response). We must verify the end-to-end flow with real LLM calls and real response routing.",
+      "test_description": "Workflow test: (1) call the chatbot with a message for a casual-tier customer, configured to trigger tone regeneration, (2) verify the first response is generated and marked as rejected, (3) verify regeneration occurs and produces a second response, (4) if there is a customer-facing endpoint, query it and verify it returns the second response, not the first, (5) verify the database contains both responses but the customer-facing API/interface only exposes the second, (6) verify the customer never receives a 'rejected draft' or intermediate state.",
+      "plan_consistent": true,
+      "plan_consistent_note": "This requires the full pipeline (real LLM → tone check → regeneration → correct response sent to customer). Unit or integration tests of individual steps would miss failures in the coordination between them."
+    }
+  ]
+}

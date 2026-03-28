@@ -1,0 +1,69 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature → 401 response; body not forwarded",
+      "minimum_level": "Integration",
+      "justification": "Signature validation must use real HMAC-SHA256 crypto (mocking it hides salt/algorithm bugs). Also must verify the queue doesn't receive the event — requires observing actual queue state, not just verifying a mock wasn't called.",
+      "test_description": "Send a request with mismatched body and X-Signature-256 header. Verify handler returns 401. Query the queue to confirm it is empty or unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot reduce to Unit: need both crypto validation + queue observation across module boundary."
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event written to queue BEFORE HTTP 200 acknowledgment returned",
+      "minimum_level": "Integration",
+      "justification": "Order-of-operations bugs hide in mocks that complete synchronously. Need a real queue to observe that write completes before response is sent. A mock queue that resolves instantly would never catch a race condition where response is sent before an async write finishes.",
+      "test_description": "Spy on or instrument the queue's write operation. Call the handler and hook the response-send code to assert the queue write promise has already settled before the 200 is transmitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test of the handler function alone cannot verify ordering across async boundaries; requires real queue semantics."
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP 200 without waiting for downstream event processing",
+      "minimum_level": "Integration",
+      "justification": "Mocking downstream processing to be synchronous or instant would hide if the handler actually blocks on it. Must use a real downstream processor (or queue consumer) that introduces measurable latency, then verify response returns before that work finishes.",
+      "test_description": "Enqueue a slow async processor (e.g., sleep 0.5s) that handles events from the queue. Send a webhook, measure that the HTTP 200 response arrives within ~100ms, while the processor is still running.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot test at Unit level: would need a mock processor that completes instantly, defeating the purpose."
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds even with slow concurrent earlier events",
+      "minimum_level": "Integration",
+      "justification": "Concurrency and queue-blocking bugs only appear under real async/concurrent load. A mock queue that completes synchronously would hide backpressure, head-of-line blocking, or serial processing bugs. Requires real event loop and real queue with potential contention.",
+      "test_description": "Set downstream processing to take 2+ seconds per event. Send two webhook requests concurrently. Measure wall-clock time for both responses. Verify first response ≤1s and second response ≤3s (not 4-5s, which would indicate sequential processing).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Wall-clock timing and concurrency patterns cannot be verified at Unit level; inherently requires real async execution."
+    },
+    {
+      "behavior_id": 5,
+      "description": "Event with duplicate ID is not written to queue a second time",
+      "minimum_level": "Integration",
+      "justification": "Deduplication logic lives in either the handler or the queue. Mocking the queue's dedup would pass the test without verifying the handler actually checks for duplicates. Must use a real queue (or at least a real dedup store) and verify queue cardinality after duplicate requests.",
+      "test_description": "Send two valid requests with the same event ID and matching signatures. Query the queue and verify exactly one entry exists (not two). Confirm via the queue's actual storage, not via a mock.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Unit test of handler alone cannot verify dedup behavior if the queue is mocked; need real queue state."
+    },
+    {
+      "behavior_id": 6,
+      "description": "Queue full condition → 503 response with Retry-After header",
+      "minimum_level": "Integration",
+      "justification": "The queue-full error path only triggers if the real queue actually rejects the write. Mocking the queue to throw 'full' on demand would pass without testing real queue-full semantics. Must fill a real queue to capacity.",
+      "test_description": "Enqueue items until the queue reports it is full (or would exceed capacity). Send a webhook. Verify handler returns HTTP 503 with a Retry-After header (and no 200 response).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Cannot reduce to Unit: must trigger the real queue's capacity-exceeded error, not a mock."
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue implementation itself, not the handler. A mock queue would always obey capacity in the test but might fail in production. Must use the real persistent queue (filesystem, embedded DB, or similar) and measure actual storage behavior.",
+      "test_description": "Create a queue instance with capacity=N. Write N items and verify all are stored. Attempt to write item N+1 and verify it is rejected with a capacity-exceeded error. Inspect the queue's persistent storage directly to confirm exactly N items are present.",
+      "plan_consistent": true,
+      "plan_consistent_note": "This is an Integration-level test of the queue component itself. Does not require System level (no subprocess/network) if the queue is a local library with embedded storage."
+    }
+  ]
+}

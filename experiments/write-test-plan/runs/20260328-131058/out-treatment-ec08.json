@@ -1,0 +1,69 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Mocking HTTP won't miss exponential backoff logic—it's pure local timing math. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking the HTTP layer doesn't hide the issue; we can spy on `setTimeout()` calls and verify exponential delay arguments. **REAL-INFRA**: Not required; backoff calculation and application are local.",
+      "test_description": "Mock the HTTP layer to always return 429. Use `jest.useFakeTimers()` to mock timers. Call `client.call()`, spy on `setTimeout()` invocations, and verify the delay arguments follow the pattern [t, 2t, 4t, ...] up to `maxWait`. Use `jest.advanceTimersByTime()` to trigger each retry and confirm they occur at expected times without hanging.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is purely in-process (mocked HTTP, fake timers). No I/O, single responsibility (backoff logic). Confirms Unit level is sufficient."
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Response parsing is pure logic; mocking HTTP with a 429/Retry-After header won't miss this. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking allows us to return exact headers (e.g., `Retry-After: 120`); no hiding occurs. **REAL-INFRA**: Not required; header parsing is local.",
+      "test_description": "Mock the HTTP layer to return 429 with specific response headers (e.g., `Retry-After: 120`, `X-RateLimit-Reset-After: 300`). Call `client.call()`, capture the computed wait time, and assert it matches the value extracted from headers. Test multiple header formats (integer seconds, HTTP-date, etc.) to verify correct parsing.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is a single function/module boundary testing header extraction and time calculation. No I/O involved. Unit level confirmed."
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Retry-and-return logic is local; mocking HTTP to fail once then succeed won't miss this. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking allows us to sequence responses (fail, succeed) and verify the caller receives the final success. **REAL-INFRA**: Not required; request resending is in-process logic.",
+      "test_description": "Mock the HTTP layer: first call returns 429, second call returns 200 with expected data. Use fake timers. Call `client.call()` with a request body/params, verify it's buffered on 429, advance timers past the backoff delay, verify the request is reissued (spy on fetch to confirm), and assert the caller receives the successful response transparently (not an error).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test orchestrates mocked HTTP calls and timer advancement. Verifies request buffering and replay. Still Unit: no real I/O, single client boundary."
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Error type after retry exhaustion is local logic; mocking HTTP to always fail won't miss this. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking allows us to trigger the failure condition and verify error type. **REAL-INFRA**: Not required; retry counting and error construction are local.",
+      "test_description": "Mock the HTTP layer to always return 429. Set `maxRetries: 3`. Use fake timers. Call `client.call()`, advance timers through all retries, and assert the returned/thrown error is exactly an instance of `QuotaExhaustedError` with the correct error code/message. Verify it's not a generic `NetworkError` or `HttpError`.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test checks error type and message after retry exhaustion. Pure in-process logic (mocked HTTP, fake timers). Unit level confirmed."
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Infinite loops are caught by test timeout even with mocks. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking doesn't hide infinite loops; the test would hang/timeout. **REAL-INFRA**: Not required; orchestration is in-process. **MULTI-STEP**: Multiple steps (call → fail → wait → retry → fail → ... → error) but all in-process.",
+      "test_description": "Mock the HTTP layer to always return 429. Set `maxRetries: 2`, use fake timers. Call `client.call()` with a short test timeout (e.g., 5 seconds). Verify the function returns/throws `QuotaExhaustedError` after exactly `maxRetries + 1` HTTP call attempts. Spy on `setTimeout()` to confirm it was called (not in a busy loop). Test should not hang or exceed the timeout.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies termination by checking call count, error type, and lack of infinite looping. All in-process with mocks. Unit level is sufficient."
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "System",
+      "justification": "**MOCK-MISS**: A simple HTTP mock (always return 429 or always succeed) misses this. You can't observe whether two concurrent callers share quota state without seeing them hit the real rate limit together. **MOCK-HIDE**: A naive mock would let both concurrent calls succeed, hiding the quota-sharing bug entirely. **REAL-INFRA**: The behavior depends on real HTTP-level rate limiting: two requests issued concurrently should not both succeed if the per-account quota is exhausted. Requires real or realistic API rate limiting, not an in-process simulation. **MULTI-STEP**: Concurrent not sequential.",
+      "test_description": "Set up a test rate-limited API endpoint (real API, test container, or realistic mock server that enforces per-account request limits). Create two concurrent `client.call()` requests that would exceed the per-account quota (e.g., 2 requests per second, both issued within 100ms). Assert that both callers are rate-limited consistently: either both receive backoff/retry behavior, or both eventually exhaust the quota. Verify that the rate limit detected by one caller is visible to the other (shared quota state), not treated as independent quotas.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires observing real HTTP behavior under concurrency. A simple in-process mock cannot validate that two concurrent requests actually contend for the same quota. System-level test with real or test rate-limited API is necessary."
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Unit",
+      "justification": "**MOCK-MISS**: Mocking HTTP allows us to spy on the sequence of `fetch()` calls; order is observable. **LLM-DEP**: N/A. **MOCK-HIDE**: Mocking doesn't hide ordering bugs; we can verify call sequence. **REAL-INFRA**: Not required; queueing and dispatch are in-process logic. **MULTI-STEP**: Multiple steps (queue, retry, dispatch) but all local.",
+      "test_description": "Mock the HTTP layer to return 429 on first N calls, then succeed. Use fake timers. Issue 3 concurrent `client.call()` requests with distinct identifiable payloads (e.g., IDs: 'req1', 'req2', 'req3'). Spy on `fetch()` to record call order. Advance timers past the first backoff. Assert that retry calls are issued in FIFO order (req1 before req2 before req3), not in any other sequence. Verify the order matches submission order, not completion order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test verifies queueing order via `fetch()` spy. All in-process (mocked HTTP, fake timers). No I/O or external dependencies. Unit level confirmed."
+    }
+  ]
+}

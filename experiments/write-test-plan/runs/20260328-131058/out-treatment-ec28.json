@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-28",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A cell containing =SUM(A1:A10) evaluates to the correct sum of the values in cells A1 through A10",
+      "minimum_level": "Unit",
+      "justification": "SUM is a single function that iterates a range and aggregates. No cross-module wiring, no I/O, no persistence. Testing the range iteration and arithmetic logic in isolation catches real failures (off-by-one in range bounds, precision loss, skipped cells).",
+      "test_description": "Create a range A1:A10 with known values (e.g., [1,2,3,...,10]), call SUM(A1:A10), assert result equals 55. Test edge cases: empty range, single cell, all zeros, negative values, floats. Do not mock the range iteration—test the real function logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 2,
+      "description": "A cell referencing another cell that contains a formula (e.g., =B1+1 where B1 is =A1*2) produces the correct cascaded result",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Mocking B1's computed value would hide failures in the dependency resolution order or transitive evaluation. MOCK-HIDE: The engine's topological evaluation of dependencies cannot be tested with mocks. Real failure: formula engine evaluates B1 after A1 changes but before C1 reads it, or in wrong order. Need multiple cells wired in a workbook.",
+      "test_description": "Create workbook with A1=5, B1=A1*2, C1=B1+1. Verify C1 evaluates to 11. Then change A1=10 and verify C1=21 (not stale value). Test transitive references A→B→C→D to ensure the engine doesn't evaluate out of topological order.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 3,
+      "description": "The engine detects a circular dependency (A1 references B1, B1 references A1) and returns a circular reference error instead of looping",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Mocking the dependency graph traversal would hide the cycle detection algorithm. Real failure: infinite recursion, silent hang, or incorrect error. Must test the actual graph-cycle detection with real cell references configured circularly.",
+      "test_description": "Configure A1=B1, B1=A1. Attempt to evaluate A1. Verify the engine returns a circular reference error (not #CIRC, not hang, not NaN). Test more complex cycles: A→B→C→A. Verify error is detected on first access to any cell in the cycle.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 4,
+      "description": "VLOOKUP with an exact match returns the correct value from the lookup table, and returns an error when the key is not found",
+      "minimum_level": "Integration",
+      "justification": "VLOOKUP requires a real table (range of cells). MOCK-MISS: Mocking the table scan or comparison logic hides failures in index calculation or key matching. Real failure: off-by-one in row/column indexing, case sensitivity in comparison, returning wrong adjacent cell. Must set up actual lookup table in workbook.",
+      "test_description": "Create lookup table A1:B10 (column A: names, column B: values). Call VLOOKUP('Alice', A1:B10, 2) and verify correct value returned. Test not-found case: VLOOKUP('Zeke', A1:B10, 2) and verify error (not null, not first/last row). Test edge cases: first row, last row, exact boundary conditions.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 5,
+      "description": "The IF function correctly handles nested conditions (e.g., =IF(A1>10, IF(A1>20, 'high', 'medium'), 'low'))",
+      "minimum_level": "Unit",
+      "justification": "IF is a single function. Nesting is within one formula evaluation. No cross-module wiring, no persistence. MOCK-MISS: Testing with constant values (not cell references) is sufficient to catch real failures in condition evaluation and branch selection. No range iteration, no external state needed.",
+      "test_description": "Test IF with constant values: IF(true, 'yes', 'no')=yes, IF(false, 'yes', 'no')=no. Test nested: IF(25>10, IF(25>20, 'high', 'medium'), 'low')='high', IF(15>10, IF(15>20, 'high', 'medium'), 'low')='medium', IF(5>10, ..., 'low')='low'. Test with cell values A1 if needed, but the nesting logic itself is unit-testable.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 6,
+      "description": "CONCATENATE joins cell values with the correct separator and handles empty cells by skipping them rather than inserting blank strings",
+      "minimum_level": "Integration",
+      "justification": "CONCATENATE operates on cells. MOCK-MISS: Mocking empty cell representation hides the logic that distinguishes empty vs. null vs. string 'null'. Real failure: empty cells become blanks in output, or empty cells crash the function. Must test with actual cells in a workbook, some populated, some empty.",
+      "test_description": "Create A1='hello', A2=empty, A3='world'. Call CONCATENATE(A1:A3, ' ') and verify result is 'hello world' (not 'hello  world' or error). Test all cells empty, all cells filled, single cell, trailing/leading empties. Do not mock the empty-cell representation.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 7,
+      "description": "A formula referencing a cell in a different sheet (e.g., =Sheet2!A1+1) resolves correctly when the referenced sheet exists",
+      "minimum_level": "Integration",
+      "justification": "Cross-sheet references require multiple sheets wired in one workbook. MOCK-MISS: Mocking sheet lookup hides failures in parsing the reference syntax or sheet name resolution. Real failure: sheet not found, wrong sheet returned, circular references across sheets. Must test with actual multi-sheet workbook.",
+      "test_description": "Create workbook with Sheet1 and Sheet2. Set Sheet2.A1=5. In Sheet1, set B1=Sheet2!A1+1. Verify B1=6. Test sheet not found: B1=Sheet3!A1 should error. Test circular across sheets: Sheet1.A1=Sheet2!A1, Sheet2.A1=Sheet1!A1 should detect cycle.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 8,
+      "description": "When a referenced cell's value changes, all dependent formulas are recalculated in the correct topological order",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Mocking the dependency graph hides the topological sort algorithm. Real failure: B1 recalculates before A1 is marked dirty, or C1 reads B1's old value if B1 hasn't been recalculated yet. MOCK-HIDE: Must verify actual recalculation order by inspecting intermediate states or using a listener pattern. Need multi-cell workbook with verified dependency order.",
+      "test_description": "Create A1=1, B1=A1*2, C1=B1+1, D1=C1*2 (chain: 1→2→3→6). Change A1=5. Verify all dependents recalculate to (5→10→11→22). Use instrumentation (listener/hook) to verify B1 recalculates before C1 recalculates. Test diamond: A1=1, B1=A1*2, C1=A1+1, D1=B1+C1 (verify D1 not recalculated twice).",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 9,
+      "description": "The undo operation after editing a formula restores both the formula text and all previously computed dependent values",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Mocking the history stack hides failures in state snapshot/restore. Real failure: formula text is restored but dependent values are stale, or undo reverts only one cell while leaving dependents outdated. MOCK-HIDE: Must test actual state restoration with real dependent cells and their computed values. Requires multi-cell workbook with verification of both formula and computed state.",
+      "test_description": "Create A1=5, B1=A1*2 (=10), C1=B1+1 (=11). Edit B1 to A1*3. Verify B1=15, C1=16. Undo. Verify B1.formula=A1*2, B1.value=10, C1.value=11. Redo. Verify B1=15, C1=16. Test deeper chains (A→B→C→D) and multiple undo/redo cycles.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    },
+    {
+      "behavior_id": 10,
+      "description": "Saving a workbook to disk and loading it back produces identical cell values and formulas — no data loss or precision change in floating-point results",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Real file I/O to disk. MOCK-MISS: Mocking file I/O completely hides serialization/deserialization bugs, binary format corruption, encoding mismatches. Real failure: floating-point precision loss (0.1+0.2≠0.30000...0004 after round-trip), formula text corruption, cross-sheet references broken after load, undo history lost. Must write to actual disk and load from file handle.",
+      "test_description": "Create workbook with: values (int, float, string), formulas (=SUM, =IF, cross-sheet), circular references marked as errors, undo history (edit cells, undo, verify history persists). Save to temp file. Load in fresh process. Verify all formulas identical (char-for-char), all computed values match (within floating-point epsilon for floats), undo history restored. Test specific float case: A1=0.1, B1=0.2, C1=A1+B1, save/load, verify C1 still (approximately) equals 0.3.",
+      "plan_consistent": true,
+      "plan_consistent_note": ""
+    }
+  ]
+}

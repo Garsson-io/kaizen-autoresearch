@@ -1,0 +1,51 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends entirely on what the real neural machine translation API produces. A mock that returns a pre-canned coherent response will always pass. Only a real API call reveals if the actual service (1) handles the API correctly, (2) sends the right request format, and (3) receives/parses output that is genuinely coherent and meaning-preserving, not degraded or corrupted versions.",
+      "test_description": "Call the real translation API with diverse source texts (e.g., 'The quick brown fox jumps over the lazy dog' in English). Verify the response is a full-sentence translation in the target language, not word-for-word ('the quick brown fox…') or gibberish. Confirm no untranslated source words appear in the output. For example, translating 'Bonjour, comment allez-vous?' should produce fluent response like 'Hello, how are you?' not 'Bonjour, how are you?'",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Unit/Integration with mocks, any mocked response would pass the coherence check. This test requires the actual API's output to validate real-world translation quality and catch API failures, regressions, or format mismatches."
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the fallback logic and SQLite access, not the LLM quality. Mocking both the API and the database would hide failures like incorrect error handling, missed fallback invocation, or broken SQLite queries. The error case (503) can be deterministically triggered by mocking the API, but the fallback path *must* use a real test SQLite database to catch actual schema mismatches, connection errors, or query logic bugs.",
+      "test_description": "Mock the translation API to return HTTP 503 Service Unavailable. Set up a real test SQLite database with known phrase mappings (e.g., 'hello' → 'hola'). Call the service with a source phrase that exists in the SQLite fallback. Verify the service returns the fallback translation ('hola') without raising an exception to the caller. Verify the service status code is 200 (success), not 500 or 503. If you mock the SQLite database instead, you would never catch query failures or schema changes in the real database.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Unit with both APIs mocked, you cannot verify the actual fallback database is queried or that the result is correct. At Integration, you verify error handling + real SQLite fallback path, catching the boundary where fallback logic executes."
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "Correctness depends on real database schema, indexes, and query logic. Mocking the SQLite access would hide query bugs, schema mismatches (wrong table/column names), or incorrect WHERE clauses. The fallback is purely deterministic (not LLM-based), so you don't need a real API; you need a real test database with known data.",
+      "test_description": "Populate a real test SQLite database with phrase mappings (e.g., 'good morning' → 'buenos días', 'thank you' → 'gracias'). Call the fallback translator with 'good morning'. Verify it returns exactly 'buenos días'. Call with a phrase NOT in the database ('xyz_not_found'). Verify it returns null, empty string, or a 'not found' sentinel—not an error or incorrect data. Verify the service queries the correct table and columns by inspecting the database schema.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Unit, you would mock the database accessor, which hides query logic errors. At Integration, you verify the real SQLite interactions and catch schema mismatches or incorrect SQL."
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "The edit distance algorithm is deterministic and can be unit-tested with fixed inputs. However, *storing* the metric requires I/O (database or file). Mocking the storage layer hides failures in actual persistence, data format issues, or write failures. The computation itself doesn't depend on LLM quality; it's a pure function of the output strings.",
+      "test_description": "Mock the primary translator to return 'Bonjour world' and the fallback translator to return 'Bonjour world!' (1-character difference—the extra '!'). Trigger quality tracking. Verify the edit distance is calculated as 1 (Levenshtein distance). Verify the metric is persisted: check the database table, log output, or file on disk (depending on where metrics are stored). If async, wait for or verify the background job completes and the metric appears in storage. If you mock the persistence layer, you would never catch actual write failures or schema incompatibilities.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Unit, you can test edit distance calculation alone with mocks, but you would miss storage failures. At Integration, you verify both calculation and real persistence, catching I/O and formatting errors."
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the service's orchestration logic when the primary translator succeeds, not the quality of the primary translator itself (that is Behavior 1). The failure boundary is the orchestration: returning primary (not fallback by mistake), logging the comparison, and not blocking the caller. Mocking the primary translator is sufficient because you're testing the service's response to success, not the translator's coherence. However, you need a real test SQLite database for the fallback to verify the quality comparison is computed from real data; mocking the fallback would hide fallback logic errors.",
+      "test_description": "Mock the primary translator to return successfully with 'Bonjour'. Set up a real test SQLite database with fallback data. Call the service with a request both translators can handle. Verify the caller receives 'Bonjour' (primary translation) immediately, not the fallback. Verify the response status is 200 (success). Verify the quality comparison is logged or stored (check logs, database, or async queue). Verify the service doesn't block the caller while logging runs in the background (measure response time or inspect threading). Verify the fallback database is queried for the comparison even though the primary was returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": "At Unit with both translators mocked, you cannot verify real fallback database queries or async behavior. At Integration, you verify the orchestration path (return primary, trigger fallback lookup for comparison, log result) without depending on primary translator quality."
+    }
+  ]
+}
