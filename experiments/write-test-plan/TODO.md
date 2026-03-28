@@ -4,9 +4,9 @@ From the ultrathink review of the full experiment infrastructure.
 
 ---
 
-### 1. Migrate results log from TSV to JSONL
+### ~~1. Migrate results log from TSV to JSONL~~
 
-**Status**: schema done, migration pending
+**Status**: DONE — autoresearch-results.jsonl with 15 backfilled entries, results.ts reader, migrate-results.ts
 
 The current `autoresearch-results.tsv` has no header, rows out of order, and missing iterations. Migrate to `autoresearch-results.jsonl` (one JSON object per line).
 

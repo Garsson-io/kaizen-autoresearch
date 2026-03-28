@@ -76,9 +76,9 @@ LOOP:
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
   4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
-     Give it the latest score summary and results log. It reads ideas/, taxonomy/,
-     meta-failures.md, treatment.md, and justification-taxonomy.md itself.
-     It returns: idea id, specific edit, rationale, and skeptic view.
+     Give it the latest score summary and results log (from `npx tsx scripts/results.ts --last 10`).
+     It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
+     It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
@@ -86,7 +86,8 @@ LOOP:
   8. SCORE — compare loss to baseline. Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
-  9. LOG — append to autoresearch-results.tsv. Update idea status (kept/rejected/no-op).
+  9. LOG — append one JSON line to autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
+     Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx scripts/results.ts`
   10. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
   11. GOTO 1
 ```
@@ -113,15 +114,15 @@ Latest run score: {SCORE}
 Latest run per-task totals (paste the TOTAL lines):
 {PER_TASK_TOTALS}
 
-Results log (last 10 lines of autoresearch-results.tsv):
-{RESULTS_LOG}
+Results log (last 10 iterations):
+{RESULTS_LOG — from `npx tsx scripts/results.ts --last 10`}
 
 Top taxonomy patterns (from DIAGNOSE):
 {TOP_PATTERNS — e.g. "U1: can mock the API — 10 occurrences, impact 40"}
 
 ## What to do
 
-1. Run `./scripts/ideas-index.sh` to get the frontmatter of all ideas (id, status, effort, impact, targets, risk)
+1. Run `npx tsx scripts/ideas-index.ts --table` to see all ideas with status/effort/impact
 2. Read `experiments/write-test-plan/prompts/treatment.md` (the current prompt)
 3. Read `experiments/write-test-plan/justification-taxonomy.md` (failure pattern summary)
 4. Read `experiments/write-test-plan/meta-failures.md` (process pitfalls)
@@ -178,7 +179,7 @@ Run adversarial rounds and update `leaderboard.md`:
 - **Never edit `leaderboard.md` without a score change**.
 - `runs/` is gitignored. Use GitHub Releases to archive a full run if needed.
 - One hypothesis per iteration.
-- **Before each iteration, read `leaderboard.md`** — it has the full score history and per-task breakdowns. Use it alongside git log and `autoresearch-results.tsv` to avoid repeating failed approaches.
+- **Before each iteration, read `leaderboard.md`** — it has the full score history. Use alongside `npx tsx scripts/results.ts` and git log to avoid repeating failed approaches.
 
 ---
 

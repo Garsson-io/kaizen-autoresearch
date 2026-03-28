@@ -21,9 +21,12 @@ This is the map. Each topic has exactly one canonical file — read it there, ed
 | **Failure analysis** | `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns with representative quotes |
 | **Meta-failures** | `experiments/<name>/meta-failures.md` | Process failures caught by user — ways the experiment infrastructure broke |
 | **Scores** | `experiments/<name>/leaderboard.md` | Score history, GT revision notes |
-| **Agent config** | `experiments/<name>/program.md` | Goal, Scope, Metric, Verify, diagnostic guidance, ground rules |
+| **Iteration log** | `experiments/<name>/autoresearch-results.jsonl` | Zod-validated JSONL (schema: `IterationResult` in `src/schema.ts`). View: `npx tsx scripts/results.ts` |
+| **Agent config** | `experiments/<name>/program.md` | Goal, Scope, Metric, Verify, iteration loop, IDEATE subagent template |
 | **Corpus metadata** | `experiments/<name>/corpus/catalog.json` | Task titles, domains, difficulty, adversarial techniques, labels |
 | **GT correctness** | `experiments/<name>/taxonomy/gt-review.md` | Per-behavior audit: GT_CORRECT, GT_WRONG, DEBATABLE |
+| **Ideas index** | `npx tsx scripts/ideas-index.ts` | Views: `--table`, `--by-status`, `--by-target`, `--json` |
+| **Results viewer** | `npx tsx scripts/results.ts` | Views: `--table`, `--summary`, `--keeps`, `--last N`, `--json` |
 
 ---
 
