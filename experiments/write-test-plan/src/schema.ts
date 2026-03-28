@@ -48,6 +48,18 @@ export const BehaviorOutput = z.object({
 
   /** Required when plan_consistent is false. Explain the gap. */
   plan_consistent_note: z.string().optional(),
+
+  /**
+   * Probability distribution over all 5 levels. Each value 0–100 (percent).
+   * Will be normalized to sum to 1.0 in the scorer — don't reject if sum != 100.
+   */
+  level_probabilities: z.object({
+    Unit: z.number().min(0),
+    Integration: z.number().min(0),
+    System: z.number().min(0),
+    Agentic: z.number().min(0),
+    Workflow: z.number().min(0),
+  }).optional(),
 });
 export type BehaviorOutput = z.infer<typeof BehaviorOutput>;
 

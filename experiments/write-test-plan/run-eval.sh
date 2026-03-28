@@ -159,15 +159,19 @@ npx tsx "$SCRIPT_DIR/scripts/score.ts" \
   --output-dir "$OUT_DIR" \
   --gt-dir "$GT_DIR"
 
-# Extract avg total and emit SCORE: fraction
-AVG_LINE=$(npx tsx "$SCRIPT_DIR/scripts/score.ts" \
+# Extract SCORE and LOSS from scoring output
+SCORE_OUTPUT=$(npx tsx "$SCRIPT_DIR/scripts/score.ts" \
   --output-dir "$OUT_DIR" \
-  --gt-dir "$GT_DIR" 2>/dev/null \
-  | grep "TOTAL" | tail -1)
+  --gt-dir "$GT_DIR" 2>/dev/null)
 
-AVG=$(echo "$AVG_LINE" | grep -oP '[0-9]+\.[0-9]+' | head -1)
+AVG=$(echo "$SCORE_OUTPUT" | grep "TOTAL" | tail -1 | grep -oP '[0-9]+\.[0-9]+' | head -1)
+LOSS=$(echo "$SCORE_OUTPUT" | grep "LOSS" | tail -1 | grep -oP '[0-9]+\.[0-9]+' | head -1)
+
 if [[ -n "$AVG" ]]; then
   SCORE=$(echo "scale=4; $AVG / 100" | bc)
   echo ""
   echo "SCORE: $SCORE"
+fi
+if [[ -n "$LOSS" ]]; then
+  echo "LOSS: $LOSS"
 fi

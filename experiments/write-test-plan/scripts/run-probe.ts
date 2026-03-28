@@ -78,7 +78,7 @@ const PROBE_SCHEMA = JSON.stringify({
       maxItems: 10,
       items: {
         type: "object",
-        required: ["behavior_id", "description", "minimum_level", "justification", "test_description", "plan_consistent"],
+        required: ["behavior_id", "description", "minimum_level", "justification", "test_description", "plan_consistent", "level_probabilities"],
         properties: {
           behavior_id: { type: "integer", minimum: 1, maximum: 10 },
           description: { type: "string", minLength: 5 },
@@ -87,6 +87,18 @@ const PROBE_SCHEMA = JSON.stringify({
           test_description: { type: "string", minLength: 10 },
           plan_consistent: { type: "boolean" },
           plan_consistent_note: { type: "string" },
+          level_probabilities: {
+            type: "object",
+            description: "Your confidence (0.0 to 1.0) that each level is the minimum needed. Must sum to 1.0.",
+            required: ["Unit", "Integration", "System", "Agentic", "Workflow"],
+            properties: {
+              Unit: { type: "number", minimum: 0, maximum: 1 },
+              Integration: { type: "number", minimum: 0, maximum: 1 },
+              System: { type: "number", minimum: 0, maximum: 1 },
+              Agentic: { type: "number", minimum: 0, maximum: 1 },
+              Workflow: { type: "number", minimum: 0, maximum: 1 },
+            },
+          },
         },
       },
     },
@@ -116,6 +128,9 @@ function runProbe(opts: {
         ? BASELINE_PROMPT(opts.taskId, opts.issueBody)
         : TREATMENT_PROMPT(opts.taskId, opts.issueBody);
   }
+
+  // Append probability instruction (measurement concern — NOT part of treatment.md)
+  prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
 
   // Run claude -p with stdin piped from prompt string
   const result = spawnSync("claude", [

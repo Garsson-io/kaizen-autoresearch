@@ -60,6 +60,8 @@ interface RowResult {
   cons: number;
   weight: number;
   direction: "exact" | "over" | "under";
+  p_correct: number;  // normalized probability assigned to GT level (0-1)
+  ce_loss: number;    // -log(p_correct) * weight
 }
 
 interface ScoreResult {
@@ -75,6 +77,7 @@ interface ScoreResult {
   over_test_count: number;
   critical_miss_count: number;  // System+ behaviors predicted below GT
   critical_total: number;
+  total_loss: number;           // sum of ce_loss across all behaviors
 }
 
 function loadAndValidate<T>(path: string, schema: z.ZodType<T>): T {
@@ -106,6 +109,8 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
   let totalWeight = 0, wSuff = 0, wPrec = 0, wCons = 0;
   let underCount = 0, overCount = 0, critMiss = 0, critTotal = 0;
 
+  let totalLoss = 0;
+
   for (const b of output.behaviors) {
     const gtLevel = gtMap.get(b.behavior_id);
     if (!gtLevel) throw new Error(`No GT for behavior_id ${b.behavior_id} in ${output.task_id}`);
@@ -117,6 +122,21 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
     const c = b.plan_consistent ? 1.0 : (b.plan_consistent_note ? 0.5 : 0.0);
     const diff = LEVEL_INDEX[b.minimum_level] - LEVEL_INDEX[gtLevel];
     const dir = diff === 0 ? "exact" : diff > 0 ? "over" : "under";
+
+    // Cross-entropy loss from level_probabilities
+    let pCorrect = 0.2; // default: uniform if no probabilities provided
+    if (b.level_probabilities) {
+      const probs = b.level_probabilities as Record<string, number>;
+      const rawSum = Object.values(probs).reduce((a, v) => a + Math.max(0, v), 0);
+      if (rawSum > 0) {
+        // Normalize so they sum to 1.0
+        pCorrect = Math.max(0, probs[gtLevel] ?? 0) / rawSum;
+      }
+    }
+    // Clamp to avoid -log(0) = Infinity
+    const pClamped = Math.max(pCorrect, 0.001);
+    const ceLoss = -Math.log(pClamped) * w;
+    totalLoss += ceLoss;
 
     totalWeight += w;
     wSuff += s * w;
@@ -130,7 +150,7 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
       if (s < 1.0) critMiss++;
     }
 
-    rows.push({ behavior_id: b.behavior_id, predicted: b.minimum_level, ground_truth: gtLevel, suff: s, prec: p, cons: c, weight: w, direction: dir });
+    rows.push({ behavior_id: b.behavior_id, predicted: b.minimum_level, ground_truth: gtLevel, suff: s, prec: p, cons: c, weight: w, direction: dir, p_correct: pCorrect, ce_loss: ceLoss });
   }
 
   const sf = wSuff / totalWeight;
@@ -144,6 +164,7 @@ function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typeof Gro
     sufficiency: sf, precision: pr, consistency: co, structure: st, total,
     rows, under_test_count: underCount, over_test_count: overCount,
     critical_miss_count: critMiss, critical_total: critTotal,
+    total_loss: totalLoss,
   };
 }
 
@@ -159,6 +180,7 @@ function printResult(r: ScoreResult) {
   console.log(`  Consistency : ${fmt(r.consistency)}`);
   console.log(`  Structure   : ${fmt(r.structure)}`);
   console.log(`  TOTAL       : ${fmt(r.total)}`);
+  console.log(`  LOSS        : ${r.total_loss.toFixed(2)}`);
   console.log(`  Under/Over  : ${r.under_test_count} under, ${r.over_test_count} over`);
   if (r.critical_total > 0) {
     console.log(`  Crit-miss   : ${r.critical_miss_count}/${r.critical_total} System+ behaviors missed`);
@@ -211,17 +233,20 @@ function main() {
   if (results.length > 1) {
     const avg = (key: keyof ScoreResult) =>
       results.reduce((s, r) => s + (r[key] as number), 0) / results.length;
+    const sumLoss = results.reduce((s, r) => s + r.total_loss, 0);
     console.log(`\n══ AGGREGATE (${results.length} tasks) ══`);
     console.log(`  Sufficiency : ${fmt(avg("sufficiency"))}`);
     console.log(`  Precision   : ${fmt(avg("precision"))}`);
     console.log(`  Consistency : ${fmt(avg("consistency"))}`);
     console.log(`  TOTAL       : ${fmt(avg("total"))}`);
+    console.log(`  LOSS        : ${sumLoss.toFixed(2)}`);
 
     const byCond: Record<string, ScoreResult[]> = {};
     for (const r of results) (byCond[r.condition] ??= []).push(r);
     for (const [cond, rs] of Object.entries(byCond)) {
       const t = rs.reduce((s, r) => s + r.total, 0) / rs.length;
-      console.log(`  ${cond}: ${fmt(t)}`);
+      const l = rs.reduce((s, r) => s + r.total_loss, 0);
+      console.log(`  ${cond}: ${fmt(t)} (loss: ${l.toFixed(2)})`);
     }
   }
 }
