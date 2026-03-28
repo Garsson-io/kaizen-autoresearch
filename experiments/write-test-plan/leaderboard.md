@@ -36,6 +36,16 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 
 §30-task full corpus (EC-01 through EC-30), revised GT. Loss available from iteration 15+.
 
+---
+
+**Sonnet model transfer** (2026-03-29): Switched to claude-sonnet-4-6 for iterations 40+. 36-task corpus.
+
+| # | Condition | Loss | Score (r1) | Δ loss | Model | Commit | Change |
+|---|-----------|------|-----------|--------|-------|--------|--------|
+| 40 | treatment | **439.54** | 87.2% | — | sonnet | c32c90c | sonnet baseline — first run with claude-sonnet-4-6 |
+| 41 | treatment | 459.18 | 85.7% | +19.64 | sonnet | — | integration-escape-hatch: bidirectional Integration gate — REVERTED |
+| 42 | treatment | **412.48** | 87.2% | **-27.06** | sonnet | 8a1978f | reject-higher-must-justify: REJECTION-GATE forces evidence for downward override |
+
 **[Autoresearch run 2 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16356414)** — 5 iterations, 2 keeps, baseline loss 454.16 → best 368.08 (-19%). Largest gain: concrete-agentic-example (-79.84 loss). Unit def changes cause O1/U2 explosion — avoid.
 
 ---
