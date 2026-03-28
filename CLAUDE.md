@@ -19,6 +19,7 @@ This is the map. Each topic has exactly one canonical file — read it there, ed
 | **Ideas schema** | `experiments/<name>/ideas/README.md` | Frontmatter fields, status lifecycle, workflow |
 | **Taxonomy schema** | `experiments/<name>/taxonomy/README.md` | Reasoning pattern format, append-only rules |
 | **Failure analysis** | `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns with representative quotes |
+| **Meta-failures** | `experiments/<name>/meta-failures.md` | Process failures caught by user — ways the experiment infrastructure broke |
 | **Scores** | `experiments/<name>/leaderboard.md` | Score history, GT revision notes |
 | **Agent config** | `experiments/<name>/program.md` | Goal, Scope, Metric, Verify, diagnostic guidance, ground rules |
 | **Corpus metadata** | `experiments/<name>/corpus/catalog.json` | Task titles, domains, difficulty, adversarial techniques, labels |

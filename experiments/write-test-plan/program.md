@@ -70,7 +70,7 @@ Report all three scores in `leaderboard.md`.
 ```
 LOOP:
   1. MINE — extract justifications from runs/latest/, append [runN] to taxonomy/, note what changed
-  2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
+  2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates, read meta-failures.md
   3. PICK — choose one idea (low effort + high impact + targets top pattern)
   4. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   5. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
