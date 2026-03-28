@@ -70,18 +70,21 @@ Report all three scores in `leaderboard.md`.
 ```
 LOOP:
   1. MINE — extract justifications from runs/latest/, append [runN] to taxonomy/, note what changed
-  2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates, read meta-failures.md
-  3. PICK — choose one idea (low effort + high impact + targets top pattern)
-  4. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
-  5. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
-  6. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
-  7. SCORE — compare to baseline. If improved > 1.5 noise threshold → keep. Else → git revert.
-  8. LOG — append to autoresearch-results.tsv. Update idea status (kept/rejected).
-  9. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
-  10. GOTO 1
+  2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
+  3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
+     Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
+     to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
+  4. PICK — choose one idea (low effort + high impact + targets top pattern)
+  5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
+  6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
+  7. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
+  8. SCORE — compare to baseline. If improved > 1.5 noise threshold → keep. Same or worse → git revert.
+  9. LOG — append to autoresearch-results.tsv. Update idea status (kept/rejected/no-op).
+  10. COMMIT RUNS — git add runs/<timestamp>/ and commit the output JSONs.
+  11. GOTO 1
 ```
 
-**Steps 1–2 are MANDATORY.** You must mine the prose and read the taxonomy BEFORE picking the next idea. Without updated data, you're guessing.
+**Steps 1–3 are MANDATORY.** You must mine the prose, read the taxonomy, AND consult meta-failures BEFORE picking the next idea.
 
 ### How to diagnose (step 2)
 - Which tasks score lowest? Which behaviors are `direction: under`?
