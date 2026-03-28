@@ -16,21 +16,17 @@ Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional
 | `experiments/<name>/meta-failures.md` | Process mistakes to avoid repeating. |
 | `experiments/<name>/leaderboard.md` | What's been tried and what scored what. |
 | `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns — what goes wrong and why. |
-| `experiments/<name>/prompts/` | All prompt variants — study what works vs what failed. |
-| `experiments/<name>/taxonomy/` | Raw reasoning patterns from each run. Read the README and all pattern files. |
-| `experiments/<name>/ideas/` | Hypothesis backlog. Read the README and ALL idea files. Check `status` before retrying. |
 
-## The IDEATE step requires high-effort thinking
+## Architecture: you are the EXECUTOR, the subagent is the THINKER
 
-Step 4 of the loop (IDEATE) is the most important creative step. Do NOT rush it. Read all ideas, then think deeply:
-- Which existing ideas target the patterns from MINE and DIAGNOSE?
-- Do the patterns suggest a NEW idea not in the backlog?
-- Can two ideas be COMBINED into something stronger?
-- Does a rejected idea deserve retry given new evidence?
-- What would a skeptic say about your top candidate?
+The loop in program.md has two kinds of steps:
 
-Write new ideas to `ideas/` if you generate them. Then pick ONE to try.
+**Mechanical steps (you do these):** MINE, DIAGNOSE, META, EDIT, COMMIT, RUN, SCORE, LOG, COMMIT RUNS. These are deterministic — follow the instructions exactly.
+
+**Creative step (subagent does this):** IDEATE (step 4). Spawn an opus subagent with the prompt template from program.md's "IDEATE subagent" section. Give it the latest scores and results log. It reads ideas/, taxonomy/, treatment.md itself and returns: idea id, specific edit, rationale, skeptic view.
+
+You execute the subagent's recommendation. If it sounds wrong, you can override — but document why in the commit message.
 
 ## Execute
 
-Follow `program.md`. It has the complete loop. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
+Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.

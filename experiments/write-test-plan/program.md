@@ -75,13 +75,11 @@ LOOP:
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
-  4. IDEATE — this is a HIGH EFFORT thinking step. Read ALL of ideas/, then think deeply:
-     a. Which existing ideas target the patterns found in steps 1-3?
-     b. Do the taxonomy patterns suggest a NEW idea not yet in ideas/?
-     c. Can two existing ideas be COMBINED into something stronger?
-     d. Does a rejected idea deserve retry given new evidence (GT changes, new runs)?
-     e. What would a skeptic say about your top candidate?
-     Write new ideas to ideas/ if you generate them. Then pick ONE to try.
+  4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
+     Give it the latest score summary and results log. It reads ideas/, taxonomy/,
+     meta-failures.md, treatment.md, and justification-taxonomy.md itself.
+     It returns: idea id, specific edit, rationale, and skeptic view.
+     If it creates new ideas, they'll be written to ideas/ by the subagent.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — ./run-eval.sh (or verify.ts). Monitor progress.
@@ -93,7 +91,7 @@ LOOP:
   11. GOTO 1
 ```
 
-**Steps 1–3 are MANDATORY.** You must mine the prose, read the taxonomy, AND consult meta-failures BEFORE picking the next idea.
+**Steps 1–4 are MANDATORY.** You must mine the prose, read the taxonomy, consult meta-failures, AND run the IDEATE subagent BEFORE editing the prompt.
 
 ### How to diagnose (step 2)
 - Which tasks score lowest? Which behaviors are `direction: under`?
@@ -101,7 +99,53 @@ LOOP:
 - Most impactful targets: behaviors with **high weight (4) that score < 40% sufficiency**.
 - Read `taxonomy/` files — which patterns have the most lines? Which grew since last run?
 
-### Edit rules (step 4)
+### IDEATE subagent (step 4)
+
+Spawn a subagent with `subagent_type: "general-purpose"` and `model: "opus"`. Give it this prompt:
+
+```
+You are the IDEATE step of an experiment iteration loop. Your job is to decide
+what prompt change to try next. This is a HIGH EFFORT deep thinking step.
+
+## Context from this iteration
+
+Latest run score: {SCORE}
+Latest run per-task totals: {PASTE the per-task TOTAL lines from score.ts output}
+Results log (last 10 entries): {PASTE last 10 lines from autoresearch-results.tsv}
+
+## Files to read (read ALL of these before thinking)
+
+- experiments/write-test-plan/ideas/ — ALL .md files. This is the hypothesis backlog.
+- experiments/write-test-plan/taxonomy/ — ALL pattern files. This is what's failing and why.
+- experiments/write-test-plan/meta-failures.md — process pitfalls to avoid.
+- experiments/write-test-plan/justification-taxonomy.md — impact-ranked failure summary.
+- experiments/write-test-plan/prompts/treatment.md — the current prompt.
+- experiments/write-test-plan/leaderboard.md — score history.
+
+## Your task
+
+Think deeply about what to try next. Consider:
+a. Which existing ideas target the top taxonomy patterns?
+b. Do the patterns suggest a NEW idea not in the backlog?
+c. Can two existing ideas be COMBINED into something stronger?
+d. Does a rejected idea deserve retry given new evidence (GT changes, new runs)?
+e. What would a skeptic say about your top candidate?
+
+If you generate a new idea, WRITE it to ideas/ with full frontmatter and steelman/critique.
+
+## Output format
+
+Return EXACTLY this structure:
+
+IDEA: {idea id — existing or newly created}
+EDIT: {what to change in treatment.md — which named section, what to add/remove/replace}
+RATIONALE: {one sentence — why this targets the top taxonomy pattern}
+SKEPTIC: {one sentence — the strongest argument against this idea}
+```
+
+The subagent reads the files, thinks, possibly writes new ideas to `ideas/`, and returns the 4-line recommendation. You then execute it in step 5 (EDIT).
+
+### Edit rules (step 5)
 - ✓ Add a concrete positive example for the level the model misses
 - ✓ Add a "NOT this" example that disambiguates two adjacent levels
 - ✓ Reorder key questions to promote Agentic/Workflow checks
