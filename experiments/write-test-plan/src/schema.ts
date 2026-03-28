@@ -65,6 +65,8 @@ export type ProbeOutput = z.infer<typeof ProbeOutput>;
 export const GroundTruthBehavior = z.object({
   behavior_id: z.number().int().min(1).max(10),
   ground_truth_level: Level,
+  /** Why this level is the minimum — what failure would a lower level miss? */
+  reasoning: z.string().optional(),
 });
 
 export const GroundTruth = z.object({
