@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The scoring model assigns the correct risk score when a transaction exceeds the configured amount threshold for its merchant category.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires validating that the correct threshold is loaded for a specific merchant category, then correctly applied to score the transaction. A pure unit test with mocked thresholds would hide the real failure mode: loading the wrong threshold for a merchant category. To catch real failures like threshold mismatches or merchant category lookup bugs, we need realistic configuration data and must verify the lookup + rule application together.",
+      "test_description": "Create test transactions for multiple merchant categories (e.g., gas station, airline, electronics) with varying amounts. Load merchant-category thresholds from configuration (real or realistic config structure). For each merchant, submit transactions that exceed and fall below the category threshold. Verify that exceeding transactions receive the expected risk score calculated by the rule, and non-exceeding transactions do not trigger a high score. Include edge cases: amount exactly at threshold boundary, boundary conditions on merchant category lookup.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test verifies threshold loading (merchant → config lookup) and rule application together, catching real configuration and lookup failures.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk model identifies a fraudulent transaction pattern (e.g., rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Agentic",
+      "justification": "The risk model is described as a trained classifier that 'predicts' whether a transaction is fraudulent based on patterns in merchant category, purchase history, and device fingerprint. This is a real AI/ML model, not rule-based logic. Testing pattern detection requires the actual trained model. Mocking its output would always pass and would completely hide the real failure: the model fails to detect the specific fraud pattern despite training. Non-deterministic model behavior and training-dependent accuracy require testing with the real model.",
+      "test_description": "Construct a transaction sequence matching a known fraud pattern (three small purchases of $20-50 each from different countries within 2 hours, or similar). Use the real trained risk model. For transactions in isolation, verify none exceed the scoring model's individual rule thresholds (amount, velocity). Submit the sequence to the risk model and verify it assigns a high fraud probability (e.g., >0.7). Repeat with variations of the pattern (different amounts, time intervals, geographies) to ensure robust pattern detection. Test that legitimate sequences (same pattern of amounts/geographies but from a trusted account history) receive lower probabilities.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic test required because we're verifying that a real trained ML model can detect fraud patterns that rule-based thresholds miss. Mocking would bypass the core behavior.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.1,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "Velocity checks depend on querying a transaction history (database, cache, or event log) to count prior transactions within a time window. Pure unit tests that pass transactions as a list parameter would miss real failures: incorrect time window boundary logic, wrong user filtering, off-by-one errors in count, queries that include transactions outside the window, or timezone handling bugs. We need a realistic data store and realistic transaction timestamps to catch these.",
+      "test_description": "Set up a test transaction history for a specific user. Create transactions with specific timestamps spanning across a configured time window (e.g., last 1 hour). Add transactions just before, during, and after the window. Execute the velocity check and verify it returns the correct count: only transactions within the exact time window boundaries for that user. Test edge cases: transaction exactly at start time (inclusive?), transaction exactly at end time (inclusive?), transactions from different users should not be counted, no transactions in window (should return 0). Test with different configured window sizes (5 min, 1 hour, 24 hours).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test verifies transaction lookup and counting logic with realistic data store and timestamps, catching boundary and filtering bugs.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Integration",
+      "justification": "We need to verify that the combining logic correctly implements OR, not AND. More importantly, we must verify that both models actually execute in the pipeline before combining. A unit test with mocked models could test the OR logic itself but would miss real failures: one model is never called, or its output is not correctly retrieved and passed to the combining logic. Integration level ensures both models run and their outputs are properly combined in the actual execution flow.",
+      "test_description": "Execute the full fraud detection pipeline with test transactions covering all four flag combinations: (scoring=flag, risk=flag), (scoring=flag, risk=no-flag), (scoring=no-flag, risk=flag), (scoring=no-flag, risk=no-flag). For the first three combinations, verify the transaction is held for review. For the fourth, verify it is not held. Use realistic transaction data that genuinely triggers each model's decision path (not just stubbed outputs). Verify by inspecting the decision logs that both models were evaluated before the combining logic. Test with transactions that ambiguously sit near thresholds to ensure the OR logic is tested, not short-circuited.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration test verifies both models execute and OR combining logic is correct by testing all four combinations with realistic data triggering real model paths.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Agentic",
+      "justification": "The output must include the fraud probability from the real risk model with the correct, reliable value. Since the risk model is an AI/ML classifier (Agentic level, per behavior 2), we cannot mock its output and expect to catch real failures. Real failures include: fraud probability is not included, is corrupted during formatting, is scaled incorrectly, or is missing when the model should have included it. Testing with the real risk model is required to verify the probability value is correctly extracted, formatted, and included. The reviewer's decision quality depends on these values being accurate.",
+      "test_description": "Execute the full detection pipeline with test transactions through both the real scoring model (rule-based, Integration) and real risk model (ML-based, Agentic). For a transaction flagged by the risk model, verify the final output object contains: (1) risk_score field with the numeric value from the scoring model, (2) fraud_probability field with the probability from the risk model, (3) clear indication of which model flagged it (e.g., flags: ['risk_model'] or similar). Test output structure with transactions that have: high risk score but low fraud probability (scoring flags, risk doesn't), low risk score but high fraud probability (risk flags, scoring doesn't), both high. Verify output format is consistent and readable for manual review. Test that values are not swapped, rounded incorrectly, or corrupted in serialization.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic test required because we're verifying the real risk model's output is correctly included with accurate probability values. Mocking would hide failures where the real probability is mishandled.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.1,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

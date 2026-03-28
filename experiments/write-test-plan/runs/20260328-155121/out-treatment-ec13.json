@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "The core failure mode is that the real AI vision model fails to detect explicit content in a real image. A mocked model (returning a fixed 'explicit' result) would hide detection failures where the real model cannot see the objectionable material. This is a model accuracy problem, not a pipeline logic problem. Only the real model can reveal if it fails on the specific image content, edge cases, or encoding issues.",
+      "test_description": "Submit a real image containing explicit content to the moderation pipeline. Verify that the real AI vision model classifies it as 'explicit' and the system holds it in a review queue (not published). Repeat with 5+ real explicit images to capture model variance.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires the real vision model to verify detection accuracy. Mocking would always pass, hiding the real failure mode.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is that the real AI text model fails to detect hate speech when obfuscated. A mocked model would always succeed, completely hiding evasion vulnerabilities. Testing model robustness to adversarial input (obfuscation) requires the real model, since different models have different vulnerabilities to specific evasion techniques. This is a model robustness problem, not a system integration problem.",
+      "test_description": "Create a corpus of 10+ obfuscated hate speech examples (letter substitution, unicode lookalikes, homoglyph attacks, number/symbol replacement). Submit each to the moderation pipeline and verify the real text model classifies them as 'hate_speech' and the system flags them for review.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing adversarial robustness of the model requires calling the real model. A mock defeats the entire purpose of the test.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "The failure modes are pipeline logic errors: incorrect routing (holding a clean post), silent drops, or incomplete writes to the publish system. These are code orchestration failures, not model accuracy problems. Mocking both AI models to return 'clean' is sufficient to test the routing logic. However, the publish mechanism (database, message broker, or queue) must be real to verify the post actually reaches publication and isn't dropped.",
+      "test_description": "Mock both the vision model (returns 'clean') and text model (returns 'clean'). Submit a clean post and verify it: (1) is written to the publish queue/database, (2) is not present in the review/held queue, (3) appears in the live feed or confirms a publish event was emitted. Repeat 3+ times to catch race conditions or silent drops.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test is about system response to model outputs, not model accuracy. Mocked models are sufficient; real publish infrastructure is necessary.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "Performance requirements depend on real infrastructure: network latency to the AI model APIs, actual model inference time, and system resource contention. Mocking the AI models with instant responses would mask the real latency bottleneck and produce a false-positive test result. The 5-second constraint is meaningful only when measuring real end-to-end latency including actual API calls.",
+      "test_description": "Load-test the pipeline with 10+ real posts (images + text) submitted concurrently. Use real (not mocked) calls to the vision and text model APIs. Measure end-to-end latency from submission to final decision (publish or hold). Verify that 100% of submissions complete within 5 seconds, and capture percentile latencies (p50, p95, p99).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Mocking the slowest components (AI models) would defeat the purpose of the performance test. Real APIs are essential.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.8,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is incorrect error handling: auto-approving a post when the model fails, or failing to queue for retry. This is a code logic problem, testable by mocking the model to throw an exception. However, the retry queue must be real (actual database or message broker) to verify the post is actually written there and not silently dropped or auto-published.",
+      "test_description": "Mock the vision model to raise a connection timeout error. Submit an image post and verify: (1) the post is written to a retry queue (check queue/database), (2) the post is NOT marked as published or auto-approved, (3) the system returns an appropriate error response (e.g., 'retry_queued'). Repeat with different error types (timeout, 5xx, rate limit).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Error handling logic can be tested with a mocked failure; verification requires real queue infrastructure to confirm the post is actually queued.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "The failure mode is inconsistent moderation decisions caused by AI model non-determinism or missing caching logic. A mocked model always returns the same result, hiding real inconsistency. Testing consistency requires calling the real vision model multiple times on the same borderline image to measure actual non-determinism. If the real model produces different classifications on different runs, the test must also verify that the system caches the decision to enforce consistency.",
+      "test_description": "Select a borderline image (one that the model may classify differently on different runs—e.g., image at confidence threshold). Submit it 5+ times within a 10-second window and capture the decision each time. Verify either: (a) the real model returns the same classification (model is consistent), or (b) all submissions receive the same decision due to caching. If inconsistent, verify the system caches and reuses the first decision.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Testing consistency across multiple model calls requires the real model to detect and measure non-determinism. A mock would always succeed, hiding real variance.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.1,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

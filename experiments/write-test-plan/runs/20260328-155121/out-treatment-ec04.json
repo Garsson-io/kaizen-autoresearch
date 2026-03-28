@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "To verify that the taxonomy list is included in the API request, we must wire the classifier module with its API client dependency and inspect the arguments passed to the mocked API. A pure Unit test (single function in isolation) wouldn't catch missing or incomplete taxonomy in the API call structure, because the logic exists in the integration between the classifier and the API client layer. A mock of the external API at the Integration level allows us to verify the exact arguments passed, confirming the taxonomy is included.",
+      "test_description": "Instantiate the classification module with a configured taxonomy. Call the classifier with a test document. Mock the external API client and verify via mock inspection that it was called with arguments containing the complete taxonomy list. Assert the taxonomy list is not empty, not truncated, and matches the configured taxonomy.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level — we must wire the classifier with its mocked API client and inspect call arguments. A Unit test of the classifier logic alone (without the API client) would miss failures where the taxonomy is not passed to the API.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns 'unknown' instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The module must validate the API response against a taxonomy list and handle an out-of-taxonomy label gracefully. To test this, we must mock the external API to return an invalid label, then verify the module's validation and response. A Unit test of the validation logic alone (without calling the module) would not catch cases where the module accidentally forwards an invalid response. A mock of the external API at the Integration level lets us simulate the real failure mode (API returns unexpected value) and verify the module's defensive behavior.",
+      "test_description": "Mock the external API to return a label not in the taxonomy (e.g., 'api_returns_unexpected_label'). Call the classification module with a test document. Verify the returned classification is 'unknown', not the unexpected value from the API. Test multiple out-of-taxonomy labels to verify the validation is robust.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level — we need to mock the external API and verify the module's response to an invalid API return. A Unit test that only checks the validation logic in isolation would not exercise the full module behavior.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Integration",
+      "justification": "Testing determinism across repeated calls requires wiring the classifier with its API client dependency and making multiple calls. A mock alone at Unit level cannot reveal if caching is broken or missing — the real failure is that the module either doesn't cache (relying on a non-deterministic API for consistency) or has a broken cache key. At Integration level, we mock the external API and call the classifier twice with the same document, then verify: (1) both results are identical, and (2) the API was only called once (proving caching works). A System/Agentic test against a real non-deterministic API would be the ultimate verification, but Integration with controlled mocks catches the caching logic failure.",
+      "test_description": "Call the classification module twice with the same document (mock the external API to return a consistent value). Verify both results are identical. Verify via mock inspection that the external API was only called once on the first request, not twice (proving caching is working). Repeat with different documents to verify the cache key is document-based, not a global singleton.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level — we need to mock the API and verify both result consistency and API call count (caching), which requires wiring and inspecting the mocked dependency.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "To verify the module respects a token budget, we need to mock the external API and test budget enforcement logic. At Integration level, we mock the API to report a token count, and verify the module (1) calculates tokens correctly, (2) compares against the configured budget, and (3) prevents or truncates requests that would exceed it. The real failure might be: the module doesn't check the budget at all, or the budget check is off-by-one. A pure Unit test of the budget calculation logic wouldn't catch a missing check before the API call. A System test against a real API would verify actual tokenization behavior, but Integration with mocked token counts suffices to catch budget enforcement failures.",
+      "test_description": "Configure the module with a per-call token budget (e.g., 1000 tokens). Mock the external API to report token usage in its response. Call the classifier with a document that, when tokenized by the mocked API, stays within budget — verify success. Call with a document that would exceed the budget — verify the module either rejects it, raises an error, or truncates before sending. Verify the module calculates token totals correctly and compares against the configured limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level — we mock the API and verify budget enforcement logic. A Unit test would miss integration points like where budget is checked relative to the API call.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.6,
+        "System": 0.25,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "To verify retry-on-rate-limit behavior, we must mock the external API to signal a rate-limit error on the first call and success on the second, then verify the module retries. At Integration level, we can mock the API's rate-limit response and verify the module's retry logic catches the error, waits (with a mocked/controlled clock if timing is critical), and retries successfully. A Unit test cannot verify this because the retry logic depends on the API's error response. A System test against a real rate-limited API would be the ultimate validation, but Integration with controlled mock responses suffices to catch retry logic failures (missing retry, infinite loop, wrong backoff, etc.).",
+      "test_description": "Mock the external API to raise a rate-limit error (e.g., HTTPException with 429 status) on the first call and return a valid classification on the second call. Call the classifier. Verify it does not raise an error to the caller, but instead returns a valid classification result. Verify the API mock was called exactly twice (proving a retry occurred). If backoff is implemented, verify the module waited an appropriate duration between retries (using a mocked/fake time source).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test requires Integration level — we need to mock the API, control its error response, and verify the module's retry behavior. A Unit test would not exercise the full retry flow.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.1,
+        "Workflow": 0
+      }
+    }
+  ]
+}

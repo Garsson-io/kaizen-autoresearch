@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure deterministic function — given parameters, produce a key. Real failures (idempotency break or collisions) occur in the algorithm itself, not in infrastructure. A unit test with multiple parameter sets verifies the key generation logic directly without I/O or mocking.",
+      "test_description": "Create a unit test that (1) calls generate_cache_key() twice with identical parameters and asserts both calls return the same key; (2) calls generate_cache_key() with distinct parameter sets and asserts all keys differ; (3) tests edge cases (empty params, special characters, different orderings). No mocking needed; the failure is purely algorithmic.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test only exercises the key generation function itself. No external dependencies means Unit is sufficient and correct.",
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Integration",
+      "justification": "Real failures include: (1) computation logic is wrong, (2) freshness rules are not loaded correctly, (3) rules are malformed. A unit test with mocked rules catches only (1). An integration test must load real (or real-shaped) configuration and verify end-to-end: given a category and its rule, TTL is computed correctly. This requires treating config loading as part of the behavior.",
+      "test_description": "Create an integration test that (1) loads or mocks freshness rules in the same format as production (e.g., fixture matching config structure); (2) instantiates CacheLayer with these rules; (3) calls compute_ttl('user_profiles') and asserts result equals 300 seconds (5 min); (4) calls compute_ttl('product_catalog') and asserts 3600 seconds (1 hour); (5) tests missing category and invalid rule edge cases. Use a fixture that mimics the real config file format, not a string mock.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test exercises the full TTL path—rules loading and computation. This catches failures in both config loading and algorithmic logic, validating Integration level.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "Real failures include: (1) switching logic is inverted or off-by-one, (2) memory measurement doesn't trigger at the right threshold, (3) strategy doesn't actually change. A unit test with mocked memory usage catches (1) but misses (2)—mocking hides how memory is measured in context. An integration test must simulate or cause actual memory pressure (or use integration-level injection) in the context of cache operations to verify the switching happens correctly in response to real conditions.",
+      "test_description": "Create an integration test that (1) creates a CacheLayer with memory_threshold configured to 80% (or similar); (2) populates the cache with enough entries to approach or exceed threshold (either by adding many items, mocking memory via integration fixtures, or using patch.object in integration context); (3) monitors or triggers memory check; (4) verifies cache.current_eviction_strategy switches from 'LRU' to 'LFU'; (5) adds one more entry and verifies it uses LFU eviction (removes least-frequently-used, not least-recently-used). Do not mock memory at unit level; use integration-level simulation.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test exercises strategy switching in context of actual cache pressure simulation. This validates that the switching happens in response to real conditions, not just that the logic is correct in isolation.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "Real failures include: (1) write detection fails (DB trigger or polling doesn't fire), (2) cache key matching is wrong, (3) entries are not actually removed. A unit test with mocked 'write detected' event catches only (2). An integration test with a real or test database instance verifies the full flow: write to DB → detection → matching → invalidation. A test database (PostgreSQL in Docker, or similar) is sufficient; it is still real enough to catch the core invalidation logic failures. Full system testing would be needed only for production-specific trigger or replication issues.",
+      "test_description": "Create an integration test that (1) sets up a test PostgreSQL instance (or use a test DB fixture); (2) inserts or queries data to populate the cache with known keys; (3) performs an UPDATE or DELETE on the underlying table (e.g., UPDATE users SET name='new' WHERE id=1); (4) verifies that all cache entries matching the affected row(s) are removed; (5) verifies unaffected cache entries remain; (6) tests edge cases (multi-row update, partial key match). Do not mock the write detection; use real DB operations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test exercises the full invalidation pipeline with a real test database. This catches failures in matching logic and removal, which are the core behavior.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.01,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "Real failures are purely algorithmic: wrong entry evicted (LRU removes MRU instead of LRU, or LFU removes most-frequent instead of least-frequent), or eviction doesn't happen. These failures are in the core logic and can be caught by a unit test that (1) fills a cache to capacity, (2) accesses entries in controlled order (LRU) or frequency patterns (LFU), (3) adds one more entry, (4) verifies the correct entry was removed. No infrastructure, no I/O, no external calls needed.",
+      "test_description": "Create unit tests for LRU and LFU separately: (LRU) create CacheLayer with max_size=2, add key1 and key2, access key1 (making it recent), add key3 (should evict key2 as least recent), assert key1 and key3 remain and key2 is gone. (LFU) create CacheLayer with max_size=2, add key1 and key2, access key1 multiple times (increasing frequency), add key3 (should evict key2 as least frequent), assert key1 and key3 remain. Test both eviction strategies, boundary cases (max_size=1, equal frequency), and verify the removed entry is actually deleted from memory.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test directly exercises eviction logic with controlled access patterns. No mocking or infrastructure is needed; the failure is in the eviction algorithm itself.",
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

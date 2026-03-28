@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Embedding vector dimensionality matches vector database index requirements",
+      "minimum_level": "System",
+      "justification": "The real failure occurs when the actual embedding service (e.g., OpenAI, Cohere, local model endpoint) produces a vector of dimension D, but the index expects D'. Mocking the embedding call would hide this: a mock could return any dimension without hitting the real service. Testing requires calling the actual embedding API being used in production to verify it produces vectors matching the database index schema.",
+      "test_description": "Call the real embedding API with a test query, retrieve the embedding vector, assert vector.shape[0] == expected_dimension (e.g., 1536 for text-embedding-3-large). Run multiple times to confirm consistency. Failure mode caught: embedding service misconfiguration, model swap that changes output dimensionality, or vector DB index created for wrong model.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Similarity search returns results ordered by descending cosine similarity",
+      "minimum_level": "Integration",
+      "justification": "A Unit test with a mocked vector DB would always pass (mock returns what you tell it). The real failure is that the vector DB's similarity search returns results in wrong order—ranks by recency instead of similarity, or ascending instead of descending. To catch this, you need the real vector database behavior. This can be Integration-level: a local vector DB instance (e.g., SQLite with vector extension, in-memory FAISS, or containerized Milvus) can be spun up in tests and verified for correct ranking logic.",
+      "test_description": "Seed a local vector database with 5 test vectors with known similarity relationships to a query vector (e.g., cos_sim=[0.95, 0.80, 0.65, 0.50, 0.10]). Execute the similarity search endpoint, capture returned results and their scores. Assert results are ordered by descending score. Failure mode: integration bug between API and vector DB, incorrect similarity aggregation, or library misuse.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "LLM re-ranking step reorders results based on nuanced query intent",
+      "minimum_level": "Agentic",
+      "justification": "The re-ranking quality and behavior depend on the real LLM's non-deterministic evaluation of contextual relevance. A mock LLM could return any fixed reordering, hiding real failure modes: the LLM might not understand nuance, might rerank worse than similarity-only, or might fail silently. Testing requires calling the actual LLM (with its inherent non-determinism and variability across runs) to verify it actually re-ranks semantically coherent results differently from raw similarity order. Raw similarity is deterministic; LLM judgment is not.",
+      "test_description": "With a real embedding model, insert 3 product vectors into a real vector DB. Query with a nuanced natural-language intent (e.g., 'casual shoes that work for running' vs 'formal shoes'). Retrieve top-5 similar results. Call the real LLM with the query and top-5 results, ask it to re-rank by relevance to intent. Assert that the re-ranked order differs from the raw similarity order in at least K positions. Run 3+ times to account for LLM stochasticity. Failure mode: LLM ignores context, re-ranking logic integrates incorrectly, or intent is lost in prompt.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Query with no close matches returns empty result set, not low-relevance noise",
+      "minimum_level": "Integration",
+      "justification": "The real failure is that the similarity threshold filter is misconfigured, or the vector DB returns borderline-low-relevance matches that the API should filter out. Mocking the vector DB would hide this: a mock could return whatever you tell it. Testing requires the real vector database with actual similarity scores below threshold. A local vector DB instance is sufficient—seed it with vectors orthogonal to your test query, verify empty results after filtering. The logic is deterministic (threshold comparison), so non-determinism from LLMs is not the failure boundary.",
+      "test_description": "Seed vector database with 10 product vectors chosen to be orthogonal/dissimilar to a test query vector (e.g., searching 'wireless earbuds' in a database of niche historical books). Perform similarity search with threshold=0.7 (example). Assert that the API returns an empty result set, not the low-scoring matches. Verify status code and response structure indicate no results (e.g., 200 with empty items array, or 404). Failure mode: threshold too low, filtering logic skipped, or similarity score calculation is wrong.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "End-to-end latency from query to re-ranked results stays below 2 seconds (median)",
+      "minimum_level": "System",
+      "justification": "Latency failures hide in real network calls and external service inference times, which mocks mask. A Unit or Integration test with instant mocks would always pass. The real failure modes: embedding API slow, vector DB query slow, LLM inference slow, network latency, or code bottlenecks when combined. To catch these, you need to measure against realistic latencies—at minimum real external HTTP calls (System level). LLM inference adds non-deterministic latency, but the primary failure boundary is external service latency, not LLM semantic output variance.",
+      "test_description": "Execute a realistic E2E query-to-results flow: (1) send a natural-language query to the API, (2) API calls real embedding service, (3) API queries real vector DB, (4) API calls real LLM for re-ranking, (5) API returns results. Measure wall-clock time from request to response. Repeat 30+ times. Assert median latency ≤ 2.0 seconds, p95 ≤ 3.0 seconds. Failure mode: slow embedding model, slow vector DB, slow LLM, N+1 queries, missing indexes, inefficient paging.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.65,
+        "Agentic": 0.2,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior depends entirely on what the real neural machine translation API actually produces. No mock can simulate genuine coherence and semantic preservation—a mocked API would return any fixed string. To verify that a real model produces grammatically coherent translations preserving meaning, we must call the actual translation API and validate the output (e.g., against known good translations or via semantic embedding comparison). The behavior inherently varies based on model behavior, not deterministic logic.",
+      "test_description": "Call the real translation API with grammatically complex source text (embedded clauses, idiomatic expressions, pronoun references). Verify the output preserves semantic meaning by comparing against known-good reference translations or computing semantic similarity using an embedding model. Run against multiple source phrases to establish that coherence is consistent.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Unit",
+      "justification": "The core failure to catch is: 'Does the service properly handle the API error and invoke the fallback?' This is error-handling logic testable with mocks. Mock the API to raise a 503 exception, mock the dictionary to return a translation, and verify the service returns the result without raising an error. A pure mock catches failures in error detection and fallback invocation. However, if the fallback database query itself is broken, that's a separate behavior (Behavior 3); this behavior is specifically about error handling logic, not dictionary correctness.",
+      "test_description": "Mock the translation API client to raise an APIError with 503 status. Mock the dictionary fallback to return a valid translation. Call the service with a source phrase. Assert that the service returns the dictionary translation and does not propagate the 503 error.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.35,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "The failure is: 'Does the fallback translator correctly query and retrieve the right translation from the database?' A pure mock of the database could return any value, hiding real failures like SQL syntax errors, wrong column names, type mismatches, or JOIN errors. Only by using a real SQLite database (in-memory for testing) can we validate that the query is formed correctly and the data is retrieved accurately. This crosses the module boundary between the translator logic and the database layer.",
+      "test_description": "Populate an in-memory SQLite database with test phrase-translation pairs (e.g., 'hello' → 'bonjour', 'goodbye' → 'au revoir'). Instantiate the fallback translator with the database connection. Call the translator with phrases that exist in the database. Assert each returns the correct stored translation. Test both exact matches and non-matches (phrase not in DB should return null or empty).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "The behavior has two parts: (1) computing edit distance (a deterministic algorithm, unit-testable) and (2) storing the result in the database. A mock of the database could accept any data, masking real failures like incorrect column mapping, data type violations, serialization errors, or constraint violations. Only a real SQLite database (in-memory) ensures the metric is actually stored with the correct schema and format. The failure we must catch is not just 'did we call insert?' but 'does the insert succeed and store correctly?'",
+      "test_description": "Call the service with known primary and fallback translations. Compute the expected edit distance manually (e.g., primary='hello world', fallback='hallo world' → edit distance=1). Query the in-memory SQLite database to verify the metric was stored with the correct values: channel_id, timestamp, primary_text, fallback_text, edit_distance. Assert values match expected.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The behavior involves multiple subsystems: the primary translator, fallback availability check, primary result return, and background logging. A unit test mocking all three could verify 'does the service call log()?' but would miss real failures in the logging backend (misconfigured logger, wrong format, failed writes, async task not spawned correctly). For 'in the background' to be reliably tested, we need real asynchronous execution (thread pool, task queue, or event loop) and a real logging sink (file, database, or message queue). A mock logger wouldn't catch failures where the background task never runs or crashes.",
+      "test_description": "Configure the service with both primary and fallback translators available. Call the service with a source phrase. Immediately assert that the primary translation is returned (not the fallback). Spawn a brief wait or use an event/barrier to allow the background logging task to complete. Query the real logging backend (database, file, or message queue) to verify the quality comparison metric was logged with correct values (both translations, edit distance, timestamp).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

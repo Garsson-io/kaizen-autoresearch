@@ -1,7 +1,7 @@
 ---
 id: concrete-agentic-example
 title: Add concrete Agentic example inline with level definition
-status: proposed
+status: kept
 effort: low
 expected_impact: high
 targets:

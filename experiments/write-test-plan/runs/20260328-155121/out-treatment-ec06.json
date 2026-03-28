@@ -1,0 +1,96 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in watched subdirectories are processed, not only files at the root level",
+      "minimum_level": "Integration",
+      "justification": "A Unit test mocking file listings would miss the real failure: the watcher might not be configured to watch subdirectories at all. The failure boundary is the integration between the watcher configuration and actual filesystem structure. Need real subdirectories and real watcher events to verify subdirectories are included in the watch scope.",
+      "test_description": "Create a real temporary directory structure with subdirectories (e.g., root/sub/file.txt). Configure the daemon to watch root. Write a file to the subdirectory, trigger the filesystem watcher, and verify end-to-end that the file is processed. Repeat with multiple nesting levels to ensure deep subdirectories are also watched.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.95,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic discards duplicate processing requests for the same file within a configurable time window",
+      "minimum_level": "Integration",
+      "justification": "While the core deduplication logic (checking set membership, managing timeout) could be Unit-tested with mocked timers, the real failure manifests under actual filesystem conditions: race conditions, timing drift under I/O load, or duplicate watcher events. A mocked timer would hide these. Integration test with real filesystem events and actual timing ensures deduplication works when the OS fires duplicate events rapidly.",
+      "test_description": "Write a file to the watched directory and programmatically trigger multiple rapid watcher events for the same file path (simulating OS behavior). Verify the daemon's deduplication queue processes the file exactly once within the time window. Test with time window values just above and below the event inter-arrival time to verify the boundary condition.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "System",
+      "justification": "This behavior explicitly depends on real OS filesystem event semantics. Different OSes emit different event sequences (Linux inotify fires separate 'create' and 'write' events; macOS FSEvents may coalesce them). An Integration test with a mocked watcher would never see the real duplicate events from the OS. Only a System-level test that writes a real file and observes the actual OS watcher events can catch failures in handling OS-specific event patterns.",
+      "test_description": "Write a file to the watched directory using real filesystem I/O (not mocked). Observe the actual filesystem events emitted by the OS watcher (inotify, FSEvents, or ReadDirectoryChangesW depending on platform). Verify that despite multiple events, the daemon processes the file exactly once. May require platform-specific test variants to account for OS event order differences.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and recreated while the daemon runs, it resumes watching without restart",
+      "minimum_level": "System",
+      "justification": "This requires real OS filesystem operations (actual directory deletion and recreation) and tests daemon process resilience across state changes. An Integration test could simulate this, but the failure boundary is at the OS level: the daemon must handle the real sequence of OS events when a watched directory disappears (ENOENT errors, watch handle invalidation) and reappears. Also tests long-running daemon behavior that may require subprocess/process management.",
+      "test_description": "Start the daemon watching a real temporary directory. While the daemon is running, delete the watched directory using real filesystem operations. Recreate the directory. Write a file to the recreated directory. Verify the daemon detects the recreation and resumes watching without restarting the process. Monitor daemon logs or process state to confirm no restart occurred and no error recovery required user intervention.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.3,
+        "System": 0.65,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Multiple files arriving simultaneously are processed in the order determined by their creation timestamps",
+      "minimum_level": "Integration",
+      "justification": "The failure is that files are processed in arrival order (OS event order) instead of creation timestamp order. This requires reading real filesystem metadata (creation timestamps from stat()). A Unit test of the sorting logic would pass regardless. An Integration test with real files and real timestamp reading verifies the daemon correctly reads and respects filesystem metadata. System-level testing might be needed for OS-specific timestamp semantics, but the primary failure is at the module integration level.",
+      "test_description": "Create three test files with controlled creation timestamps (file A older than B older than C) in the watched directory. Trigger the watcher to see them in arrival order different from creation time order. Verify the daemon processes them in creation-timestamp order, not arrival order. Check that the processed output files or logs reflect the timestamp-ordered sequence.",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file still being written is not processed until writing is complete",
+      "minimum_level": "System",
+      "justification": "The failure is that the daemon processes a partially-written file, causing corrupted or incomplete results. Detecting 'file write complete' is OS-specific: different OSes track file completion differently (inode mtime changes, file handle counts, directory entry finalization). An Integration test with a mocked 'file complete' check would always pass and never expose the real failure. System-level testing with real OS-level write completion detection is necessary to verify the daemon waits for actual write completion.",
+      "test_description": "Open a file in the watched directory for writing (without closing the handle). Verify the daemon does not process the file while it remains open. Close the file. Verify the daemon then processes the newly-completed file. Repeat with various file sizes and write patterns to test the completeness detection mechanism. May require platform-specific implementation of open-file detection (lsof on Unix, etc.).",
+      "plan_consistent": true,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

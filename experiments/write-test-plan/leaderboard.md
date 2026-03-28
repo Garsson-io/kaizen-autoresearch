@@ -29,6 +29,7 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 | 3 | treatment | — | **91.0%§** | — | — | re-scored existing run 2 outputs against revised GT |
 | 15 | treatment | **454.16** | 86.4% | — | — | loss baseline — first run with calibrated probabilities |
 | 16 | treatment | **447.92** | 84.4% | **-6.24** | 23e85af | variance-probe-question: 100-runs thought experiment under LLM-DEP |
+| 19 | treatment | **368.08** | 88.0% | **-79.84** | a846ccc | concrete-agentic-example: expand Agentic def with AI/ML examples |
 
 §30-task full corpus (EC-01 through EC-30), revised GT. Loss available from iteration 15+.
 
