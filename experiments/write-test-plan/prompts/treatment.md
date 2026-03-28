@@ -17,9 +17,8 @@ Key questions per behavior:
 - Does correctness depend on what a real LLM produces? → Agentic.
 - Does it require multiple real agentic steps in sequence? → Workflow.
 
-After deciding each level, challenge yourself (plan_consistent): argue why
-your choice is WRONG — what failure would you miss at this level? If you can
-identify a missed failure, raise the level. Set plan_consistent=false with a note.
+After deciding each level, self-check (plan_consistent): does your
+test_description actually require that level, or would it pass at a lower one?
 
 Issue (task_id: {{TASK_ID}}):
 ---
