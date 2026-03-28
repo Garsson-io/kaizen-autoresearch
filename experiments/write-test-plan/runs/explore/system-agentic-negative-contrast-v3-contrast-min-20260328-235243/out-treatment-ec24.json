@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests whether the real neural machine translation model produces quality output. The failure mode — 'model produces grammatically incoherent or meaning-losing translations' — only manifests when calling the actual trained model. Mocking always passes; Unit tests can't evaluate semantic or grammatical quality without the real model. System-level HTTP testing catches transport failures, not translation quality. Only the real LLM can reveal whether coherence and semantic preservation hold across diverse inputs.",
+      "test_description": "Call the real translation API with a diverse test corpus (simple sentences, complex sentences, technical terms, idioms) in multiple source/target language pairs. For each result, verify: (1) output is in correct target language, (2) all major semantic entities from source are present in output, (3) output is grammatically coherent in target language, (4) output demonstrates structural changes appropriate to target language (not word-for-word), (5) repeated calls with same input yield consistent translations. Flag outputs that lose meaning, scramble syntax, or produce gibberish.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.85,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is a module hand-off issue: primary translator error → fallback activation → database lookup → result return. This only manifests when modules interact. A Unit test mocking both could pass while missing real failures: the database might not be queried correctly, transactions might fail, or the error handling in actual wiring is broken. Integration testing with a real SQLite database and actual service wiring catches whether the fallback logic truly works end-to-end when infrastructure actually responds with 503.",
+      "test_description": "Set up a real SQLite database with known phrase translations. Inject a 503 error response into the primary translator (mock or real HTTP with fault injection). Call the service with a phrase that exists in the fallback database. Verify: (1) no error is returned to caller, (2) the fallback translation from the database is returned, (3) logs show the fallback was triggered, (4) primary translator was actually attempted before fallback, (5) repeated calls in this state consistently fall back. Also test: primary returns 503 for phrases NOT in dictionary (verify error is suppressed but graceful degradation occurs).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "The failure modes — incorrect query, wrong data in database, encoding corruption, schema mismatch — all depend on the actual SQLite database. Mocking the database will always pass; you cannot verify 'correct pre-stored translation' without querying the real database and reading actual stored data. The database is real infrastructure that must be tested with real reads and schema validation.",
+      "test_description": "Create a real SQLite test database with a known set of phrase→translation mappings (covering multiple languages, special characters, punctuation, whitespace edge cases). For each stored phrase, call the fallback lookup and verify: (1) the returned translation exactly matches the stored value, (2) lookup is case-sensitive or case-insensitive as designed, (3) partial phrases or typos return null (not false matches), (4) special characters and Unicode are preserved, (5) phrases not in database return null. Verify database schema matches expectations (correct columns, indexes, constraints).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "The behavior includes two parts: correct computation AND correct storage. Unit tests can verify the edit distance algorithm in isolation (pure function), but the behavior explicitly requires storage. A Unit test skipping storage would miss real failures: database write could fail, the metric could be stored with wrong format, data could be truncated, or the transaction could not commit. Integration testing with a real database verifies both the algorithm correctness AND that metrics are actually persisted and retrievable.",
+      "test_description": "Create test pairs of primary and fallback translations with known edit distances (e.g., strings differing by 1 character, 50%, identical). For each pair, invoke the quality tracking service with both outputs. Verify: (1) computed edit distance is mathematically correct for each pair, (2) the metric is actually written to the database (query and confirm), (3) stored format is correct (numeric, within expected range), (4) multiple comparisons are stored independently (no overwrite), (5) timestamps or IDs are correct in stored records. Also test: null/empty inputs, very long strings, same primary and fallback (distance=0).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "The failure modes involve module hand-off and async execution: primary translator available → choose primary over fallback → log comparison asynchronously → don't block response. Multiple modules interact (primary API, fallback DB, service logic, async task). Unit mocking could miss: (1) the fallback is incorrectly chosen instead of primary, (2) logging actually blocks the response (not truly async), (3) the logged data is corrupted or never persists, (4) the async task fails silently. Integration testing with real database and async execution catches these wiring and behavioral failures. If the primary translator is the real model, Agentic would be higher, but the service logic itself can be validated at Integration.",
+      "test_description": "Set up both primary translator (mock returning known output) and fallback dictionary (real SQLite with test data). Call the service with a phrase for which both translators would produce output. Verify: (1) the returned translation is from the primary translator (not fallback), (2) the comparison is logged to the database (query and confirm within reasonable timeout), (3) the logged record contains both outputs and computed metric, (4) the response is returned without waiting for logging to complete (async check via timing or thread inspection), (5) if logging fails asynchronously, the response is still returned (failure is non-blocking). Also test: primary unavailable → fallback used (inverse case).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

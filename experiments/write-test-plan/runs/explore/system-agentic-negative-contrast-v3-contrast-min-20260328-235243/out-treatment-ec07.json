@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is at a module boundary: data from one or more sources isn't being collected and aggregated correctly before reaching the summary generator. A unit test of the aggregator function alone (given three pre-made data objects, combine them) would pass even if the actual data retrieval modules aren't wired correctly. You must test multiple modules together—the three data fetchers, the aggregator, and the handoff to summary generation—to catch missing/incomplete data from real sources.",
+      "test_description": "Mock the three data sources (metrics endpoint, issue tracker API, deployment log) to return known values. Wire them through the actual aggregation logic. Verify that the exact data structure passed to the summary-generation function contains all three sources' values (e.g., metrics.latency_ms, issues.open_count, deployments.latest_status). Assert the structure is correct, not a mock.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires two+ modules wired together (data fetchers + aggregator) and verifies the integration point, not a single function's logic. Consistent with Integration.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "The failure is at a module boundary between data fetchers and the aggregator. When one of three parallel data-source calls fails, the aggregator must catch that failure and still produce valid output with a fallback note. A unit test of error handling alone (testing a function that accepts a pre-formed exception) misses the real scenario: what happens when a live data-fetch call fails mid-pipeline? You need multiple modules—data fetchers, aggregator, error handler—working together to catch the real integration failure.",
+      "test_description": "Mock one data source to raise a ConnectionError or timeout. Keep the other two sources returning valid data. Run the aggregation pipeline. Verify the output contains a 'data unavailable' note for the failed source while still including data from the other two sources. Verify the pipeline does not crash or silently drop the available data.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires error handling across module boundaries (fetcher failure → aggregator recovery), not just testing error logic in isolation. Consistent with Integration.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests output quality of a real LLM. Accuracy is not deterministic—the same input data may produce different summaries across runs, with varying quality. A mock LLM would always return a passing 'good summary' and hide real failures where the actual model misses key values, misinterprets data, or produces inaccurate narrative. You must call the real LLM (or a real LLM API endpoint) to test this behavior and observe whether it actually produces accurate summaries under realistic variance.",
+      "test_description": "Prepare input data with specific, measurable key values (e.g., latency_ms=250, open_issues=5, deployments=3). Call the real LLM summary generator with this data. Parse the generated summary and verify it mentions all key values (either as exact numbers or as reasonable paraphrases like 'about 250 milliseconds' for latency). Run the test multiple times to check for consistency; document any variance or failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test depends on real LLM output correctness, which varies with each call. Mocking would hide the real failure mode (poor summary quality). Consistent with Agentic.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "System",
+      "justification": "The failure mode is at the system boundary: real email delivery must succeed end-to-end. This requires multiple infrastructure components (data sources, email service) and real I/O (SMTP/HTTP to email server). While you can mock the data sources and summary generation for this test, the email delivery itself must be real to catch failures like auth errors, SMTP timeouts, or misdelivery. The test verifies the full pipeline's ability to reach a real inbox, not just local logic.",
+      "test_description": "Run the full scheduled pipeline with a test email account (e.g., a Gmail test address or test SMTP server). Provide mocked data sources (so input is deterministic) and a mocked summary generator (so output is deterministic). Actually send the generated report via SMTP/HTTP to the real email service. Verify the email arrives in the configured inbox within 5 minutes. Check headers and body content match the generated report.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real email delivery (SMTP/HTTP to email service), not just local module wiring. Addresses the 'reaches the inbox' requirement. Consistent with System.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "System",
+      "justification": "The failure mode involves OS I/O and system failure simulation. You must test the interaction between email delivery (which fails), file fallback (local filesystem write), and retry scheduling across multiple runs. A unit test of file-save logic alone misses the real scenario: does the pipeline correctly catch an email failure, fall back to file storage, and resume on the next scheduled execution? You need real filesystem I/O and simulated system failure (unreachable email service) to catch failures like permission errors, disk full, or incorrect retry logic.",
+      "test_description": "Mock the email service to raise a timeout or connection error (simulate unreachable service). Run the pipeline. Verify a report file is written to the configured fallback directory (e.g., /tmp/failed-reports/report-YYYY-MM-DD.json). Verify the report file is not corrupted (valid JSON/format). Simulate the next scheduled run; verify the retry logic detects the failed report and re-attempts delivery. Optionally, restore the email service and verify the retry succeeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem I/O and system-level failure simulation (email service down), not just unit-level fallback logic. Tests the interaction across multiple runs and modules. Consistent with System.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

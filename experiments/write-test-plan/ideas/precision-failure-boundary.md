@@ -1,7 +1,7 @@
 ---
 id: precision-failure-boundary
 title: Match failure boundary exactly — not lower for convenience, not higher to be safe
-status: proposed
+status: rejected
 effort: low
 expected_impact: medium
 targets:

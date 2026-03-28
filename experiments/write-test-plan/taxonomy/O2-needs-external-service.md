@@ -12,3 +12,4 @@ EC-06 b2: "The behavior explicitly references 'the underlying platform emits mor
 EC-08 b4: "Quota sharing under concurrency requires actual concurrent execution... Integration testing with actual Promise.all() reveals whether the quota tracking is truly atomic." — GT says Integration
 EC-15 b5: "Workflow-level testing needed for search re-ranking" — predicted Workflow, GT is System (over by 2 levels)
 EC-22 b4: "Schema validation needs real external service" — GT says Integration
+[run-203945] EC-32 b3 (Integration→System): "Failure boundary is module wiring plus filesystem-loaded skill content. In-process mocks can mask accidental hard-coding"

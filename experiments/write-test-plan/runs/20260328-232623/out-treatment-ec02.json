@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Real failures usually happen at the boundary between HTTP raw-body capture, signature verification, and enqueue wiring. A pure unit test can miss body-normalization/raw-bytes mismatches introduced by framework middleware.",
+      "test_description": "Start the webhook handler with real request parsing middleware and a real in-memory/local queue adapter. Send an HTTP request whose `X-Signature-256` is computed for different bytes than the transmitted raw body. Assert HTTP 401 and assert no queue write occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "This is an ordering guarantee across handler logic and persistence layer. The failure boundary is module interaction (HTTP handler + queue persistence), not a single function.",
+      "test_description": "Run handler against a real local persistent queue implementation (e.g., sqlite/file-backed test instance). Instrument queue write completion and HTTP response completion timestamps. Send a valid webhook and assert queue write commit happens before response is finalized.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "The bug appears when enqueueing and downstream worker orchestration are wired together. A unit test of a single function would not reliably catch accidental awaits on processor completion.",
+      "test_description": "Use real handler + queue + worker dispatch module, with downstream processor deliberately delayed (e.g., 10s promise). Send a valid webhook and assert response returns quickly while processing is still running; then separately verify processing completes later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "This is a wall-clock latency/concurrency SLO under load. Real HTTP server behavior, event-loop scheduling, and concurrent request handling must be exercised; mocks can hide queueing and timing contention.",
+      "test_description": "Run the service in a real process with real HTTP I/O. Seed concurrent slow downstream work from earlier events, then send a new valid webhook request and measure end-to-end wall-clock latency at the client. Assert response time < 3s under the specified concurrent slow-load scenario.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Dedup correctness depends on interaction between handler, idempotency check, and persistent queue/state. Unit-only tests can miss persistence-level uniqueness/race issues.",
+      "test_description": "Use real handler and real persistent queue/state store with dedupe keying. Send the same event ID twice (valid signatures). Assert first request enqueues once, second request does not create another queue record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Primary failure boundary is mapping a queue-full condition to HTTP status/headers in the handler path. This requires real wiring between handler and queue interface, but not full system infrastructure.",
+      "test_description": "Run handler with the real queue module configured to a small capacity and prefill it to full. Send a valid webhook and assert HTTP 503 plus `Retry-After` header; assert no additional event is written.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This validates real persistence-backed queue behavior (capacity accounting + reject path). A mocked queue would trivially pass and could hide true storage/transaction bugs.",
+      "test_description": "Instantiate the real persistent queue backend with a fixed capacity. Append events up to the limit, then attempt one more insert. Assert the extra insert is rejected with the queue's full error and persisted size remains at configured capacity.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

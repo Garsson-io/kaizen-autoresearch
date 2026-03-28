@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is primarily deterministic backoff math/state progression. A pure in-process test can drive consecutive failures and assert delay sequence and cap enforcement without I/O.",
+      "test_description": "Test the retry delay calculator/state machine directly: simulate N consecutive retryable failures, assert delays are [base, 2x, 4x, ...] and never exceed maxBackoffMs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure risk is at the boundary between HTTP response interpretation and retry policy (e.g., status/header parsing mismatch). A unit mock of one function may miss contract mismatches between modules.",
+      "test_description": "Wire retry middleware with the real response-classification code and a stub transport returning realistic 429 responses (including/omitting Retry-After). Assert it classifies as retryable and computes expected wait from headers/fallback backoff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.62,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This validates orchestration across retry scheduler + request executor + response propagation. Mocking only one piece can hide dropped/mutated request or result-mapping bugs.",
+      "test_description": "Use fake timers plus a stub transport: first call returns 429, second call returns success payload. Assert transport receives the same request twice (same method/url/body/headers), and `call()` resolves to the final payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Error typing is a cross-module outcome of retry exhaustion + error translation. Unit tests on the error class alone would miss wrong throw site or generic wrapping.",
+      "test_description": "Configure maxRetries to a small value; stub transport always returns rate-limit responses. Execute `call()` and assert rejection is instance of `QuotaExhaustedError` with expected metadata, and not a generic Error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.27,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is control-flow across multiple modules and async scheduling. You need the assembled retry loop/quota tracker to catch non-terminating logic.",
+      "test_description": "Run the real retry chain with always-rate-limited stub responses and fake timers advanced through all backoff windows. Assert total attempts == 1 + maxRetries, promise settles within bounded virtual time, and final error is surfaced once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.74,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This is shared-state/concurrency behavior across caller-facing API and quota manager. In-process but multi-module; unit scope is too narrow to expose real contention bugs.",
+      "test_description": "Instantiate one client, fire many concurrent `call()` invocations, and use a deterministic stub transport/quota limiter to record token consumption. Assert aggregate consumption respects one shared bucket across all callers (not per-call isolated buckets).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.78,
+        "System": 0.17,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "FIFO ordering emerges from queueing + scheduler + async wake-up behavior together. Mocking queue internals alone can miss dispatch-order regressions in real wiring.",
+      "test_description": "Submit multiple calls rapidly while quota is exhausted, then release quota in controlled steps. Capture dispatch timestamps/order at transport boundary and assert strict submission-order dispatch (FIFO).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.76,
+        "System": 0.19,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

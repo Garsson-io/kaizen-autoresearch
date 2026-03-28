@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "This behavior tests the **output quality of a real neural machine translation model**. The failure mode is non-deterministic: the model might produce semantically incorrect, word-for-word, or incoherent translations. Correctness depends entirely on what the real API produces, not on service logic. Mocking the API would always pass, hiding real translation quality issues. Semantic coherence and meaning-preservation cannot be evaluated without running the real model against test inputs with reference translations.",
+      "test_description": "Call the real neural translation API with a diverse set of source language inputs (e.g., technical, colloquial, idiomatic phrases). Compare each output against human-curated reference translations using semantic similarity metrics (BLEU score, BERTScore, or human expert raters). Verify that translations consistently achieve acceptable semantic similarity scores and are not word-for-word substitutions but grammatically coherent interpretations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.05,
+        "Agentic": 0.95,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the **error-handling coordination between two translator modules** (primary and fallback). The failure mode appears at the module boundary: primary fails → fallback must be invoked → result must be returned to caller without error. While the error-catching logic could theoretically be unit-testable in isolation (mock both modules), the behavior requires verifying that the **actual fallback module works correctly** when invoked. Mocking the fallback hides whether it truly produces valid results. Integration-level testing wires both modules together and verifies the handoff, catching failures in module coordination or fallback functionality.",
+      "test_description": "Mock the primary translator to raise an HTTP 503 exception. Call the translation service with a test phrase. Verify the service catches the exception, transparently invokes the dictionary fallback, and returns a valid translation from the fallback without raising an error to the caller. Confirm the fallback translation is the one returned to the client (not a 503 error code).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "This behavior requires **querying a real SQLite database** with test data. The failure modes are: (a) the query logic constructs an incorrect SQL statement, (b) the phrase-matching logic fails (case sensitivity, whitespace, partial matches), (c) the data is missing or malformed in the database. All three require a real database with known test entries to catch. Mocking the database hides query bugs and schema mismatches. Integration-level testing populates a test database and verifies the service queries it correctly, catching failures in query construction, schema assumptions, and data integrity.",
+      "test_description": "Populate a test SQLite database with known phrase-translation pairs (e.g., 'hello' → 'hola', 'good morning' → 'buenos días'). Call the service to look up phrases that exist in the database and phrases that don't exist. Verify correct translations are returned for existing phrases. Verify appropriate fallback behavior or error handling for missing phrases. Test edge cases: case sensitivity, leading/trailing whitespace, partial phrase matching.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests the **full quality-tracking flow across multiple modules**: invoke primary translator → invoke fallback translator → compute edit distance → store metric in database. While edit distance calculation is a pure algorithm (unit-testable in isolation), the behavior explicitly includes 'stores the metric', requiring a real database. Failures can occur at any point: (a) translators are not both called, (b) edit distance is computed wrong, (c) storage to database fails. Only Integration-level testing with real translators and a real database can catch failures in module coordination, algorithm application, and persistence.",
+      "test_description": "Call the translation service with source text that triggers both primary and fallback translation paths (note: verify both translators are invoked per the design; if fallback is invoked only on primary failure, construct a scenario where both execute for quality comparison). Verify the returned translation is from the primary translator. Query the database to confirm a quality metric record was created with correct character-level edit distance between the primary and fallback outputs, including correct metadata (source phrase, timestamps, translator identifiers, language pair).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "This behavior tests **async coordination across multiple modules**: the service must return the primary translation immediately while dispatching quality logging asynchronously without blocking. The failure modes appear at module boundaries: (a) fallback translator is called when primary succeeds (should not), (b) secondary translator's result is returned instead of primary, (c) quality logging blocks the response, (d) logging is not dispatched at all. Integration-level testing wires translators, async/background task system, and response handler together to verify the service chooses the correct translator and dispatches logging correctly without blocking. Mocking any module hides whether coordination works in the real async environment.",
+      "test_description": "Call the service to translate text. Mock both primary and fallback translators to return different (but valid) translations. Measure response latency to verify the call returns without waiting for logging completion. Verify the response contains the primary translation (not the fallback). Verify a quality logging task is enqueued/dispatched without blocking the response. Optionally verify the logging task eventually executes and writes the comparison to the database with correct data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

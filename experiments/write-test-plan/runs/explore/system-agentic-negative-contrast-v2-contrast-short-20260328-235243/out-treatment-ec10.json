@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is a handoff issue: the diff parser correctly extracts changed lines, but either the analysis module receives unfiltered input, or the parser fails to communicate which lines changed. Testing in isolation (Unit) misses the interaction where one module doesn't properly filter or pass data to the next. We need to verify the diff → parser → filter → analysis pipeline works correctly together, which requires Integration.",
+      "test_description": "Create a mock diff with a file containing 10 lines of code, 3 of which changed. Run the analysis pipeline with this diff and verify that (1) the analysis module receives only the 3 changed lines as input, (2) no findings reference lines outside the changed set, and (3) changing the number of changed lines in the diff changes what the analysis sees. This test catches failures where the scoping logic is bypassed or the filtered input is not properly passed between modules.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is necessary because a Unit test of the filtering function alone would pass even if the analysis module ignores the filter. We must test the actual data handoff between components.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "Integration",
+      "justification": "The failure could be (1) the diff parser calculates line numbers incorrectly, (2) the comment poster sends the wrong line number format to the API, or (3) the modules don't coordinate line numbering correctly. These are module integration failures. While GitHub's API behavior is System-level, verifying we send the correct line number structure to the API is Integration. A real failure like 'off-by-one in diff-to-PR-line-number conversion' is caught at Integration level by mocking GitHub and asserting the correct line numbers are posted.",
+      "test_description": "Mock the GitHub API and create a realistic diff with changes on specific line numbers. Run the full pipeline (parse diff → identify issues → post comments) and assert that each comment is posted with the correct GitHub diff line number format. Verify by inspecting the mock GitHub API calls—the correct line numbers should be sent. This catches integration failures like line number miscalculation or API format mismatches, but would not catch GitHub-specific rendering issues (which would be System).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is sufficient to catch real failures in the module handoff and line numbering logic. System-level testing with real GitHub would add coverage for GitHub-specific diff-view rendering, but the minimum to catch the core failure is Integration.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "The failure is non-deterministic model judgment. A mock LLM that always finds defects would pass this test but not catch the real failure: the actual LLM might not recognize the specific bug, or might miss it due to prompt wording, model capability, or context limitations. Running the test 100 times with the real model would produce different outcomes (some runs find the bug, others don't), which is the hallmark of Agentic failure. Only testing with a real LLM catches this failure mode.",
+      "test_description": "Use a real LLM and a pull request containing a known, introduced defect (e.g., missing null check, incorrect variable use). Run the analysis and assert that the findings list includes at least one item that identifies the known defect. To reduce flakiness, this test should be marked as Agentic and may use model-grading or semantic matching to verify the defect was found, rather than exact string matching. This test fails if the LLM model does not recognize the defect.",
+      "plan_consistent": true,
+      "plan_consistent_note": "This behavior explicitly depends on LLM judgment quality, which is non-deterministic across multiple runs. Agentic level is required; any test using a mocked LLM would pass but would not catch the real failure.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted—no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Integration",
+      "justification": "The failure is a coordination issue between two modules: the analysis produces findings, the inline-posting module posts them, and the summary module creates a summary from findings. If the modules don't coordinate correctly, findings could appear in the summary without corresponding inline comments (e.g., summary module uses a stale or filtered findings list). Testing this requires wiring the modules together to verify the data consistency between inline posts and summary. Unit testing the summary logic in isolation (with mocked findings) would miss failures in how the modules share state.",
+      "test_description": "Mock the analysis to return a specific set of findings (e.g., 5 findings with IDs). Run the full pipeline (inline posting → summary posting). After execution, extract the findings list from both the inline comments posted and the summary comment posted. Assert that the set of findings in the summary is exactly equal to (or a subset of, if filtering is expected) the set of inline comments posted. Verify no finding appears in the summary without a corresponding inline comment. This catches failures like the summary module reading from a cached or incomplete findings list.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is necessary because the failure occurs at the boundary between modules—inline posting and summary creation. A Unit test of just the summary module would pass even if the two modules use inconsistent data sources.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence—reading the diff, posting inline comments, posting the summary comment—completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "System",
+      "justification": "This behavior requires real external interactions. The real failures are: (1) GitHub API returns an unexpected diff format, (2) comment posting fails due to GitHub API constraints or formatting, (3) the sequence breaks due to network/environmental issues. These are System-level failures (real HTTP, real external API). The phrase 'real pull request' indicates the test must interact with actual GitHub (or a realistic, production-like simulation), not just mock the API. Integration testing with mocks could catch orchestration failures, but would miss GitHub-specific failures like API format mismatches or rate limiting.",
+      "test_description": "Using a real GitHub pull request (or a realistic GitHub API simulation), execute the full automation end-to-end: fetch the diff, run analysis, post inline comments, and post the summary. Verify that (1) all three steps (diff fetch, inline posts, summary post) complete without exception, (2) each step completes in the correct order, (3) the PR now has both inline comments and a summary comment. This test requires real or realistically-simulated GitHub interaction and will fail if the automation does not handle real GitHub API responses, delays, or edge cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System is required because the behavior explicitly tests against 'a real pull request,' which implies real GitHub API interaction is part of the failure surface. Mocking the GitHub API (Integration) could catch orchestration bugs but would miss real API contract failures.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

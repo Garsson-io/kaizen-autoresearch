@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is retry-delay math/state progression logic. A real failure is in the backoff calculation itself, not in I/O boundaries.",
+      "test_description": "Test the backoff calculator/state machine directly: feed consecutive failure counts (1..N), assert delays follow exponential growth and clamp at configured max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "Rate-limit detection plus wait computation is primarily classification/parsing logic over response data and headers. It can fail without any module wiring issues.",
+      "test_description": "Call the retry-decision function with representative responses (e.g., 429, quota error payload, Retry-After present/absent) and assert retry/not-retry plus computed delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This failure appears at boundaries between retry orchestrator, timer/scheduler, and transport adapter. Unit tests of one function can miss request replay bugs.",
+      "test_description": "Wire client + retry layer + fake transport + fake clock. First response is rate-limited, second succeeds. Advance clock by expected wait, assert transport was called twice with equivalent request and caller receives success payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "The typed error must emerge through the full retry path, including error mapping and propagation across modules. Pure unit mapping tests may miss wrapping/regression in call flow.",
+      "test_description": "Using wired retry client and stub transport that always returns rate-limit, run until max retries reached and assert rejection is specifically `QuotaExhaustedError` (type/fields), not generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Termination depends on interaction of retry counter, quota tracking, and scheduler progression. Infinite-loop failures are orchestration failures across components.",
+      "test_description": "Run full client with fake clock and always-rate-limited transport; assert call settles within bounded simulated time/attempt count and stops at max retries with terminal error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "This is shared-state/concurrency behavior across caller-facing API and quota manager. Real failures are race/coordination issues at module boundaries.",
+      "test_description": "Instantiate one client/quota manager; fire concurrent `call()` invocations. Use controlled transport/quota limits and assert aggregate allowed attempts reflect one shared bucket, not per-caller buckets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.82,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering guarantees depend on queue implementation plus dispatcher timing under async contention. Single-function tests can miss reorder bugs in wiring.",
+      "test_description": "Queue several `call()` requests while send path is blocked/throttled, then release capacity stepwise; assert dispatch/start order matches submission order (FIFO) and no overtaking occurs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 ### ~~4. Verify that verify.ts outputs .loss~~ — DONE (outputs `{"score":75,"loss":0}`)
 ### ~~5. ideas-index.sh parsing is fragile~~ — DONE (rewritten as TypeScript)
 ### ~~7. IDEATE subagent META_NOTE flow~~ — DONE (documented in program.md step 3)
+### ~~10. Baseline policy: do not re-run baseline every /run-experiment start~~ — DONE (documented in program.md + meta-failures.md)
 
 ### 2. Cold start handling
 
@@ -31,44 +32,48 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 
 ---
 
-## Codex Iteration Loop (5 iterations)
+## Codex Iteration Loop (5 iterations) — 2026-03-28
 
-### Iteration 1/5 (current)
-- [x] MINE — extract-thinking / taxonomy lines from latest run
-- [x] DIAGNOSE — summarize dominant misses and impacted tasks
-- [x] META — update/check meta-failures against this run
-- [x] IDEATE — choose one atomic edit hypothesis
-- [x] EDIT + RUN + SCORE — added Agentic disambiguation line; run `20260328-195648`, loss `306.79`
-- [x] LOG — append iteration result with model + metrics
-
-### Iteration 2/5
+### Iteration 1/5 (baseline loss at start: 451.23)
 - [x] MINE
 - [x] DIAGNOSE
 - [x] META
 - [x] IDEATE
-- [x] EDIT + RUN + SCORE
-- [x] LOG
+- [x] EDIT + RUN + SCORE — `integration-middle-anchor` tested, run `20260328-225446`, loss `460.31` vs baseline `451.23` (reverted)
+- [x] LOG — appended iterations 34 (baseline) and 35 (discard) with model + metrics
+- [x] → Next iteration (refresh tasks)
 
-### Iteration 3/5
+### Iteration 2/5 (current, reference loss: 390.59)
 - [x] MINE
 - [x] DIAGNOSE
 - [x] META
 - [x] IDEATE
-- [x] EDIT + RUN + SCORE
-- [x] LOG
+- [x] EDIT + RUN + SCORE — `precision-failure-boundary` tested, run `20260328-232623`, loss `431.05` vs reference `390.59` (reverted)
+- [x] LOG — appended iteration 36 with model + metrics; marked idea rejected
+- [x] → Next iteration (refresh tasks)
+
+### Iteration 3/5 (current, reference loss: 390.59)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [ ] IDEATE
+- [ ] EDIT + RUN + SCORE
+- [ ] LOG
+- [ ] → Next iteration (refresh tasks)
 
 ### Iteration 4/5
-- [x] MINE
-- [x] DIAGNOSE
-- [x] META
-- [x] IDEATE
-- [x] EDIT + RUN + SCORE
-- [x] LOG
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EDIT + RUN + SCORE
+- [ ] LOG
+- [ ] → Next iteration (refresh tasks)
 
 ### Iteration 5/5
-- [x] MINE
-- [x] DIAGNOSE
-- [x] META
-- [x] IDEATE
-- [x] EDIT + RUN + SCORE
-- [x] LOG
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EDIT + RUN + SCORE
+- [ ] LOG

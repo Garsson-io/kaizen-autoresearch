@@ -180,3 +180,64 @@ and treatment ideas.
 - Keep current best treatment unless data says otherwise.
 - If Agentic↔Workflow confusion reappears, test a dedicated treatment variant that
   explicitly uses the "Agentic Step / Agentic Workflow" aliases.
+
+---
+
+### Corpus expansion shifted dominant error mass to Integration→Unit
+
+**Status**: confirmed (2 full runs + 1 kept intervention)
+
+**What happened**:
+- Fresh Codex baseline on expanded corpus (`run 20260328-204623`, 36 tasks) yielded loss `451.23`.
+- Full run after `integration-middle-anchor` (`run 20260328-225446`) still showed over-prediction dominant behavior and worsened to loss `460.31` (reverted).
+- `mock-miss-scope-clarification` (`run 20260328-231214`) improved loss to `390.59` (kept), while confusion mass remained dominated by `Integration→Unit` (49 cases), confirming this is a stable high-impact pattern rather than a one-run artifact.
+
+**Implication**:
+- The current prompt may now be too permissive toward Unit when module wiring is the true failure boundary.
+- Ideas that only push higher levels (Agentic/Workflow) are less likely to improve total loss on the expanded corpus.
+
+**Next check**:
+- Prioritize atomic Unit-vs-Integration disambiguations in `KEY-QUESTIONS` over broad representational edits.
+- Track side-effects on `Integration→Agentic/System/Workflow` to avoid solving `Integration→Unit` by creating new under-prediction clusters.
+
+---
+
+### Re-running baseline at loop start wastes iterations
+
+**What happened**: A fresh baseline was run at the start of a new `/run-experiment` invocation even though a comparable latest baseline already existed.
+
+**Symptom**: Extra full-corpus eval cost/time with no new decision signal; iteration budget consumed before any hypothesis test.
+
+**Fix**: `program.md` now has a permanent baseline policy:
+- reuse the latest recorded comparable baseline,
+- run a new baseline only when none exists or comparability changed (model/corpus/scoring change).
+
+**Lesson**: Baseline is a reference point, not a ritual. Avoid redundant baseline runs.
+
+---
+
+### Concentrated-signal ideas are failing on full corpus
+
+**Status**: confirmed (multiple full-run disconfirmations)
+
+**What happened**:
+- `integration-middle-anchor` had `explore_status: concentrated-signal` and improved only on a subset outlier; full run worsened loss (`460.31`).
+- `precision-failure-boundary` had `explore_status: concentrated-signal` and also worsened on full run (`431.05`) versus current reference (`390.59`).
+
+**Lesson**:
+- Treat `concentrated-signal` as weak evidence only.
+- Prefer ideas with distributed improvement (majority tasks improved in explore) or directly target new error modes introduced by the current best prompt, not legacy clusters.
+
+---
+
+### Fixing Integration→Unit can shift error mass into under-prediction
+
+**Status**: hypothesis (1 data point)
+
+**What happened**:
+- After `mock-miss-scope-clarification` keep (`run 20260328-231214`), over-prediction mass dropped.
+- On follow-up run (`20260328-232623`), `Integration→Unit` decreased (`49 -> 36`) and total errors dropped (`82 -> 75`), but under-prediction rose (`16 -> 24`) with growth in `Integration→System` and `Workflow` under-calls.
+
+**Lesson**:
+- Unit-boundary fixes can help globally but may over-tighten escalation thresholds.
+- Next edits should preserve the Unit gain while restoring correct escalation to System/Agentic/Workflow on multi-step or real-infra behaviors.
