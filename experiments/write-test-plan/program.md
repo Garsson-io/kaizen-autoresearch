@@ -75,6 +75,8 @@ LOOP:
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
+     Also: if the previous IDEATE subagent returned a META_NOTE, evaluate it here and update
+     meta-failures.md if the observation is warranted.
   4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
      Give it the latest score summary and results log (from `npx tsx scripts/results.ts --last 10`).
      It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
