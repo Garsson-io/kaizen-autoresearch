@@ -79,8 +79,14 @@ After each verify run, read `runs/latest/` output files + the scoring breakdown:
 
 The most impactful targets are behaviors with **high weight (4) that score < 40% sufficiency**.
 
-### After every batch — mine the prose reasoning
-Run **`/mine-ideas write-test-plan`** after each bounded run or manual stop. This extracts justifications, updates `taxonomy/`, and generates new `ideas/`. See CLAUDE.md "Post-run workflow" for the full process.
+### MANDATORY after EVERY run — mine the prose reasoning
+**You MUST extract and classify justifications after every run, before choosing the next idea.** This is not optional. Without updated taxonomy data, you're guessing instead of using evidence.
+
+Run `/mine-ideas write-test-plan` or do it manually:
+1. Extract justifications from `runs/latest/` with predicted vs GT verdicts
+2. Append `[runN]` lines to `taxonomy/` files
+3. Check what changed — which patterns grew, shrank, or are new?
+4. Only THEN pick the next idea based on current data
 
 ### Read ideas/ and taxonomy/ before iterating
 - **`ideas/`** — hypotheses with steelman/critique. See `ideas/README.md` for schema.
@@ -92,8 +98,8 @@ Run **`/mine-ideas write-test-plan`** after each bounded run or manual stop. Thi
 - ✓ Reorder key questions to promote Agentic/Workflow checks
 - ✗ Rewrite the whole prompt — too many variables, can't diagnose
 - ✗ Add generic "think carefully" language — no signal value
-- **✗ NEVER remove or reword an existing section in the same iteration as adding something new.** Removals and additions are separate hypotheses. If you want to replace A with B, first add B alongside A. Only remove A in a separate iteration if the addition worked.
-- Consider naming key sections/bullets in the prompt (e.g. `[MOCK-CHECK]`, `[SELF-CHECK]`) so changes can reference specific components without ambiguity.
+- **✗ Be explicit about add vs replace.** "Replace A with B" is a valid hypothesis, but say so clearly. Don't accidentally remove a working section while adding something new. Each iteration's commit message must state: adding X, removing X, or replacing X with Y.
+- Each section/bullet in treatment.md has a **name** (e.g. `**LEVEL-DEFS**`, `**MOCK-CHECK**`). Reference sections by name in commit messages, ideas, and taxonomy.
 
 ### After achieving ≥75% on round 1
 Run adversarial rounds and update `leaderboard.md`:
