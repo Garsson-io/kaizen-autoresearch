@@ -1,17 +1,34 @@
 # Claude Code Instructions: kaizen-autoresearch
 
-## What this repo is
-
 Autonomous prompt-improvement framework for AI evaluation experiments.
 The loop: edit one file → measure a scalar metric → keep if improved, revert if not → repeat.
 
-Each experiment lives in `experiments/<name>/`. See [docs/creating-experiments.md](docs/creating-experiments.md) for directory layout, setup guide, smoke tests, and upstream mining.
+---
+
+## Canonical sources
+
+This is the map. Each topic has exactly one canonical file — read it there, edit it there.
+
+| Topic | Canonical file | What it covers |
+|-------|---------------|----------------|
+| **Experiment setup** | [docs/creating-experiments.md](docs/creating-experiments.md) | Directory layout, corpus/GT format, catalog.json, smoke tests, upstream mining |
+| **Writing program.md** | [docs/writing-program-md.md](docs/writing-program-md.md) | Required sections, frontmatter config, best practices |
+| **Adversarial design** | [docs/adversarial-training.md](docs/adversarial-training.md) | Noise rounds, adversarial technique tags, robustness criteria |
+| **Realistic adversarial examples** | [docs/generating-realistic-adversarial-examples.md](docs/generating-realistic-adversarial-examples.md) | Realism checklist, anti-patterns, label distribution targets |
+| **Autoresearch modes** | [docs/autoresearch-modes.md](docs/autoresearch-modes.md) | All /autoresearch subcommands and how they apply to experiments |
+| **Ideas schema** | `experiments/<name>/ideas/README.md` | Frontmatter fields, status lifecycle, workflow |
+| **Taxonomy schema** | `experiments/<name>/taxonomy/README.md` | Reasoning pattern format, append-only rules |
+| **Failure analysis** | `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns with representative quotes |
+| **Scores** | `experiments/<name>/leaderboard.md` | Score history, GT revision notes |
+| **Agent config** | `experiments/<name>/program.md` | Goal, Scope, Metric, Verify, diagnostic guidance, ground rules |
+| **Corpus metadata** | `experiments/<name>/corpus/catalog.json` | Task titles, domains, difficulty, adversarial techniques, labels |
+| **GT correctness** | `experiments/<name>/taxonomy/gt-review.md` | Per-behavior audit: GT_CORRECT, GT_WRONG, DEBATABLE |
 
 ---
 
-## Before working on any experiment — READ ITS program.md
+## Experiments
 
-**MANDATORY**: Before starting any autoresearch loop or making changes to an experiment, you MUST read that experiment's `program.md`. See [docs/writing-program-md.md](docs/writing-program-md.md) for the full spec.
+**MANDATORY**: Before working on any experiment, read its `program.md`.
 
 | Experiment | program.md | Treatment file |
 |-----------|------------|---------------|
@@ -21,19 +38,11 @@ When new experiments are added, add a row here.
 
 ---
 
-## Key folders in each experiment
-
-- **`ideas/`** — prompt-improvement hypotheses with frontmatter + steelman/critique. See `ideas/README.md` for schema.
-- **`taxonomy/`** — one `.md` per reasoning pattern, append-only. See `taxonomy/README.md`.
-- **`corpus/catalog.json`** — task metadata. Source of truth for corpus composition.
-
----
-
 ## Repo-wide rules
 
 ### Structured outputs — never grep/awk for values
 
-Write a TypeScript file with Zod instead of `grep | awk | sed`. Reference: `scripts/verify.ts`, `scripts/run-probe.ts`.
+Write a TypeScript file with Zod instead. Reference: `scripts/verify.ts`, `scripts/run-probe.ts`.
 
 ### Post-run workflow
 
@@ -43,10 +52,6 @@ After every autoresearch batch:
 
 ### Observability
 
-- Each experiment's `leaderboard.md` — updated per kept commit
-- Each experiment's `justification-taxonomy.md` — failure pattern analysis
+- Each experiment's `leaderboard.md` — scores
+- Each experiment's `justification-taxonomy.md` — why the model fails
 - https://github.com/Garsson-io/kaizen-autoresearch/discussions/1 — iteration log
-
-### Mining upstream repos for ideas
-
-See [docs/creating-experiments.md](docs/creating-experiments.md#mining-upstream-repos-for-ideas-and-corpus-tasks) for how to search upstream repos (e.g., `Garsson-io/kaizen`) for incident reports, failure analyses, and corpus task inspiration.
