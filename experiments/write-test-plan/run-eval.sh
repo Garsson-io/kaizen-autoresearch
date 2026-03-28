@@ -149,8 +149,9 @@ if [[ $failed -gt 0 ]]; then
 fi
 echo "  All $TOTAL probes done in ${TOTAL_TIME}s."
 
-# Update latest symlink
-ln -sfn "$RUN_TS" "$SCRIPT_DIR/runs/latest"
+# Update latest symlink (remove first in case it became a directory)
+rm -rf "$SCRIPT_DIR/runs/latest"
+ln -s "$RUN_TS" "$SCRIPT_DIR/runs/latest"
 echo "  Run saved: runs/$RUN_TS (symlinked as runs/latest)"
 
 echo ""

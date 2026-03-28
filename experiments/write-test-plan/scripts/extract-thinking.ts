@@ -237,15 +237,21 @@ function printTaxonomyLines(results: BehaviorThinking[], runLabel: string) {
 
 // Main
 const args = process.argv.slice(2);
-const runArg = args.includes("--run") ? args[args.indexOf("--run") + 1] : undefined;
+const runArg = args.includes("--run-dir") ? args[args.indexOf("--run-dir") + 1]
+             : args.includes("--run") ? args[args.indexOf("--run") + 1]
+             : undefined;
 const taskFilter = args.includes("--task") ? args[args.indexOf("--task") + 1]?.toUpperCase() : undefined;
 const selfAwareOnly = args.includes("--self-aware-only");
 const jsonOut = args.includes("--json");
 const taxonomyLines = args.includes("--taxonomy-lines");
 
+if (!runArg) {
+  console.error("Error: --run-dir <timestamp> is required. Example: npx tsx scripts/extract-thinking.ts --run-dir 20260328-155121");
+  process.exit(1);
+}
+
 const runsBase = PATHS.runs;
-const latestPath = join(runsBase, "latest");
-const runDir = runArg ? join(runsBase, runArg) : latestPath;
+const runDir = join(runsBase, runArg);
 
 if (!existsSync(runDir)) {
   console.error(`Run directory not found: ${runDir}`);
