@@ -89,6 +89,54 @@ describe("score.ts --output / --gt", () => {
   });
 });
 
+describe("score.ts --json mode", () => {
+  it("stdout is valid JSON with score, loss, metrics", () => {
+    const r = tsx("score.ts", ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT, "--json"]);
+    expect(r.status).toBe(0);
+    const data = JSON.parse(r.stdout);
+    expect(data).toHaveProperty("score");
+    expect(data).toHaveProperty("loss");
+    expect(data).toHaveProperty("metrics");
+  });
+
+  it("metrics contains all expected sub-metric keys", () => {
+    const r = tsx("score.ts", ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT, "--json"]);
+    const { metrics } = JSON.parse(r.stdout);
+    expect(metrics).toHaveProperty("sufficiency");
+    expect(metrics).toHaveProperty("precision");
+    expect(metrics).toHaveProperty("consistency");
+    expect(metrics).toHaveProperty("structure");
+    expect(metrics).toHaveProperty("critical_miss_rate");
+  });
+
+  it("score is in 0–100 range", () => {
+    const r = tsx("score.ts", ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT, "--json"]);
+    const { score } = JSON.parse(r.stdout);
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThanOrEqual(100);
+  });
+
+  it("human-readable table goes to stderr, not stdout", () => {
+    const r = tsx("score.ts", ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT, "--json"]);
+    // stdout must be pure JSON — table text must NOT appear there
+    expect(() => JSON.parse(r.stdout)).not.toThrow();
+    expect(r.stdout).not.toContain("Sufficiency");
+    // table IS on stderr
+    expect(r.stderr).toContain("Sufficiency");
+  });
+
+  it("batch --json: METRICS_JSON shape matches single-task shape", () => {
+    const single = JSON.parse(
+      tsx("score.ts", ["--output", FIXTURE_OUTPUT, "--gt", FIXTURE_GT, "--json"]).stdout
+    );
+    const batch = JSON.parse(
+      tsx("score.ts", ["--output-dir", FIXTURE_RUN, "--gt-dir", FIXTURE_GT_DIR, "--json"]).stdout
+    );
+    // Both must have the same top-level keys
+    expect(Object.keys(batch).sort()).toEqual(Object.keys(single).sort());
+  });
+});
+
 describe("extract-thinking.ts", () => {
   it("outputs valid JSON array with --json flag", () => {
     const r = tsx("extract-thinking.ts", ["--run-dir", FIXTURE_RUN, "--json"]);

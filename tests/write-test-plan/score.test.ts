@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { sufficiency, precision, scoreOutput } from "../../experiments/write-test-plan/scripts/score.js";
-import { LEVEL_INDEX } from "../../experiments/write-test-plan/src/schema.js";
+import { sufficiency, precision, scoreOutput, buildMetrics } from "../../experiments/write-test-plan/scripts/score.js";
+import { LEVEL_INDEX, IterationResult } from "../../experiments/write-test-plan/src/schema.js";
 import type { ProbeOutput, GroundTruth } from "../../experiments/write-test-plan/src/schema.js";
 
 const LEVELS = ["Unit", "Integration", "System", "Agentic", "Workflow"] as const;
@@ -296,5 +296,100 @@ describe("scoreOutput", () => {
     const result = scoreOutput(output, gt);
     expect(result.critical_miss_count).toBe(1);
     expect(result.critical_total).toBe(1);
+  });
+});
+
+describe("buildMetrics", () => {
+  it("returns empty object for empty results array", () => {
+    expect(buildMetrics([])).toEqual({});
+  });
+
+  it("returns all expected keys for a single result", () => {
+    const output = makeProbeOutput();
+    const gt = makeGroundTruth();
+    const result = scoreOutput(output, gt);
+    const metrics = buildMetrics([result]);
+    expect(metrics).toHaveProperty("sufficiency");
+    expect(metrics).toHaveProperty("precision");
+    expect(metrics).toHaveProperty("consistency");
+    expect(metrics).toHaveProperty("structure");
+    expect(metrics).toHaveProperty("critical_miss_rate");
+    expect(metrics).toHaveProperty("loss");
+    expect(metrics).toHaveProperty("score");
+  });
+
+  it("score is 0–100 (not 0–1)", () => {
+    const result = scoreOutput(makeProbeOutput(), makeGroundTruth());
+    const { score } = buildMetrics([result]);
+    expect(score).toBeGreaterThan(1);  // not a 0-1 fraction
+    expect(score).toBeLessThanOrEqual(100);
+  });
+
+  it("critical_miss_rate is 0 when no System+ behaviors missed", () => {
+    const result = scoreOutput(makeProbeOutput(), makeGroundTruth());
+    expect(buildMetrics([result]).critical_miss_rate).toBe(0);
+  });
+
+  it("critical_miss_rate is 1.0 when all System+ behaviors are missed", () => {
+    const output = makeProbeOutput({
+      behaviors: [{
+        behavior_id: 1, description: "System behavior", minimum_level: "Unit",
+        justification: "j", test_description: "t", plan_consistent: true,
+        level_probabilities: { Unit: 1, Integration: 0, System: 0, Agentic: 0, Workflow: 0 },
+      }],
+    });
+    const gt = makeGroundTruth({ behaviors: [{ behavior_id: 1, ground_truth_level: "System" }] });
+    const result = scoreOutput(output, gt);
+    expect(buildMetrics([result]).critical_miss_rate).toBe(1.0);
+  });
+
+  it("averages sub-metrics across multiple results", () => {
+    const perfect = scoreOutput(makeProbeOutput(), makeGroundTruth());
+    const under = scoreOutput(
+      makeProbeOutput({
+        behaviors: [{
+          behavior_id: 1, description: "d", minimum_level: "Unit",
+          justification: "j", test_description: "t", plan_consistent: true,
+          level_probabilities: { Unit: 0.7, Integration: 0.2, System: 0.05, Agentic: 0.03, Workflow: 0.02 },
+        }],
+      }),
+      makeGroundTruth({ behaviors: [{ behavior_id: 1, ground_truth_level: "Integration" }] })
+    );
+    const metrics = buildMetrics([perfect, under]);
+    // Sufficiency should be average of 1.0 and 0.4 = 0.7
+    expect(metrics.sufficiency).toBeCloseTo(0.7, 5);
+  });
+
+  it("loss is sum (not average) across results", () => {
+    const r1 = scoreOutput(makeProbeOutput(), makeGroundTruth());
+    const r2 = scoreOutput(makeProbeOutput(), makeGroundTruth());
+    expect(buildMetrics([r1, r2]).loss).toBeCloseTo(r1.total_loss + r2.total_loss, 5);
+  });
+});
+
+describe("IterationResult schema — metrics field backward compat", () => {
+  const base = {
+    iteration: 1, timestamp: "2026-03-28T12:00:00Z",
+    commit: "abc1234", run_dir: "20260328-120000", idea_id: null,
+    score: 87.2, loss: 368.08, delta: -10,
+    status: "keep" as const, description: "test iteration",
+    section: "LEVEL-DEFS", edit_type: "replace" as const,
+  };
+
+  it("parses existing records without metrics field (backward compat)", () => {
+    expect(() => IterationResult.parse(base)).not.toThrow();
+    const result = IterationResult.parse(base);
+    expect(result.metrics).toBeUndefined();
+  });
+
+  it("parses new records with metrics field", () => {
+    const withMetrics = { ...base, metrics: { sufficiency: 0.72, precision: 0.65, loss: 368.08, score: 87.2 } };
+    const result = IterationResult.parse(withMetrics);
+    expect(result.metrics?.sufficiency).toBe(0.72);
+  });
+
+  it("metrics values must be numbers", () => {
+    const bad = { ...base, metrics: { sufficiency: "high" } };
+    expect(() => IterationResult.parse(bad)).toThrow();
   });
 });
