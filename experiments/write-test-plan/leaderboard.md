@@ -45,6 +45,9 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 | 40 | treatment | **439.54** | 87.2% | — | sonnet | c32c90c | sonnet baseline — first run with claude-sonnet-4-6 |
 | 41 | treatment | 459.18 | 85.7% | +19.64 | sonnet | — | integration-escape-hatch: bidirectional Integration gate — REVERTED |
 | 42 | treatment | **412.48** | 87.2% | **-27.06** | sonnet | 8a1978f | reject-higher-must-justify: REJECTION-GATE forces evidence for downward override |
+| 43 | treatment | **400.03** | 89.3% | **-12.45** | sonnet | 6a7f89b | infra-probe-question: Think probe + contrastive Int/Sys examples under REAL-INFRA |
+| 44 | treatment | **387.39** | 89.6% | **-12.64** | sonnet | 3115841 | system-default-infra-keywords: burden-of-proof flip for System in REAL-INFRA |
+| 45 | treatment | 389.68 | 90.9% | +2.29 | sonnet | — | external-command-is-system: bright-line CLI tool rule — errors ↓ but loss ↑, REVERTED |
 
 **[Autoresearch run 2 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16356414)** — 5 iterations, 2 keeps, baseline loss 454.16 → best 368.08 (-19%). Largest gain: concrete-agentic-example (-79.84 loss). Unit def changes cause O1/U2 explosion — avoid.
 
