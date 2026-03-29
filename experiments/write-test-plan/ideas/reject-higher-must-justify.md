@@ -1,7 +1,7 @@
 ---
 id: reject-higher-must-justify
 title: Force explicit disqualifying evidence when rejecting a considered higher level
-status: proposed
+status: keep
 effort: low
 expected_impact: high
 targets:
