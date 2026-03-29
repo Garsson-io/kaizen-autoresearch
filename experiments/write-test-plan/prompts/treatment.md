@@ -28,6 +28,12 @@ a real failure — not just to verify happy-path logic.
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
 
+- **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
+  (a) Does the failure need real OS/network/subprocess? If yes → System.
+  (b) Does correctness depend on real AI/ML output? If yes → Agentic.
+  (c) Does it chain multiple agentic steps? If yes → Workflow.
+  If any answer is yes, upgrade unless you can quote behavior text that disqualifies the higher level.
+
 - **REJECTION-GATE**: If during your reasoning you considered a level higher than
   your final choice and rejected it, state the specific behavior text that
   disqualifies the higher level. If you cannot point to concrete disqualifying
