@@ -128,6 +128,11 @@ LOOP:
        Concentrated-signal (exit 3): weak evidence — re-run with different tasks or proceed cautiously.
        No-signal (exit 2): do NOT edit. Return to IDEATE with a new idea.
        Already-set: use the recorded explore result — no new run needed.
+       After any explore run, commit the output dirs:
+       ```bash
+       git add experiments/write-test-plan/runs/explore/
+       git commit -m "experiment(explore): <idea-id> — <N> variations, winner: <variation|none>"
+       ```
 
        Cross-references:
        - READ `docs/explore-tool.md` WHEN you need to understand the tool itself:
