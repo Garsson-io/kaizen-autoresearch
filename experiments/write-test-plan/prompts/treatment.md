@@ -25,8 +25,10 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
-- **SELF-CHECK** (plan_consistent): After deciding each level, does your
-  test_description actually require that level, or would it pass at a lower one?
+- **COMMIT-TO-REASONING**: Before writing your final level, do this:
+  1. Re-read your own reasoning above. What level did your evidence point to most strongly? Call this your EVIDENCE-LEVEL.
+  2. What level are you about to output? Call this your OUTPUT-LEVEL.
+  3. If EVIDENCE-LEVEL ≠ OUTPUT-LEVEL, you are overriding your own reasoning. State why in one sentence. If you cannot justify the override, use EVIDENCE-LEVEL.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
