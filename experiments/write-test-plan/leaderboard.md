@@ -50,6 +50,9 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 | 45 | treatment | 389.68 | 90.9% | +2.29 | sonnet | — | external-command-is-system: bright-line CLI tool rule — errors ↓ but loss ↑, REVERTED |
 | 46 | treatment | **384.47** | 89.0% | **-2.92** | sonnet | 89f7bed | LLM-DEP burden flip + INTEGRATION-BRAKE checkpoint |
 | 47 | treatment | 416.21 | 88.2% | +31.74 | sonnet | — | remove INTEGRATION-BRAKE: massive regression, BRAKE is load-bearing — REVERTED |
+| 48 | treatment | 422.92 | 89.0% | +38.45 | sonnet | — | reasoning-commitment-lock: replaced SELF-CHECK → COMMIT-TO-REASONING — REVERTED |
+
+**Autoresearch run 5** (sonnet) — 9 iterations (iters 40–48), 4 keeps, 3 discards, 1 no-op, 1 baseline. Baseline loss 439.54 → best **384.47** (-12.5%). Biggest gain: reject-higher-must-justify (-27.06). Key findings: SELF-CHECK and INTEGRATION-BRAKE are both load-bearing (removing either causes +30-38 regression). Sonnet has Integration anchor (not Unit like Codex). Additive changes work; replacements/removals are dangerous.
 
 **[Autoresearch run 2 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16356414)** — 5 iterations, 2 keeps, baseline loss 454.16 → best 368.08 (-19%). Largest gain: concrete-agentic-example (-79.84 loss). Unit def changes cause O1/U2 explosion — avoid.
 
