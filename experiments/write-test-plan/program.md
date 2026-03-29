@@ -148,7 +148,22 @@ LOOP:
      Capture `metrics` from `verify.ts` output (`jq '.metrics'`) and include in the JSONL record.
      Always include `model` (e.g. `claude-haiku-4-5-20251001`, `gpt-5.3-codex`) so results can be compared across models.
      Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
-  10. COMMIT RUNS — git add experiments/write-test-plan/runs/<timestamp>/ and commit the output JSONs.
+  10. COMMIT RUNS — git add the timestamped run dir and commit the output JSONs:
+      ```bash
+      git add experiments/write-test-plan/runs/<timestamp>/
+      git commit -m "experiment(runs): <timestamp> — <idea-id> <KEEP|DISCARD> loss <X>"
+      ```
+  10.5. COMMIT STATE — commit all remaining dirty files so the working tree is clean:
+      ```bash
+      git add experiments/write-test-plan/autoresearch-results.jsonl \
+              experiments/write-test-plan/ideas/ \
+              experiments/write-test-plan/taxonomy/ \
+              experiments/write-test-plan/leaderboard.md \
+              experiments/write-test-plan/meta-failures.md
+      git status  # verify nothing else is dirty before committing
+      git commit -m "experiment(state): iter <N> — update results, ideas, taxonomy, leaderboard"
+      ```
+      After this commit `git status` must show a clean working tree.
   11. NEXT ITERATION — update task list: clear completed tasks, create fresh tasks for
       the next iteration's inner loop (MINE through COMMIT RUNS). This keeps the task
       list showing the CURRENT iteration's progress, not stale completed tasks.
