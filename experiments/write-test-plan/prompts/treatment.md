@@ -20,11 +20,19 @@ a real failure — not just to verify happy-path logic.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
     Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
-    If the behavior claims the model should classify/rank/score correctly (recommendation quality, fraud/risk detection quality, moderation quality), treat it as Agentic even when the surrounding pipeline wiring is Integration.
+    Default: if the behavior's correctness depends on AI/ML model output quality (classification accuracy, generation quality, ranking relevance, scoring calibration, moderation decisions), start at Agentic and demote to Integration only if the test truly needs nothing beyond deterministic stub responses.
+    - Integration: "service routes requests to the correct model endpoint and retries on failure" — a stub endpoint catches this.
+    - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
+
+- **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
+  (a) Does the failure need real OS/network/subprocess? If yes → System.
+  (b) Does correctness depend on real AI/ML output? If yes → Agentic.
+  (c) Does it chain multiple agentic steps? If yes → Workflow.
+  If any answer is yes, upgrade unless you can quote behavior text that disqualifies the higher level.
 
 - **REJECTION-GATE**: If during your reasoning you considered a level higher than
   your final choice and rejected it, state the specific behavior text that
