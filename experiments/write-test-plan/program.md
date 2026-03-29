@@ -97,6 +97,17 @@ LOOP:
      The script pairs each behavior's structured output (justification, predicted level) with the
      model's internal thinking from the .log file. It also flags self-aware cases where thinking
      contains correct reasoning the model overrides. Append --taxonomy-lines output to taxonomy/.
+
+     **CRITICAL: Don't just count error directions.** You MUST actually READ the thinking blocks
+     and justification text for at least the top 5–10 errors by weight. Identify:
+     - **What reasoning pattern led to the wrong answer?** (e.g., "anchored on MOCK-MISS and
+       never reconsidered REAL-INFRA", "acknowledged LLM dependency then dismissed it as mockable")
+     - **Which prompt section trapped the model?** (e.g., "MOCK-MISS set Integration floor and
+       REAL-INFRA didn't override it")
+     - **What would have fixed THIS specific error?** (e.g., "if the prompt said X, the model
+       would have picked System instead of Integration")
+     Summarize these patterns — they are the raw material for IDEATE. Counting directions without
+     reading the reasoning is a meta-failure: you're optimizing blind.
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
@@ -191,6 +202,11 @@ Results log (last 10 iterations):
 
 Top taxonomy patterns (from DIAGNOSE):
 {TOP_PATTERNS — e.g. "U1: can mock the API — 10 occurrences, impact 40"}
+
+Reasoning patterns from MINE (what the model actually said in thinking/justification):
+{REASONING_PATTERNS — e.g. "5 Integration→System errors anchored on MOCK-MISS: model
+decided 'module wiring' first, then REAL-INFRA didn't override. Thinking blocks show
+the model knew about real infra needs but dismissed them."}
 
 ## What to do
 
