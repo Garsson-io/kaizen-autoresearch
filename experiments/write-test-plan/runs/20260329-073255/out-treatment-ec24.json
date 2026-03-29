@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-HIDE: Any stub or mock of the neural MT API will return a deterministic string you pre-programmed — it cannot fail this test because you control the output. The only way to detect word-for-word substitution vs. coherent meaning-preserving output is to run a real neural MT model. LLM-DEP: The correctness criterion ('grammatically coherent', 'preserves meaning') depends entirely on the actual model's output quality. Running 100 times with a stub always passes; running with the real API may reveal quality regressions. REJECTION-GATE: Integration/System rejected because the failure mode is not about routing, error handling, or network behavior — it is about whether the model output is linguistically adequate, which only the real model can produce or fail to produce.",
+      "test_description": "Call the real neural MT API with a set of source sentences covering diverse grammatical structures (e.g., passive voice, idiomatic phrases, compound sentences). Assert that each returned translation passes a meaning-preservation check — e.g., back-translating with the same API and computing semantic similarity above a threshold, or comparing against human-validated reference translations using BLEU/TER score. The test must use the live model endpoint; no stub.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.87,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is the service's orchestration logic: HTTP client reports 503 → error-handling branch → fallback invocation → caller receives a successful response. This is a multi-module handoff, not a single-function algorithm. REAL-INFRA: A fake/stub HTTP client configured to return 503 faithfully reproduces the exact failure; no real HTTP server or subprocess is needed. The bug (e.g., exception propagates to caller instead of being caught) appears when the error-handling code in the service is wired to the real fallback module. MOCK-HIDE: Mocking the fallback itself would hide whether the fallback is actually invoked with the correct input. REJECTION-GATE: System rejected because the failure does not require real network conditions — an in-process stub returning 503 is sufficient to trigger the code path.",
+      "test_description": "Wire the service with a stub HTTP client that unconditionally returns HTTP 503, and a real (in-memory SQLite) dictionary fallback seeded with at least one phrase. Call the service's translate() method for a phrase present in the dictionary. Assert: (1) no exception is raised, (2) the returned translation equals the dictionary entry, (3) the stub HTTP client was invoked exactly once (confirming primary was attempted).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the SQL query / schema interaction: wrong column name, missing index, incorrect WHERE clause, encoding issue. These only appear when the fallback module is wired to a real (or in-memory) SQLite instance. MOCK-HIDE: Mocking the DB layer always returns what you script it to return, masking schema bugs and query bugs entirely. REAL-INFRA: SQLite is a local-file or in-memory store; no OS network or subprocess is needed. An in-memory SQLite database seeded with test phrases is sufficient to catch real failures at this boundary. REJECTION-GATE: System rejected because SQLite requires no external process or network; the failure is fully reproducible in-process.",
+      "test_description": "Create an in-memory SQLite database, apply the production schema migration, and insert several known phrase→translation pairs covering edge cases (Unicode, punctuation, multi-word phrases). Instantiate the dictionary fallback module pointing at this in-memory DB. Call lookup() for each phrase and assert the returned translation exactly matches the seeded value. Also assert that lookup() for an absent phrase returns None (or the documented sentinel), not a crash.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior bundles two distinct failure surfaces: (a) the edit-distance algorithm (pure computation) and (b) persistence of the result. Failure (a) is Unit-catchable, but failure (b) — wrong column, wrong table, off-by-one in the stored value, ORM mapping error — only manifests when the computation result is handed off to the real persistence layer. MOCK-HIDE: Mocking the storage always succeeds regardless of what value is passed to it, hiding persistence bugs entirely. REAL-INFRA: SQLite (in-memory) is sufficient; no external process needed. REJECTION-GATE: Unit rejected because storage bugs require a real DB boundary; System rejected because no OS/network primitive is involved.",
+      "test_description": "Instantiate the quality tracker with an in-memory SQLite database. Call record_comparison(primary='hello world', fallback='helo wrold') with known inputs. Assert: (1) the returned or stored edit distance equals the expected value (e.g., 2 for the example above) computed by the algorithm; (2) a subsequent query of the metrics table returns exactly one row with the correct distance value, source text, and timestamp. Test at least one pair where edit distance is 0 (identical strings) and one where it equals the full string length (completely different).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.62,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is service orchestration: the service must (a) receive a successful primary response, (b) also invoke the fallback to get a comparison value, (c) return the primary result synchronously, and (d) fire the quality-tracking write asynchronously. Bugs in (c) vs (d) ordering, or failure to trigger the background task at all, only appear when multiple modules are wired together. MOCK-HIDE: Mocking the background logger means the test cannot detect whether it was actually called with correct arguments. REAL-INFRA: No real HTTP or subprocess needed; a stub HTTP client returning success and an in-memory SQLite are sufficient to reproduce every failure mode. REJECTION-GATE: Agentic rejected because this behavior is about control flow and routing, not translation quality — stub responses are correct inputs for this test. System rejected because no real network conditions are required.",
+      "test_description": "Wire the service with: (1) a stub HTTP client that returns a canned successful primary translation, (2) a real in-memory SQLite dictionary fallback seeded with a matching phrase, and (3) a spy on the background quality-tracking coroutine/thread. Call translate() for a phrase present in the dictionary. Assert: the return value equals the stub primary translation (not the dictionary value); the background quality-comparison task was invoked exactly once with both the primary and fallback strings; after the background task completes, the metrics table contains one row for this translation pair.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.81,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

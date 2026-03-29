@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The signature validation logic itself is deterministic and testable in isolation, but the failure mode described — the *generated* signature not matching — originates in what the LLM produces. A mocked LLM can trivially return a perfectly compliant signature every time, hiding the real failure. LLM-DEP: Whether the model correctly interprets the natural language spec and emits the right parameter names, types, and return type depends on real model behavior. REJECTION-GATE: Could this be Integration? Only if we're testing the extraction/parsing layer — but the behavior claims the *generated* output matches, not merely that the parser works. That end-to-end correctness claim requires a real LLM call.",
+      "test_description": "Submit a natural language description with a precisely specified interface (e.g., 'write a function named `clamp(value: float, lo: float, hi: float) -> float`') to the real LLM-backed generation service. Parse the returned implementation and assert the function signature exactly matches the specified name, parameter names, type annotations, and return type using AST inspection.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.6,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Workflow",
+      "justification": "LLM-DEP: Correctness of the implementation depends on real LLM output. MULTI-STEP: 'First or subsequent attempt' is the key phrase — covering 'subsequent' requires the generate→test→refine→test again sequence, which is multiple real agentic steps in sequence. A single Agentic-level test only covers the first attempt; catching failures in the refinement path requires the full iterative loop with real LLM calls at each step. REJECTION-GATE: Could Agentic suffice? Only if we restrict the test to functions easy enough to solve in one shot, but then we do not cover the 'subsequent attempt' part of the behavior. The behavior explicitly includes refinement paths.",
+      "test_description": "Choose a function that pilot testing shows a single LLM call commonly gets wrong on the first try (e.g., an off-by-one problem or a specific edge case). Submit the description plus a test suite to the full service with a real LLM. Assert that within the 3-attempt budget, all test cases pass — verifying the refinement loop actually produces a correct implementation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.22,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans module boundaries: the test runner produces failure output, the service must extract and format those messages, and then incorporate them into the next prompt. None of these steps in isolation would reveal a bug in the data handoff. MOCK-HIDE: We do not need a real LLM — we can mock it to always return code that fails tests, then capture the second call's prompt and assert it contains the failure text. A real LLM is unnecessary because correctness here is about what the *service* puts into the prompt, not what the model produces. LLM-DEP: No — the check is on the input to the LLM, not its output. REJECTION-GATE: Could this be Unit? Only if prompt construction is a pure function we can test in isolation; but the integration of test-runner output format → message extraction → prompt construction is the failure boundary, requiring wired modules.",
+      "test_description": "Wire the service with a mocked LLM that always returns syntactically valid but semantically wrong code. Provide a test suite that will fail on this code. Capture all calls made to the mocked LLM. On the second (refinement) call, assert the prompt contains the exact failure messages produced by the test runner from the first attempt.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.13,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is the orchestration loop: the retry counter, attempt accumulation, and error structure assembly across the LLM caller and test runner. A unit test of just the counter misses the accumulation of real test-result objects per attempt. LLM-DEP: No real LLM needed — mock it to always return failing code, mock or run the test runner to always fail, and verify the stopping and structured error behavior. MOCK-HIDE: Mocking at this level does not hide the failure — the invariant is about the loop's control flow and data accumulation, which is deterministic given always-failing mocks. REJECTION-GATE: Could this be Unit? Only if the retry and accumulation logic is a single isolated function, but it depends on interactions between the loop controller, LLM caller, and test runner outputs.",
+      "test_description": "Configure the service with a mocked LLM that always returns code failing all tests, and run the real test executor against that code. Invoke the service and assert: (a) the LLM is called exactly 3 times, (b) the returned error structure contains 3 attempt records, and (c) each record includes the generated code and the corresponding test failure messages from that attempt.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: Explicitly requires multiple real agentic steps in sequence: LLM generates → tests run → LLM refines with failure context → tests run again. Each LLM call is a real agentic step. LLM-DEP: Both the initial generation and the refinement depend on real LLM output — the refinement must actually improve the implementation based on test failure feedback. MOCK-HIDE: Mocking the LLM entirely defeats the purpose; the claim is that the *iterative refinement loop* adds value over a single call. REJECTION-GATE: Could Agentic suffice? No — Agentic covers a single model call. This behavior's value assertion is specifically about the multi-step loop producing better results than one shot, which requires at minimum two sequential real LLM calls with the test feedback injected between them.",
+      "test_description": "Select a function known (from sampling) to fail with a single LLM call but succeed with guided refinement (e.g., a function with a subtle edge case the model consistently misses initially). Run the full service end-to-end with real LLM calls and a concrete test suite. Assert that the final output passes all tests, and that at least one intermediate attempt failed — confirming the refinement loop, not just lucky first-shot success, produced the result.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.15,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

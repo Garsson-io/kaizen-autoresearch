@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Mocking the embedding model lets the test return any dimension it wants, hiding the real failure — a misconfigured model that produces the wrong-dimension output. REAL-INFRA: The dimensionality is a fixed property of the specific model version deployed; only a real API call to the actual embedding service reveals which model is being used and what it returns. LLM-DEP: Although dimensionality is deterministic across runs, the Agentic definition includes 'a real AI/ML model call' without requiring non-determinism; embedding APIs qualify. REJECTION-GATE: System was considered but rejected because the failure mode is a model-identity/configuration mismatch — not a network or subprocess boundary — so a real ML model call (not just real HTTP to an arbitrary service) is the distinguishing requirement.",
+      "test_description": "Call the real embedding service with a fixed sample query string and assert that `len(vector) == VECTOR_DB_INDEX_DIM`, where VECTOR_DB_INDEX_DIM is read from the index configuration. No mocking of the embedding client is permitted; the call must reach the real model endpoint to prove the deployed model version matches the expected dimensionality.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.14,
+        "Agentic": 0.7,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the application's search layer and the vector DB — either the DB query returns unordered results, or the application misreads the score field. A unit test that mocks the DB client cannot catch either failure. REAL-INFRA: A local in-process vector library (e.g., Faiss, local Qdrant) is sufficient; the ordering bug would surface identically with a local instance — there is no real-network or subprocess behavior required. LLM-DEP: No LLM involved. MULTI-STEP: Single search step. REJECTION-GATE: System was considered but rejected because a local vector DB embedded in the test process catches the ordering contract without needing real network or external infrastructure.",
+      "test_description": "Insert a small set of vectors with known pairwise cosine distances into a local vector DB collection. Submit a fixed query vector and assert that the returned result list is strictly ordered by descending cosine similarity score (each result's score >= the next one's). Use real vector DB client code, not a stub.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.65,
+        "System": 0.17,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly asserts a quality property of real LLM output — that the model re-orders results given nuanced context. Mocking the LLM trivially produces any ordering, making the test meaningless. Running 100 times with the real model may produce variation, but the core requirement is that a real model call is made to validate the claim. MOCK-MISS: A mock LLM always passes; only real LLM output can confirm contextual re-ranking occurs. MULTI-STEP: Single re-ranking step, so Workflow is not required. REJECTION-GATE: Workflow was considered but rejected because the behavior involves one agentic step (the re-ranker), not a multi-step agent pipeline.",
+      "test_description": "Populate a local vector DB with a curated set of products whose raw cosine ranking is known. Submit a query with nuanced intent (e.g., 'lightweight laptop for travel, not gaming') to the real LLM re-ranker. Assert that the re-ranked order differs in at least one position from the raw similarity order. Run the test multiple times and treat pass as: majority of runs produce a re-ordering.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.03,
+        "Agentic": 0.84,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the wiring between the application's threshold/filter logic and the vector DB result: either the DB returns low-similarity candidates and the app doesn't filter them, or the threshold config is wrong. A unit test over the filter function alone can't catch a misconfigured threshold or a DB adapter that ignores the cutoff. REAL-INFRA: A local vector DB instance is sufficient; populating it with known vectors and injecting a query vector far from all of them exercises the exact failure mode without needing real network or external infrastructure. The embedding call can be stubbed to return a controlled distant vector. LLM-DEP: No LLM involved. REJECTION-GATE: Agentic was considered (to use real embedding for the 'far' query vector) but rejected because stubbing the embedding to return a deliberately distant vector covers the failure mode equally well.",
+      "test_description": "Populate a local vector DB with a small set of product embeddings. Stub the embedding client to return a unit vector orthogonal to (or far from) all stored vectors, simulating a query with no semantic match. Submit the query through the full search layer and assert that the API response contains an empty results list (not a list of low-score items). Verify threshold configuration is respected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0.08,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: Measuring real end-to-end latency requires all pipeline stages to execute with real infrastructure: HTTP ingestion, real embedding model call (Agentic step 1), real vector DB query (System step), and real LLM re-ranking call (Agentic step 2). These are multiple real agentic steps in sequence. MOCK-HIDE: Mocking any stage collapses its latency to microseconds, making the 2-second budget meaningless. The failure only surfaces when all real dependencies are in the critical path. REAL-INFRA: Real HTTP, real ML APIs, real vector DB network round-trips, and real LLM API response times are all load-bearing. REJECTION-GATE: Agentic was considered but rejected because latency is a cross-cutting concern that spans multiple sequential agentic steps, satisfying the Workflow definition of 'multiple agentic steps in sequence or a full agent pipeline.'",
+      "test_description": "Stand up the full REST API against real embedding and LLM endpoints and a real (or staging) vector DB. Issue N=50 sequential search requests with varied realistic queries and collect per-request wall-clock latency from request receipt to response delivery. Assert that the median (p50) latency is below 2000 ms. Log p95 for observability but do not assert on it. No component may be mocked.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.15,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

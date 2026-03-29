@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Missing required key error message names the exact config path",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the key-lookup and error-message-formatting logic — whether the code correctly traverses the config schema, identifies the missing key, and formats its dotted path (e.g., `database.host`) into the exception message. That logic lives in one function or one validation pass; no module handoff is involved. REAL-INFRA: No OS, filesystem, network, or subprocess is required — the function under test can receive an in-memory dict (file already parsed) plus a schema. MOCK-HIDE: Nothing to mock; pass a dict missing the key, assert the exception message contains the exact path string. LLM-DEP/MULTI-STEP: Neither applies. REJECTION-GATE for Integration: the failure does not depend on the file reader and the validator being wired together — even if they are separate modules, the failure only manifests inside the validator's own logic, which can be exercised directly.",
+      "test_description": "Call the config validator directly with an in-memory dict that omits a required nested key (e.g., `database.host` present in schema but absent from dict and no matching env var). Assert that the raised exception message contains the string `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "XDG_CONFIG_HOME overrides the default ~/.config path for config file resolution",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between two modules: the env-var reader and the path-resolver feeding the file loader. A pure unit test on the path-construction function would catch bad string logic, but would miss the case where the loader ignores the resolved path and falls back to the hardcoded `~/.config` default. REAL-INFRA: The test must place a real file in a tmp directory pointed to by `XDG_CONFIG_HOME` and verify it is loaded; using only a mock filesystem risks hiding the case where `os.path.expanduser` or `pathlib.Path` resolution interacts unexpectedly with the env var. pytest's `tmp_path` provides real OS filesystem without requiring a subprocess. MOCK-HIDE: Mocking the file reader would hide whether the correct path was actually opened. REJECTION-GATE for System: no subprocess or external CLI invocation is required — the loader can be called in-process with the env var set via `monkeypatch.setenv`.",
+      "test_description": "Use `monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))`, write a valid config file to `tmp_path/tool/config.yaml`, invoke the loader in-process, and assert the loaded values match that file. Also assert that if no file exists at `tmp_path/tool/config.yaml` but one exists at `~/.config/tool/config.yaml`, the loader raises a not-found error (proving it did not fall back).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.16,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "TOOL_-prefixed environment variable overrides the same key in the config file",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the handoff between two modules — the file parser (which produces a dict from YAML) and the env-var overlay (which merges `TOOL_*` vars on top). A unit test of the merge function alone would miss the case where the file loader or the env-var scanner uses mismatched key names (e.g., different casing or separator conventions), so both modules must be wired together. REAL-INFRA: A real file in `tmp_path` is sufficient; no subprocess, network, or external API is needed. MOCK-HIDE: If the YAML loader is mocked, the test cannot catch key-name translation bugs between the file format and the env-var namespace. REJECTION-GATE for Unit: the conflict only surfaces when the file-loaded value and the env-var-loaded value are both present and the merge logic is exercised end-to-end — a single-function unit test cannot guarantee that.",
+      "test_description": "Write a config file to `tmp_path` containing `database.host: file-value`, set `monkeypatch.setenv('TOOL_DATABASE_HOST', 'env-value')`, invoke the loader in-process, and assert the resolved `database.host` value equals `env-value`. Also assert that a key not overridden by any env var retains its file value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "YAML syntax error in the config file produces an error message with the correct line number",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the YAML parsing library (which embeds line-number metadata in its exception) and the loader's error handler (which must extract and surface that metadata). If only the error-handler logic is unit-tested with a hand-crafted fake exception, the test cannot catch the case where a different YAML library version changes the exception structure or attribute names. REAL-INFRA: The YAML parser must actually parse a malformed string; this requires no filesystem or network — an in-memory string or a `tmp_path` file both work. The critical real dependency is the live YAML library, not the OS. MOCK-HIDE: Mocking `yaml.safe_load` to raise a pre-built exception would always pass, hiding any mismatch between the real exception shape and what the error handler expects. REJECTION-GATE for System: the YAML parser is a pure in-process library; no subprocess, OS primitive, or external service is required.",
+      "test_description": "Write a YAML file with a deliberate syntax error on line 3 (e.g., a bad indentation or unquoted colon) to `tmp_path/config.yaml`. Invoke the loader in-process pointing at that file. Catch the raised exception and assert the message contains `3` (the line number). Vary the error line to rule out a hardcoded value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.76,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Loader creates the config directory and writes a defaults file when the directory does not exist at startup",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans at minimum two modules — the startup path-check (does the directory exist?) and the directory/file writer — plus the subsequent load step that must succeed after creation. All three must be wired together correctly. REAL-INFRA: Directory creation and file writing require real OS filesystem calls (`os.makedirs`, `open`). pytest's `tmp_path` provides a real temporary directory on the real OS filesystem, which is sufficient — no subprocess invocation of the CLI is required. MOCK-HIDE: Mocking `os.makedirs` or `open` would trivially pass while hiding permission errors, wrong paths, or missing parent-directory handling that only real filesystem calls expose. REJECTION-GATE for System: the behavior does not say 'CLI is invoked as a subprocess' — it says the loader runs at startup. The loader can be called in-process with `XDG_CONFIG_HOME` or a monkeypatched config-path pointing to a nonexistent subdirectory of `tmp_path`, keeping this at Integration.",
+      "test_description": "Point the loader at a nonexistent subdirectory of `tmp_path` (e.g., `tmp_path/newdir/tool`) via monkeypatching the config-path resolver. Invoke the loader in-process. Assert that `tmp_path/newdir/tool/` now exists as a directory, that a defaults file is present inside it, and that the loader returns a valid config object (not an error).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.68,
+        "System": 0.25,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields validated before downstream processing; missing fields produce a clear error listing all missing items.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within a single validation function — it either checks presence of name, DOB, and insurance ID or it doesn't. No module handoff is involved; the bug appears in one place. REAL-INFRA: No I/O. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected because there is no module boundary whose interaction could hide the failure — the validation logic either enumerates all missing fields or it doesn't, independently of any downstream module.",
+      "test_description": "Call the patient-field validation function directly with various combinations of missing fields (each field missing individually, multiple missing, all missing, all present). Assert that the returned error lists exactly the missing field names and that no downstream function is invoked when any required field is absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date of birth validation rejects future dates, dates more than 150 years ago, and non-date strings.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: All three rejection rules are pure algorithmic checks on a single parsed value: compare to today, compare to a floor date, attempt parse. No module interaction is required for any of these failures to surface. REAL-INFRA: No I/O. LLM-DEP: No. REJECTION-GATE: Integration was considered and rejected — there is no second module whose behavior interacts with DOB parsing to produce or hide the failure.",
+      "test_description": "Call the DOB validation function directly with: a date one day in the future, a date 151 years ago, a non-date string (e.g. 'not-a-date'), and a valid date. Assert that the first three raise or return a specific validation error and that the valid date passes without error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility check sends the correct patient ID and plan code to the payer API and correctly interprets 'eligible', 'not eligible', and 'pending' responses.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior spans two module boundaries: (1) the intake service serializes patient data into an outbound request and (2) an API adapter deserializes the payer response into an eligibility enum. A pure unit test of one side cannot verify both the correct outbound format and the correct inbound mapping together. An Integration test with a fake HTTP server (e.g., httpretty or respx) wires both sides. REAL-INFRA: A fake in-process HTTP server fully reproduces the failure — real network not required. LLM-DEP: No. REJECTION-GATE: System was rejected because a fake HTTP server reproduces the exact request/response failure without a real network.",
+      "test_description": "Wire the insurance service against a fake HTTP server that records incoming requests and returns controlled responses. For each of 'eligible', 'not eligible', and 'pending', verify the outbound request contains the correct patient ID and plan code, and assert the service returns the corresponding eligibility state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.65,
+        "System": 0.11,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the payer API is unreachable, the system marks eligibility as 'pending' and continues the intake rather than blocking.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode requires the HTTP client to raise a connection/timeout error and the intake service to catch it, set state to 'pending', and continue — this is a two-module interaction (HTTP client error → intake service error-handling branch). A unit test mocking only the client would not verify that the state is propagated correctly through the intake service to downstream steps. REAL-INFRA: A fake HTTP client that raises a connection error is sufficient; a real unreachable endpoint is not needed. LLM-DEP: No. REJECTION-GATE: System was rejected because the exact failure (connection error → pending state → continue) is reproducible with an in-process mock that raises an exception.",
+      "test_description": "Configure the HTTP client to raise a connection timeout. Call the full insurance-eligibility module (not just the HTTP adapter). Assert that the returned intake state has eligibility='pending', that no exception propagates, and that a subsequent step (e.g., triage) is still reachable.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "AI symptom triage correctly assigns high urgency to symptom combinations that indicate emergency conditions (e.g., chest pain + shortness of breath).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly claims that the AI medical reasoning engine produces the correct urgency classification. Correctness here is a property of the model's output, not of deterministic logic. Running this 100 times with the real model may yield different urgency assignments depending on phrasing variations, model version, or sampling. A mocked model would always return whatever the test fixture defines, hiding the actual classification quality. MOCK-HIDE: Any mock would pass trivially. REJECTION-GATE: Integration was considered and rejected because the failure mode is not about module wiring — the wiring can be correct while the model misclassifies the symptom combination. Workflow was rejected because only one AI step is needed.",
+      "test_description": "Submit emergency symptom combinations (chest pain + shortness of breath; severe head injury + loss of consciousness) to the real AI triage engine. Assert that the returned urgency level is 'high' and repeat across N runs to detect non-deterministic misclassification above a chosen error threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.07,
+        "System": 0.05,
+        "Agentic": 0.76,
+        "Workflow": 0.11
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Symptom triage produces a natural-language explanation of its urgency assessment that a clinician can review, not just a numeric score.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior asserts that the AI engine returns a natural-language explanation rather than a bare number. Only the real model can confirm this output characteristic — a mock would always return the pre-specified string. MOCK-HIDE: A stubbed model would trivially satisfy a string-length or regex check without proving the real model behaves this way. REJECTION-GATE: Integration was rejected because the failure ('model returns only a number') only manifests with the real model. Workflow was rejected because this is a single AI call, not a multi-step sequence.",
+      "test_description": "Call the real AI triage engine with a set of symptom inputs. Assert that the response contains a 'explanation' field that is a non-empty string longer than a minimum meaningful length, contains no bare numeric-only content, and references the submitted symptoms — verifying the model produces clinician-reviewable prose.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.04,
+        "Agentic": 0.76,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Appointment is scheduled in the first available slot matching the assigned urgency level — high urgency gets same-day, medium gets within 48 hours.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior tests the scheduling algorithm reading from the calendar DB and selecting the correct slot tier. The failure mode is at the boundary between the scheduler and the calendar DB: if the DB query for available slots or the slot-selection logic is wrong, a unit test with a hand-crafted in-memory fake won't catch mismatches in query construction. An Integration test with a real local test DB (pre-seeded with slots) exposes both the query and the selection logic. REAL-INFRA: A real local test DB is sufficient; no OS/network behavior is involved. LLM-DEP: No. REJECTION-GATE: System was rejected because a local test DB (not real production infra) reproduces the failure.",
+      "test_description": "Seed a real local test calendar DB with a controlled set of slots at various times. Call the scheduling module with urgency='high' and verify the booked slot is within the same calendar day; repeat with urgency='medium' and verify the slot is within 48 hours. Assert no slot outside the urgency window is selected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.73,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Scheduling does not double-book a time slot even when two patients are being processed concurrently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a race condition on a shared write — two concurrent booking requests claim the same slot. REAL-INFRA: A simple in-memory dict mock does not implement real transaction isolation or row-locking, so it would pass trivially even if the production DB layer has no locking. A real local DB (e.g., PostgreSQL or SQLite with WAL mode) with real transaction semantics is needed to expose the actual race. REJECTION-GATE: System was considered because concurrency requires real OS threading and real DB locking. However, a real local test DB with concurrent Python threads satisfies this without a real external system — so Integration is the minimum. System would be required only if the failure depended on network latency or distributed infra.",
+      "test_description": "Seed a real local test calendar DB with exactly one available slot. Launch two concurrent threads (or async tasks) that both attempt to book that slot simultaneously. Assert that exactly one booking succeeds and the other receives a conflict or retry response — and that the DB contains exactly one booking for the slot.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.5,
+        "System": 0.44,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Confirmation message includes patient name, appointment time, provider name, and preparation instructions appropriate to the visit type.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The confirmation assembles data from multiple sources: patient record, booked appointment, provider record, and visit-type preparation instructions (likely a lookup). A unit test of a single formatter function can only verify formatting if it is handed all data as arguments — but the behavior's failure mode could be in the data assembly (wrong provider matched, wrong visit-type instructions selected), not just in the template. Integration wires the confirmation module against the real data-access layer. REAL-INFRA: A local test DB or fixture is sufficient. LLM-DEP: No. REJECTION-GATE: Unit was rejected because 'preparation instructions appropriate to the visit type' implies a lookup/selection step that is a module boundary.",
+      "test_description": "Create a test appointment with a specific visit type, patient, and provider in a local test DB. Call the confirmation generator and assert the output string contains the exact patient name, appointment time (formatted correctly), provider name, and visit-type preparation instructions matching the visit type — not a different visit type's instructions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.58,
+        "System": 0.07,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The full intake pipeline — validate, check insurance, triage symptoms, schedule, confirm — completes for a real patient submission without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The pipeline chains five distinct steps, two of which involve real AI/external calls (insurance API, AI triage engine). The failure mode is an emergent integration failure across the whole sequence: state threading, error propagation between steps, or a real LLM step producing output that a downstream step cannot parse. No lower level can catch cross-step state corruption or AI output format mismatches in context. LLM-DEP: The triage step uses a real AI engine, making at least one step Agentic; the full sequence therefore meets the Workflow threshold. REJECTION-GATE: Agentic was rejected because the behavior explicitly requires all five steps in sequence — a single-step Agentic test would not verify that the scheduler or confirmation module correctly consumes the AI triage output.",
+      "test_description": "Submit a complete synthetic patient record (with valid fields, a real insurance ID against a sandboxed payer API or stub, and a set of symptoms) to the full intake pipeline. Assert that each step produces the expected handoff artifact (eligibility result, urgency level, booked slot, confirmation message) and that the pipeline terminates with a confirmation sent — with no step throwing an unhandled exception or requiring operator input.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.06,
+        "Agentic": 0.13,
+        "Workflow": 0.77
+      }
+    }
+  ]
+}

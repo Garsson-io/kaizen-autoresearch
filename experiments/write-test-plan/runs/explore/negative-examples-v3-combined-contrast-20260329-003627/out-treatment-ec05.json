@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode (wrong execution order) can be caught by mocking the PostgreSQL client and verifying the sequence of SQL execute() calls. File discovery and sorting is local runner logic with no cross-module dependencies. Mock-miss: a properly instrumented mock that tracks call order will catch out-of-order execution (e.g., 010 before 003).",
+      "test_description": "Create migration files with numeric prefixes (001.sql, 002.sql, 003.sql, 010.sql), mock the PostgreSQL connection, run the runner, and verify execute() is called with migrations in order: 001 → 002 → 003 → 010. Verify numeric sorting, not string sorting (where 010 would come before 002).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode (duplicate application of already-applied migrations) can be tested by mocking the _migrations table metadata read. The idempotency check is local runner logic—verify the runner queries the metadata table and skips migrations it finds there.",
+      "test_description": "Mock the _migrations metadata table to return that migration-001 has been applied. Run the runner with migrations-001 and migrations-002. Verify execute() is called only for migrations-002 (not migrations-001). Verify the runner queries the metadata table before attempting execution.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "This behavior has two parts: (1) rollback of partial changes requires observing actual database transaction state—a mock cannot model the true state of the database after a failed migration; (2) no further migrations requires checking runner error handling. Part 1 is the binding constraint: mock-hide would occur with a mocked transaction that doesn't actually model database state rollback. Only a real database with transaction semantics can verify that partial changes are truly rolled back.",
+      "test_description": "Create a test PostgreSQL database with _migrations table. Create two migration files: one valid (creates a table), one with a syntax error (duplicate CREATE). Run the runner. Verify: first migration applies successfully, second migration fails with error, database state contains the first migration's schema change only (not the second), and no third migration is attempted. Query the database directly to confirm schema state matches expected rollback.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.88,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "Integration",
+      "justification": "True concurrent execution is required to expose the race condition (both instances reading metadata before either records application). This requires concurrent access to a shared database. Real-infra: does not require separate OS processes if concurrent async tasks access the same database—PostgreSQL transaction isolation and row-level locking (SELECT FOR UPDATE) provide the synchronization mechanism. Integration-level testing with concurrent async tasks against a real database is sufficient to trigger and catch race conditions. Mock-hide: mocking cannot model true concurrent access or database locking behavior.",
+      "test_description": "Create a test PostgreSQL database with _migrations table and two migration files. Use Promise.all() or similar to spawn two concurrent async tasks, each running the migration runner against the same database. Verify: both tasks complete successfully, each migration is recorded in _migrations exactly once (not twice), and both tasks see consistent results. Verify the runner uses SELECT FOR UPDATE or similar locking on the metadata table to serialize migration application.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.83,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode (table created after migrations, or not created at all, or errors on second run) is a local control-flow issue in the runner. Mock the database, verify that the CREATE TABLE statement is called before any migration execute() calls, and verify the create is idempotent.",
+      "test_description": "Mock the PostgreSQL connection. Run the migration runner for the first time against a fresh database (no _migrations table exists in the mock). Verify that a CREATE TABLE _migrations statement is issued before any migration SQL is executed. Verify the runner does not error if the table already exists on a second run (idempotency). Check call order: createTable() before execute().",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

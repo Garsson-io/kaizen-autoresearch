@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the diff-parsing/scoping function itself — does it extract only changed lines from a diff object? That is a single algorithmic boundary with no module handoff. REAL-INFRA: A fabricated diff string or object is sufficient; no real HTTP, OS, or subprocess involved. LLM-DEP: This is pre-LLM input preparation; LLM output plays no role. MULTI-STEP: Single function. REJECTION-GATE for Integration: The failure mode is not at a module boundary — it is entirely within whichever function slices diff hunks before passing them downstream.",
+      "test_description": "Feed a synthetic unified diff (containing both changed lines and unchanged context lines) to the input-scoping function. Assert the returned review payload contains exactly the added/removed lines from the diff hunks and does not contain lines outside those hunks from the original file content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Correct position in the diff view' is ultimately defined by what GitHub's API accepts and renders. The position integer is a GitHub-specific count of diff lines including context, not just changed lines. An in-process fake or a mocked HTTP client can validate what the code sends, but it cannot catch misunderstandings of GitHub's diff-position scheme (e.g., off-by-one in hunk parsing, using wrong field — `line` vs `position` vs `start_line`). The real failure mode only surfaces when GitHub rejects the request or renders the comment at the wrong line. MOCK-HIDE: A mock that returns 201 regardless of position value would always pass and hide the bug. REJECTION-GATE for Integration: cannot point to any evidence that an in-process fake faithfully enforces GitHub's position semantics.",
+      "test_description": "Push a small known diff to a real test GitHub repository, invoke the inline-comment posting function against that PR, then retrieve the resulting review comments via the GitHub REST API. Assert each comment's `path`, `position` (or `line`/`side`) fields match the expected locations in the diff, and that GitHub rendered them on the correct diff lines.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.18,
+        "System": 0.66,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The failure mode is that the LLM-based analyzer fails to recognise a real defect. No deterministic code path governs whether the model notices the bug; the outcome varies with model temperature, prompt version, and model weights. Running this 100 times with real LLM calls could yield different detection rates. MOCK-HIDE: Mocking the LLM with a hardcoded response trivially passes and tells you nothing about actual defect-detection quality. MULTI-STEP: Identification is a single analytical step, not a chain of agentic steps, so Workflow is not required. REJECTION-GATE for Integration: the behavior is explicitly about whether the model 'identifies' a defect — that is a quality claim about LLM output, not about module wiring.",
+      "test_description": "Prepare a diff that contains a deliberately injected, clearly recognisable bug (e.g., an unchecked None dereference or an off-by-one boundary condition). Pass this diff to the real agent (with a real LLM call). Assert that at least one returned finding references the file and approximate line range of the injected defect and contains a non-empty description of the problem.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.06,
+        "Agentic": 0.82,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: This invariant can only be violated across two distinct agentic steps — the inline-comment generation step and the summary-generation step. The summary is produced after inline comments are posted; a real failure is the LLM generating a summary that references findings it invented or hallucinated during the summary step, or the orchestration logic failing to carry the posted-findings set into the summary prompt. Neither a single-step Agentic test nor Integration (which would mock both steps) can catch this cross-step consistency failure. LLM-DEP: Both steps involve real LLM output; mocking either hides the real drift risk. REJECTION-GATE for Agentic: a single-step Agentic test cannot observe the relationship between two separately generated outputs.",
+      "test_description": "Run the full agent pipeline against a PR with multiple seeded issues. After completion, collect all posted review comments (inline) and the top-level PR comment (summary) via the API. Parse the summary to extract each listed finding. Assert that for every finding in the summary there exists a corresponding inline comment (matched by file path and approximate line) posted in the same run, and that the total count of summary findings equals the total count of inline comments.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.2,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: 'A real pull request' is explicit — the behavior requires real GitHub API calls (read diff, create review comments, create PR comment). MULTI-STEP: Three distinct networked steps must all succeed in sequence: (1) authenticated diff fetch, (2) inline comment posting, (3) top-level comment posting. Failure can occur at any handoff: auth token scope insufficient for one action, rate limiting mid-sequence, diff format change breaking step 2's input, or step 3 referencing a review ID created in step 2. An in-process mock cannot surface these handoff failures. LLM-DEP: Real LLM calls are part of the pipeline. REJECTION-GATE for System: System covers a single real-infrastructure call; this behavior requires the entire three-step chain to succeed end-to-end.",
+      "test_description": "Point the agent at a real test GitHub repository with a pre-created PR containing a small deliberate bug. Invoke the automation with no human interaction. Assert: the diff-fetch HTTP call returns 200, at least one inline review comment is created on the PR (HTTP 201), and a top-level PR comment containing a non-empty summary is created (HTTP 201). Confirm all three artefacts are queryable via the GitHub API after the run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.01,
+        "System": 0.06,
+        "Agentic": 0.08,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

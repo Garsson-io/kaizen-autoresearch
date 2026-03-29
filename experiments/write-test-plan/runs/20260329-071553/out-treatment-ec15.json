@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The failure mode is 'wrong model configured' or 'API response format changed so dimension is misread.' An in-process stub always returns a correctly-shaped vector, making the test trivially pass regardless of what the real embedding service returns. The real failure only surfaces when the system makes an actual HTTP call to the embedding endpoint with the production configuration and the returned shape is verified against the configured DB index. LLM-DEP: Dimensionality is deterministic for a given model—no non-determinism, so Agentic is not required. REJECTION-GATE: Why not Integration? Any in-process fake embedding client returns whatever dimension we program into it; the test then validates our own stub rather than the real service contract.",
+      "test_description": "Configure the system with the real embedding service and the real (or real-schema) vector DB index config. Issue a representative query string through the full embedding path, capture the returned vector, and assert its dimension equals the index's configured dimension. Run against the live embedding endpoint to catch configuration drift.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.13,
+        "System": 0.58,
+        "Agentic": 0.2,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the query layer and the vector DB: either the DB returns results in the wrong order, or the application layer re-sorts (or fails to preserve) the ordering before returning. A unit test on a sort function doesn't catch the DB-to-application handoff. REAL-INFRA: A local embedded vector store (FAISS, Chroma, etc.) is sufficient—the ordering algorithm is deterministic and an in-process store faithfully reproduces the cosine-ranking contract. No real network or remote subprocess is required. LLM-DEP: Cosine similarity is purely mathematical; no AI model output quality involved. INTEGRATION-BRAKE: (a) No real OS/network needed—local store suffices. (b) No AI/ML quality dependency. (c) No multi-agent chain. Stays at Integration.",
+      "test_description": "Seed a local vector store with a small set of pre-computed embeddings at known angular distances from a fixed query vector. Issue the similarity search and assert the returned results are in strictly descending cosine-score order, with scores attached and monotonically decreasing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.58,
+        "System": 0.28,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly tests the LLM's ability to understand nuanced intent and reorder results accordingly. A deterministic stub re-ranker would either preserve order or return a hardcoded permutation—either way it validates the stub, not the model's judgment. The real failure ('LLM does not actually re-order for nuanced queries') only surfaces with the real model. Running this test 100 times with the real LLM can yield variation, so a pass/fail criterion must be set robustly (e.g., 'at least one position changes across N runs'). REJECTION-GATE: Why not Workflow? Re-ranking is a single LLM call, not a chain of agentic steps. Why not System? The failure is about LLM output quality/judgment, not about HTTP transport behavior.",
+      "test_description": "Craft 3–5 nuanced query examples (e.g., a query whose literal keywords match item A best but whose evident intent aligns with item B). Feed the raw similarity-ranked top-K results and the query to the real LLM re-ranker. Assert that the output ordering differs from the input ordering for at least one result position in the majority of runs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.06,
+        "Agentic": 0.74,
+        "Workflow": 0.14
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the threshold/filtering logic between the vector DB result layer and the response layer—specifically, whether a similarity score below the configured cutoff correctly suppresses results. This is a module-boundary bug (DB returns low-score hits; application must filter them out), not a single-function bug. REAL-INFRA: A local vector store seeded with test data and an injected query vector orthogonal to all stored vectors fully reproduces the failure. No real HTTP or OS primitives needed. LLM-DEP: Filtering against a cosine-similarity threshold is deterministic; the embedding can be a pre-computed stub vector. INTEGRATION-BRAKE: (a) No real OS/network required. (b) No AI/ML quality dependency—threshold logic is deterministic. (c) No multi-step chain. Stays at Integration.",
+      "test_description": "Seed a local vector store with N product embeddings. Inject a query vector that is provably orthogonal (or maximally distant) to all stored vectors—bypassing the real embedding model. Issue the search and assert the returned result set is empty, confirming the similarity threshold filter is applied rather than returning the lowest-scoring candidates.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.52,
+        "System": 0.28,
+        "Agentic": 0.1,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: Latency is physically meaningless with mocks—stubs return in microseconds regardless of what real network RTT, embedding inference time, vector DB query time, and LLM re-ranking inference time actually cost. The 2-second budget must be measured across all live legs. LLM-DEP: Re-ranking uses a real LLM whose inference time varies across calls; stubs hide this variance. MULTI-STEP: The pipeline chains at minimum two AI/ML model calls in sequence—embedding model call (step 1) → vector DB query → LLM re-ranker call (step 2)—making this a multi-agentic-step pipeline. All three KEY-QUESTION flags (REAL-INFRA, LLM-DEP, MULTI-STEP) fire, requiring Workflow. REJECTION-GATE: Why not System? System covers real HTTP but not the LLM inference non-determinism and the chained agentic steps that dominate latency variance here.",
+      "test_description": "Issue N≥100 representative search queries against the full live pipeline (real embedding service → real vector DB → real LLM re-ranker). Record wall-clock latency per request from HTTP request receipt to response returned. Assert that the median (p50) latency is below 2000 ms. Log p95 for observability. Run in an environment that matches production network topology.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.16,
+        "Agentic": 0.2,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}

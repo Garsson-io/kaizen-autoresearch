@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to most recent 10 messages when full history exceeds context window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The trimming is a pure algorithmic operation on a list — slicing the N most recent messages. The failure mode (wrong slice, off-by-one, wrong ordering) lives entirely inside one function and needs no module interaction to manifest. REAL-INFRA: No I/O. LLM-DEP: Trimming happens before the LLM call; correctness is deterministic. MULTI-STEP: Single operation.",
+      "test_description": "Construct a message list of 15 items with distinct content. Call the history-trimming function directly. Assert the returned list has exactly 10 items, that they are the last 10 in original order, and that items 1–5 are absent. Also test edge cases: exactly 10 messages (no trimming), 9 messages (no trimming), 0 messages (empty list returned).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: This behavior is entirely about LLM output quality — whether the model produces a relevant answer. Mocking the LLM would trivially pass by returning a canned on-topic reply, hiding the real failure mode. Running the test 100 times with the real LLM may yield varied relevance. MOCK-HIDE: Any mock would always pass; only the real model can fail this. MOCK-MISS: Not an integration wiring issue — it is specifically a generation quality claim.",
+      "test_description": "Send a specific, narrow customer question (e.g., 'How do I cancel my subscription?') to the real chatbot pipeline backed by a real LLM. Assert that the response contains content semantically relevant to cancellation (key terms, actionable steps) and does not match a list of known generic fallback phrases. Run with multiple distinct questions across different tiers and assert relevance for each.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.88,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The tone re-check is described as an LLM-driven step (it 're-prompts the LLM'). Whether a response is classified as too formal depends on real LLM judgment; a mock tone-checker would always give the pre-programmed answer and hide classification errors. MOCK-HIDE: Mocking the classifier trivially controls the outcome — it cannot expose misclassification. The 'correctly identifies' claim is a quality assertion about a model's judgment, making this Agentic even though the downstream trigger logic is deterministic.",
+      "test_description": "Using the real LLM-backed tone checker, pass a clearly over-formal response (e.g., heavily corporate language with no contractions) paired with a casual-tier customer profile. Assert that the tone checker returns a 'too formal' flag. Also pass a clearly casual, colloquial response with the same tier and assert it is not flagged. Verify that when flagged, the chatbot pipeline records a regeneration event (e.g., via a logged counter or status field).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.8,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the chat pipeline and the database layer — wrong fields mapped, timestamps not set, regenerations omitted. This only surfaces when the real persistence call executes against a real (local) database. MOCK-HIDE: Mocking the DB write always 'succeeds' and cannot catch field-mapping bugs or timestamp generation errors. REAL-INFRA: A local DB is needed, but no real network or LLM call is required — the LLM response can be stubbed. LLM-DEP: Persistence correctness is independent of LLM output quality.",
+      "test_description": "Stand up a local test database. Stub the LLM to return fixed responses (initial response + one regeneration). Run the chatbot pipeline end-to-end. Query the database directly and assert: the user message is stored verbatim; the initial (rejected) draft is stored with a 'rejected' status; the final response is stored with an 'accepted' status; all records have timestamps that are after the test start time and in chronological order; no extra or missing records exist.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.82,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the pipeline's flow-control logic — the state machine that decides which response is delivered. This only appears when the tone-checker decision is wired to the response-delivery module. A unit test on the router alone cannot confirm the full handoff. MOCK-HIDE: The LLM itself can be stubbed (return formal response first, acceptable second) — LLM output quality is not what's being tested here. The tone checker's trigger decision can also be deterministically controlled. LLM-DEP: The suppression/replacement logic is deterministic given a fixed tone-check signal; no real LLM needed. REAL-INFRA: No OS or network dependency.",
+      "test_description": "Stub the LLM to return a clearly flaggable response on the first call and an acceptable response on the second. Stub the tone checker to return 'too formal' for the first response and 'OK' for the second. Run the full chatbot pipeline including delivery layer. Assert that the value returned to the caller (simulating what the customer receives) is the second response, not the first. Assert that the first response is never present in the customer-facing output. Cross-check with the persistence layer (if accessible) to confirm the first response is marked rejected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.74,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

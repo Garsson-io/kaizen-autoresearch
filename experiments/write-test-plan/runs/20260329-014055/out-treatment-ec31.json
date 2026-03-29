@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in a parsing/splitting algorithm — given a raw multi-line string, produce a list of individual statement segments. This is purely algorithmic with no module boundary involved. REAL-INFRA: No OS, network, or subprocess needed — pure string processing. MOCK-HIDE: Nothing to mock. LLM-DEP: No LLM. INTEGRATION-CHECK (Down-test): The failure is fully reproducible by calling one segmentation function with a crafted multi-line string and asserting the returned list. Unit survives.",
+      "test_description": "Call the command-segmentation function directly with a string like 'VAR=foo\\ngh pr create --title T' and assert it returns two separate segments: ['VAR=foo', 'gh pr create --title T']. Also assert that a single-line command returns exactly one segment. No filesystem, subprocess, or external module needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The described incident is specifically that the whole block — fed as one unit — was classified as `not_a_trigger`. The bug lives at the boundary between the segmentation module and the classification module: segmentation must run first, then classification must operate on individual segments. Testing the classifier alone with pre-split input would not catch a wiring bug where segmentation is skipped. REAL-INFRA: No OS/network needed. MOCK-HIDE: Mocking segmentation and injecting pre-split segments would always pass and hide the exact failure. LLM-DEP: No LLM. INTEGRATION-CHECK (Down-test): Cannot reproduce by calling one function — the failure requires the segmentation→classification pipeline to be wired. (Up-test): In-process module wiring with no real OS behavior is sufficient. Integration survives.",
+      "test_description": "Instantiate the hook's full classify pipeline (segmenter + classifier wired together) in-process. Feed it the raw multi-line string 'VAR=value\\ngh pr create --title \"My PR\" --body \"\"' as it would arrive from the tool-use event. Assert the pipeline returns a `pr_create_trigger` classification (not `not_a_trigger`). No subprocess or filesystem required.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode here is a false-positive match — the classifier returns `pr_create_trigger` for `gh issue create`. This is purely a pattern-matching correctness question inside the classifier. Even with perfect segmentation, the classifier would need to discriminate between `pr` and `issue` sub-commands. REAL-INFRA: None. MOCK-HIDE: Nothing to mock. LLM-DEP: No LLM. INTEGRATION-CHECK (Down-test): Fully reproducible by calling the classifier with the string 'gh issue create' and asserting it does NOT return `pr_create_trigger`. The failure does not require cross-module wiring — it is a classifier discrimination bug. Unit survives.",
+      "test_description": "Call the classifier function directly with 'gh issue create --title \"Bug\"' and assert the result is NOT `pr_create_trigger`. Optionally parametrize with several non-PR gh subcommands (e.g., `gh issue create`, `gh pr view`, `gh pr merge`) to cover the full negative space. No wiring, filesystem, or subprocess needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Reconstruct and persist the PR identifier' involves at least two concerns wired together: (a) extracting/reconstructing the PR identifier from the trigger event or command output, and (b) writing it to a state file. The failure could be in extraction, in the file-write call, or in the handoff between them. Testing extraction alone misses write failures; mocking the write always passes. REAL-INFRA: Requires real filesystem I/O (temp directory); no subprocess or network. MOCK-HIDE: Mocking the file-write function would always pass regardless of what is written. LLM-DEP: No LLM. INTEGRATION-CHECK (Down-test): Cannot reproduce by calling one function — extraction and persistence must both run. (Up-test): In-process wiring with a real temp directory is sufficient; no OS subprocess needed. Integration survives.",
+      "test_description": "Wire the PR-identifier extractor and the state-persistence module together in-process. Provide a simulated trigger event payload containing a command like 'gh pr create --title \"My PR\"' and a mock tool output with a PR URL. Assert that after calling the combined handler, a state file exists in a temp directory and contains the reconstructed PR identifier in the expected format.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is the contract between two hooks communicating through a shared state file: the PostToolUse hook writes it, and the pre-tool enforcement hook reads and acts on it. A schema mismatch or wrong field name would cause silent enforcement failure. Testing either hook alone cannot catch this. REAL-INFRA: Requires a real temp filesystem; no network or subprocess. MOCK-HIDE: Mocking file I/O in either hook would always pass and hide format mismatches. LLM-DEP: No LLM. INTEGRATION-CHECK (Down-test): Cannot reproduce with one function — both hooks must participate. (Up-test): In-process wiring through a real temp directory is sufficient; no subprocess or OS-level behavior needed. Integration survives.",
+      "test_description": "Run the PostToolUse hook's state-writing logic with a detected PR-create event, writing to a temp directory. Then run the pre-tool enforcement hook's state-reading logic against the same temp directory. Assert that the enforcement hook (a) successfully parses the state file without error, and (b) produces an 'enforce review gate' decision (not 'no gate'). Both hooks must run; the test fails if either the format is unreadable or the enforcement decision is wrong.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.85,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

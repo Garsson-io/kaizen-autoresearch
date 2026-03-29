@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Extracting transitive dependencies requires coordinating across multiple files — e.g., package.json plus package-lock.json, or requirements.txt plus a resolved lock/freeze file. The failure mode ('transitive deps silently dropped') only appears when the manifest-parsing module hands off to the lock-file resolver and the combined list is assembled. A pure unit test on one parser function cannot reveal that transitive deps were never sourced from the lockfile. REAL-INFRA: Local filesystem only; no subprocess or network required. MOCK-HIDE: Mocking the lock-file reader would hide the failure entirely, so real file reads against a fixture project tree are necessary. REJECTION-GATE: System rejected — no subprocess or external network call is needed; a temporary fixture directory suffices.",
+      "test_description": "Create a fixture project tree containing a manifest (e.g., package.json) and a lock file (e.g., package-lock.json) where the lock file contains transitive dependencies not listed directly in the manifest. Invoke the dependency extraction pipeline against the fixture directory. Assert that the returned dependency list includes both the direct dependencies from the manifest and the transitive ones from the lock file, and that all extracted packages are passed to the (mocked) vulnerability query layer.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure ('query omits version range, returning CVEs for all versions') lives at the boundary between the version-extraction module and the API query-builder module. A unit test on the query-builder alone can verify it accepts a version range, but cannot catch a bug where the caller passes only the package name. The failure is a handoff bug between two modules, not a single-function logic error. MOCK-HIDE: Mocking the HTTP client is acceptable here because the test can inspect what parameters the mock was called with — if version ranges are absent from the call args, the test fails. No real network is needed to catch this bug. REJECTION-GATE: System rejected — the real failure is parameter omission at module handoff, which a local mock with call-argument assertions can expose. LLM-DEP: N/A, deterministic API contract.",
+      "test_description": "Wire the version-extraction module to the query-builder module with a spy/mock replacing the HTTP client. Feed a manifest containing a package pinned to a specific version (e.g., 'lodash': '4.17.15'). Invoke the full query pipeline. Assert that the HTTP mock was called with a request that includes both the package name AND the version constraint (not just the name). Also assert that any results returned by the mock for a non-matching version are excluded from the final output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.55,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Severity sorting is a pure, self-contained comparison/sort function with no I/O and no module handoffs. The failure ('wrong ordering') is entirely within the comparator logic. A unit test with a hand-crafted list of CVE structs exercises the exact failure boundary. REAL-INFRA: None. MOCK-HIDE: No dependencies to mock; the function is deterministic and pure. REJECTION-GATE: Integration rejected — there is no handoff between modules whose interaction could cause the ordering bug. The sort key logic is the sole failure surface.",
+      "test_description": "Construct a list of CVE records covering all four severity tiers, with multiple CVEs in the same tier having different CVSS scores (e.g., two Critical CVEs at CVSS 9.8 and 7.2). Call the sort function directly. Assert the output order is Critical-descending-CVSS, then High-descending-CVSS, then Medium, then Low, with ties within a tier broken by CVSS score descending.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Manifest patching is a pure text/AST transformation — one function takes manifest content and a target version, returns patched content. The failure ('other entries mutated') is a logic error in that single transformation function. No module handoff is required to expose it. REAL-INFRA: None; the test operates on in-memory strings or parsed objects. MOCK-HIDE: Nothing to mock. REJECTION-GATE: Integration rejected — the real failure surface is inside one function's replacement logic, not at a boundary between modules. File I/O is a separate concern testable independently.",
+      "test_description": "Construct an in-memory manifest string (JSON or plain text) with three dependencies: the target package, a dependency that should be untouched, and one with a similar name prefix. Call the manifest-patching function specifying the target package and new version. Assert that (1) the target package now has the new version, (2) the other two entries are byte-for-byte identical to the original, and (3) no whitespace, comment, or ordering changes were introduced.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly requires the PR to be created 'on the real repository,' which means a real HTTP call to a VCS API (GitHub, GitLab, etc.) using real authentication and real branch/diff state. MOCK-HIDE: Mocking the API client would always succeed and cannot verify that (a) the real API accepted the token and permissions, (b) the branch was actually created with the correct diff, or (c) the PR was visible in the real UI. These are all system-boundary concerns. MOCK-MISS: Even if the local diff construction logic is correct, the failure mode 'PR not created' or 'PR contains wrong diff' is only observable at the real API boundary. REJECTION-GATE: Agentic/Workflow rejected — PR creation via a REST API is deterministic (same request → same PR); no LLM or multi-step AI pipeline is involved.",
+      "test_description": "Against a real test repository (e.g., a dedicated integration test repo on the CI VCS account), run the full PR-creation flow with a manifest that has one patched dependency. After the call returns, query the real repository API to retrieve the created PR. Assert that exactly one PR was opened, that its diff touches exactly one file (the manifest), that only the target dependency version line changed, and that no other lines differ.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.72,
+        "Agentic": 0.1,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Semver comparison is a deterministic, pure algorithmic function — parse two version strings, compare the major components. The failure ('major bump not flagged') is entirely within that comparator. No module boundary or I/O is involved. REAL-INFRA: None. MOCK-HIDE: Nothing to mock. REJECTION-GATE: Integration rejected — semver parsing is a well-specified algorithm in one function; the failure cannot emerge from module interaction.",
+      "test_description": "Call the breaking-change detection function with a matrix of (current_version, patched_version) pairs covering: same major (minor bump → not breaking), same major (patch bump → not breaking), major increment by 1 (→ breaking), major increment by more than 1 (→ breaking), and zero-to-one major transition (0.x → 1.0.0 per semver spec). Assert the boolean return value for each pair matches the expected classification.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.015,
+        "Agentic": 0.003,
+        "Workflow": 0.002
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure ('PR still created despite breaking change' or 'flag absent from output') only manifests when the semver-check module's result flows through the pipeline controller to the PR-creation module and the output formatter. A unit test on the controller alone cannot verify the PR module is truly skipped. The bug lives at the boundary between the decision module and the PR-creation module. MOCK-HIDE: The PR-creation module can be mocked; the test asserts the mock is never called. The output formatter is real and its output is inspected. REJECTION-GATE: System rejected — no real VCS API call is needed to verify that PR creation was skipped; a mock that fails the test if called is sufficient. Agentic rejected — no LLM is involved.",
+      "test_description": "Wire the semver-check module, pipeline controller, PR-creation module (replaced with a spy that fails if called), and output formatter together. Feed a manifest update where the patched version is a major version increment. Run the full pipeline. Assert that (1) the PR-creation spy was never called, and (2) the scanner output contains a structured review flag identifying the affected package and the detected breaking change.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.18,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

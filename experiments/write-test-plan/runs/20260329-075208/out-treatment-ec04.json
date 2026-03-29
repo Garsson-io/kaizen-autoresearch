@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the classification module and its HTTP client — the module must read its configured label list and serialize it into the outgoing request. A pure unit test of request-building logic would miss wiring bugs (e.g., the label list read from config never reaches the serializer). REAL-INFRA: A stub HTTP client can capture the outgoing payload without a real network call. MOCK-HIDE: A stub is fine here — we inspect what the stub *received*, not what it returns. LLM-DEP: No AI output involved. MULTI-STEP: No. EVIDENCE-LEVEL=Integration. OUTPUT-LEVEL=Integration. INTEGRATION-BRAKE: (a) No real OS/network needed; a stub captures the request in-process. (b) No AI/ML dependency. (c) No chained steps.",
+      "test_description": "Configure the module with a stub HTTP client that records incoming requests. Call classify() with a sample document. Assert that the captured request body contains all four taxonomy labels (legal, technical, financial, other), regardless of their order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the response-handling path — the module must receive an API response, compare the returned label against the taxonomy, and substitute 'unknown'. This path spans the HTTP client response → label-validation logic → caller return value boundary. A unit test of just the validation function would miss bugs where the wrong field is read from the response. REAL-INFRA: We control the stub response, so no real network needed. MOCK-HIDE: The stub must return a bad label; what we verify is the module's output, not the stub's return value, so mocking does not hide the failure. LLM-DEP: No. MULTI-STEP: No. EVIDENCE-LEVEL=Integration. OUTPUT-LEVEL=Integration. INTEGRATION-BRAKE: (a) No real OS/network. (b) We supply the bad label deterministically. (c) No chained steps.",
+      "test_description": "Wire the module with a stub HTTP client programmed to return a label not in the taxonomy (e.g., 'entertainment'). Call classify() with any document. Assert the return value is exactly 'unknown', not 'entertainment' or any other unexpected string.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: This behavior directly tests LLM output consistency. A stub always returns a hardcoded value — it passes trivially regardless of whether the real model is consistent. LLM-DEP: YES — the failure mode is that a real AI model produces different labels across calls for the same input (temperature, sampling, or model-update non-determinism). A deterministic stub hides every possible failure. REAL-INFRA: No special OS/subprocess dependency, but real AI API calls are required. MOCK-HIDE: Any mock always passes, making this test vacuous unless the real API is used. EVIDENCE-LEVEL=Agentic. OUTPUT-LEVEL=Agentic. REJECTION-GATE: No behavior text disqualifies the higher level — the behavior is explicitly about result consistency, which only a real LLM can fail.",
+      "test_description": "Using the real external AI API (no stub), call classify() with the same document at least three times in separate invocations. Assert that all returned labels are identical. Flag flakiness as a test failure indicating non-determinism in the model or misconfigured sampling parameters.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.82,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the module's enforcement logic — it must estimate or count tokens and either truncate the input or reject the call before the API is reached. This wires the token-counting component to the budget-check gate to the request dispatch path. REAL-INFRA: Token counting in practice uses a local deterministic tokenizer library (e.g., tiktoken). No real network or OS call is needed to verify that the module rejects an over-budget document or correctly caps the prompt. A stub HTTP client can confirm the request was (or was not) sent. MOCK-HIDE: The stub outcome doesn't matter here — we inspect whether the request was sent and what size it was, not what the API returned. LLM-DEP: Local token counting is deterministic; we're not testing AI output quality. MULTI-STEP: No. EVIDENCE-LEVEL=Integration. OUTPUT-LEVEL=Integration. INTEGRATION-BRAKE: (a) No real OS/network. (b) Token counting is deterministic — not AI/ML dependent. (c) No chained agentic steps.",
+      "test_description": "Configure the module with a tight token budget (e.g., 200 tokens). Call classify() with a document whose token count is known (measure with the same tokenizer the module uses). Assert that either (a) the call succeeds and the request payload's prompt tokens do not exceed the budget, or (b) the module raises a defined budget-exceeded error rather than sending an over-budget request.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.55,
+        "System": 0.08,
+        "Agentic": 0.2,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the retry-and-backoff path: the module must detect a rate-limit signal, delay, re-issue the request, and return the successful result — without surfacing an error to the caller. This path spans HTTP response parsing → retry scheduler → re-dispatch, which requires the module to be wired with its HTTP client. A unit test of the retry counter alone would miss bugs in response-code detection or back-off dispatch. REAL-INFRA: A stub HTTP client programmed to return a rate-limit error on the first call and success on the second fully reproduces the failure mode in-process. No real network or OS timing is needed (time.sleep can be patched). MOCK-HIDE: The stub is essential here — it *provides* the rate-limit signal; what we verify is the module's behavior (did it eventually return a valid label?). LLM-DEP: No AI output quality dependency. MULTI-STEP: Retry is a single agentic exchange, not multiple agentic steps in sequence. EVIDENCE-LEVEL=Integration. OUTPUT-LEVEL=Integration. INTEGRATION-BRAKE: (a) No real OS/network required. (b) No AI/ML dependency. (c) The retry is a single logical step.",
+      "test_description": "Wire the module with a stub HTTP client that returns a rate-limit error (e.g., HTTP 429) on the first invocation and a valid in-taxonomy label on the second. Patch the wait/sleep function to avoid real delays. Call classify() once. Assert (a) the stub was called exactly twice and (b) the return value is the valid label from the second call, not an error or exception.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

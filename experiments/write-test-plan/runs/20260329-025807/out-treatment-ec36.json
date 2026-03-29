@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-36",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The evaluate-stage command stores grounding into a dedicated `grounding` artifact, not the `plan` artifact.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a wrong artifact slot being written — this only manifests when the evaluate skill is wired to the artifact store and we can inspect which key was written. A pure unit test of one function can't detect this unless the artifact system is in-scope. REAL-INFRA: No OS or network needed; an in-process fake artifact store is sufficient to catch the wrong-key write. LLM-DEP: The behavior is about WHERE output is stored, not content quality — LLM can be stubbed. REJECTION-GATE: System rejected — no subprocess or real HTTP needed. Agentic rejected — LLM output quality is irrelevant; a fixed stub response is sufficient to exercise the routing logic.",
+      "test_description": "Wire the evaluate skill against an in-memory artifact store with a stubbed LLM response. Execute the skill. Assert (a) the `grounding` key in the artifact store is populated after the run, and (b) the `plan` key is absent or unchanged from its pre-run state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The implement-stage flow reads grounding when available and still writes its execution output to `plan`.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two separate module interactions are in scope: (1) implement reads `grounding` from the artifact store, and (2) implement writes to `plan`. The failure only appears when the implement skill is wired to the artifact store and both reads and writes can be inspected. REAL-INFRA: In-process fake artifact store is sufficient. LLM-DEP: Behavior is about artifact slot routing, not LLM output quality — a deterministic stub is fine. REJECTION-GATE: Agentic rejected — we don't need real LLM non-determinism to catch a wrong artifact key or a missing read.",
+      "test_description": "Pre-populate an in-memory artifact store with a `grounding` value. Run the implement skill with a stubbed LLM response. Assert (a) the stub received the grounding content as part of its input context, (b) the `plan` artifact key is written with the implementation output, and (c) the `grounding` artifact is unchanged after the run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.12,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Deep-dive no longer overwrites `plan` as a redundant side effect when diagnosis already exists in issue content.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a spurious write to the artifact store that should not happen. This requires the skill to be wired to the artifact store so we can observe whether the write occurred. If 'issue content' is a plain parameter, this could be Unit — but the side effect being tested (artifact write suppression) implies the artifact store module must be in scope to assert absence of the write. REAL-INFRA: No OS or network needed. LLM-DEP: No LLM needed for this conditional-suppression check. REJECTION-GATE: Unit rejected conditionally — if artifact writes are observable only through the store module, Unit cannot detect the suppressed write.",
+      "test_description": "Set up issue content that already contains a diagnosis. Wire the deep-dive skill with an in-memory artifact store that records all writes. Run the deep-dive skill. Assert the `plan` artifact key was not written (the write-count for `plan` is zero).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.32,
+        "Integration": 0.52,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "In a full multi-step agent run (`deep-dive -> write-plan/evaluate -> implement`), the final implementation plan reflects grounding produced earlier in the run.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names a three-step agentic sequence. Correctness requires that grounding produced by the evaluate step persists in the artifact store and is actually read and incorporated by implement in a later step. This cross-step data flow cannot be verified at Integration because the failure mode is the pipeline handoff, not a single module boundary. LLM-DEP: Each step involves real LLM calls; the grounding content that evaluate generates influences what implement produces, so a fixed stub cannot prove the end-to-end handoff works with real model outputs. REJECTION-GATE: Agentic rejected — a single-step Agentic test cannot capture the multi-step state propagation; the failure (grounding lost before implement) only manifests across the full sequence.",
+      "test_description": "Run the full three-step pipeline (deep-dive → evaluate → implement) against real LLM endpoints on a representative issue. After the run, read the `plan` artifact and verify it contains substantive grounding-derived content (e.g., references concepts seeded in the evaluate stage's grounding output). Also verify the `grounding` artifact still holds its evaluate-stage value unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.12,
+        "Workflow": 0.78
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When grounding is absent, implement falls back safely and still emits a valid plan artifact without corrupting other stored artifacts.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two assertions span module boundaries: (1) implement must produce a valid `plan` artifact via the artifact store when `grounding` is missing, and (2) no other artifact slots must be corrupted. Both require the implement skill to be wired to the artifact store so we can inspect the store's full state after execution. REAL-INFRA: No OS or network needed; an in-process fake store with pre-seeded artifacts is sufficient to catch corruption. LLM-DEP: A deterministic stub is enough to exercise the fallback path and check artifact store state. REJECTION-GATE: Unit rejected — store-state inspection for corruption detection is a cross-module concern. Agentic rejected — LLM quality is not what is being validated.",
+      "test_description": "Pre-seed an in-memory artifact store with a sentinel value in an unrelated artifact slot (e.g., `deep_dive_notes`). Leave `grounding` absent. Run the implement skill with a stubbed LLM. Assert (a) the `plan` artifact is written and parses as a valid plan structure, (b) no exception is raised, and (c) the pre-seeded `deep_dive_notes` artifact is unchanged after the run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

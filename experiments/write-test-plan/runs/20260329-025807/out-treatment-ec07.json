@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a module boundary issue — data collection modules must correctly aggregate all three sources and hand the combined payload to the summary-generation step. A bug here only surfaces when those modules are wired together (e.g., one source's data silently dropped before the handoff). REAL-INFRA: The three external APIs can be replaced with in-process stubs returning canned data; no real HTTP is needed to catch this failure. Verdict: Integration.",
+      "test_description": "Stub all three data sources (metrics endpoint, issue tracker API, deployment log) with in-process fakes returning known data. Invoke the data-collection-and-aggregation pipeline. Intercept the payload at the boundary where it is passed to the summary-generation function and assert that it contains non-empty, distinguishable data from each of the three sources.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans the error-handling path across modules: the data-collection module must catch the source failure, propagate a sentinel value, and the report-assembly module must render it as a note rather than raising. This is a module-boundary concern, not a single-function logic check. REAL-INFRA: The unavailability can be faithfully simulated by configuring the in-process stub/mock HTTP client to raise a connection error or return a 503; real network conditions are not required. Verdict: Integration.",
+      "test_description": "Wire all three data-collection modules together with the report-assembly module. Configure one source's HTTP stub to raise a connection error. Run the pipeline end-to-end in-process. Assert that (a) the report object is produced (no exception propagates), and (b) the section corresponding to the failed source contains the expected 'data unavailable' marker while the other two sections contain real data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Narrative summary' implies generative LLM output. 'Accurately represents key values' is a quality claim about what the model produces — not a wiring or parsing claim. A mocked LLM returning a canned string cannot falsify this; you would only be verifying the mock. Running the real model 100 times with the same input can yield different phrasings; the test must use the real model and evaluate its output against the known input values. REAL-INFRA: No special OS or network infrastructure matters here — the bottleneck is LLM non-determinism and generation quality. Verdict: Agentic.",
+      "test_description": "Provide the summary-generation function with a controlled, synthetic input payload containing specific numeric values and status strings from all three sources. Call the real LLM API. Assert that the returned narrative text contains (or correctly paraphrases) each key value from the input — e.g., the deployment count, the open-issue count, and the primary metric reading. Use a soft assertion strategy (substring or semantic match) to tolerate natural phrasing variation while still catching omissions or contradictions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: This is an explicitly end-to-end pipeline: (1) real HTTP calls to three external data sources, (2) LLM-based narrative generation (Agentic step), (3) real email delivery, and (4) inbox verification. Each step depends on the previous step's real output. REAL-INFRA: 'Reaches the inbox' requires real email infrastructure — verifying inbox receipt cannot be done with an in-process fake. LLM-DEP: The narrative generation inside the pipeline is a real LLM call. Together, this is multiple agentic steps in sequence producing a result that must be verified via a real external system. Verdict: Workflow.",
+      "test_description": "Run the full scheduled script end-to-end against a real (sandboxed) environment: real or stubbed data source APIs returning known data, the real LLM summary-generation call, and a real SMTP/email delivery service pointed at a test inbox. After the script completes, poll the test inbox and assert that exactly one new email arrived, that its recipient matches the configured list, and that the body contains data traceable to each of the three input sources.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.1,
+        "Agentic": 0.11,
+        "Workflow": 0.75
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior covers two distinct module interactions: (a) the email-delivery module failing and the persistence module writing a file, and (b) the next invocation of the pipeline detecting the saved file and re-attempting delivery. Both transitions are module-boundary concerns and can only be caught when modules are wired together. REAL-INFRA: Email failure is simulated with a mock SMTP client that raises a connection error; 'next scheduled run' can be reproduced by calling the pipeline entry point a second time in the same process (the scheduler is external cron, but the retry-detection logic is in-process). File I/O should use a real temp directory to catch real path/permission issues. No subprocess or OS scheduler is required to exercise the retry path. Verdict: Integration.",
+      "test_description": "Configure the pipeline with a mock email client whose first call raises a connection error and whose second call succeeds. Provide a real temporary directory as the fallback file path. Call the pipeline once: assert the email was not sent, a report file was written to the temp directory, and the file contains the full report content. Call the pipeline a second time: assert the mock email client was invoked with the saved report content, the email succeeded, and the saved file is cleaned up (or marked as sent).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.6,
+        "System": 0.3,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

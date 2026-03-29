@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is precisely a module-boundary issue — the summary writer and the findings store must interact so the writer can query existing findings before accepting a PASS. A Unit test on the validation function alone cannot reproduce the bug (the summary was stored without reading findings at all). REAL-INFRA: An in-process fake store (e.g., an in-memory repository) is sufficient; no OS/network needed. LLM-DEP: No AI output involved. MULTI-STEP: Single constraint check. INTEGRATION-BRAKE: (a) No real infra needed. (b) No AI/ML. (c) No multi-step agents. EVIDENCE-LEVEL = Integration = OUTPUT-LEVEL.",
+      "test_description": "Wire the summary-storage service to a fake findings repository pre-seeded with one FAIL dimension finding for round R. Attempt to store a PASS summary for round R. Assert the call is rejected with a validation error (e.g., ConflictError or equivalent). Then clear the FAIL finding, replace it with a PASS finding, and assert that storing the PASS summary now succeeds. The test must never use a real LLM and must not mock the findings-query path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The bug was that the gate read summary text rather than findings. A Unit test on the gate function with a simple pass-through mock cannot prove the gate actually queries the findings store — the mock would make both paths look identical. The gate function must be wired to a real in-process findings repository so a discrepancy between summary text (PASS) and stored findings (FAIL) is observable. REAL-INFRA: In-process fake store suffices. LLM-DEP: No. MULTI-STEP: No. INTEGRATION-BRAKE: all no. EVIDENCE-LEVEL = Integration = OUTPUT-LEVEL.",
+      "test_description": "Seed a fake findings store with two PASS findings and one FAIL finding for the same review round. Construct a summary object whose text claims 'all PASS'. Feed that summary and round ID to the stop-gate verdict function. Assert the gate returns FAIL (not PASS), demonstrating it read the stored findings rather than the summary text. As a second case, replace the FAIL finding with a PASS finding and assert the gate now returns PASS.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: There are two coupled concerns — rejection without flag (checkable in unit) and warning-record production (requires wiring to an audit/event store). The auditable record half is only exercisable when the override handler and the audit store interact. REAL-INFRA: In-process fake audit store is sufficient; no OS primitives needed. LLM-DEP: No. MULTI-STEP: No. INTEGRATION-BRAKE: all no. EVIDENCE-LEVEL = Integration = OUTPUT-LEVEL.",
+      "test_description": "Case 1 — rejection path: attempt to store a manual summary override without the override flag set; assert a validation error is raised and no warning record is written. Case 2 — accepted path: re-attempt with the override flag set; assert (a) the summary is stored, and (b) exactly one warning record appears in the fake audit store with fields identifying the round, the actor, and the override timestamp. Both cases use an in-process fake audit store; no mocks on the audit-write path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The enforcement is in the loop orchestrator's state machine: it must track whether agents have re-run since the last fix. This requires the orchestrator, the fix-tracker, and the finalization gate to be wired together. REAL-INFRA: Agents can be stubbed; no real LLM or OS needed. LLM-DEP: Correctness is about whether a round was executed, not about what the agents produced — a deterministic stub (always returns some verdict) is sufficient. MULTI-STEP: Loop has multiple steps but stub agents make this in-process. REJECTION-GATE for Workflow: the behavior does not require real AI non-determinism; a stub agent that returns a fixed verdict lets us verify the orchestration constraint. INTEGRATION-BRAKE: (a) No. (b) No — stub suffices. (c) No real agentic chain. EVIDENCE-LEVEL = Integration = OUTPUT-LEVEL.",
+      "test_description": "Set up the review loop with a stub review-agent that records each invocation. Drive the loop to Phase 4 by pre-seeding findings with a resolved MUST-FIX (simulating that fixes were applied). Attempt to call the finalize-PASS path without triggering another agent round; assert the call is rejected with a 'stale round' or equivalent error. Then invoke the stub review-agent for a new round, assert the invocation count increases by 1, and assert finalize-PASS now succeeds. The stub agent returns deterministic PASS verdicts; no real LLM is called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.25
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Three modules must interact: the round counter, the findings store (which always returns MUST-FIX from the stub), and the outcome emitter. Neither module alone can reproduce the escalation path. REAL-INFRA: In-process stubs for agents; no OS/network. LLM-DEP: Correctness is about the escalation branch logic, not AI output quality — a stub agent that always returns MUST-FIX findings is sufficient. MULTI-STEP: Multiple rounds run, but all using deterministic stubs; REJECTION-GATE for Workflow: no real AI non-determinism is required because the stub is deterministic. INTEGRATION-BRAKE: (a) No. (b) No. (c) No real agentic chain. EVIDENCE-LEVEL = Integration = OUTPUT-LEVEL.",
+      "test_description": "Configure the review loop with max_rounds = 2 and a stub review-agent that always returns a MUST-FIX finding. Run the loop to completion. Assert (a) the loop ran exactly 2 rounds (verify stub invocation count == 2), (b) the final outcome object carries an 'escalation' status (not 'PASS'), and (c) the outcome includes a reference to the unresolved MUST-FIX finding. As a contrast case, configure the stub to return PASS on its second invocation and assert the outcome is 'PASS' with no escalation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.1,
+        "Workflow": 0.25
+      }
+    }
+  ]
+}

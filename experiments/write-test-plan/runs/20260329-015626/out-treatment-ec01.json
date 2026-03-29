@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Error message names the missing required key by its exact config path when absent from both file and environment.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely within the validation + error-formatting logic — given a merged config dict (already parsed from YAML and env vars), does the validator identify the missing key and format its dotted path correctly? That is a single function boundary. REAL-INFRA: No OS, network, or subprocess needed; a plain dict is sufficient input. MOCK-HIDE: Mocking the dict construction is fine — the unit under test is the key-absence check and the path string in the message. REJECTION-GATE: Integration was considered because the loader reads a file and env vars before validation, but the behavior's failure mode (wrong or missing path in error message) is purely in the validator, not at any module handoff. A dict literal exercises the full failure path.",
+      "test_description": "Construct a merged config dict missing a nested required key (e.g., `{\"database\": {}}`), call the validator directly, catch the raised exception or error return, and assert the message contains the exact string `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When XDG_CONFIG_HOME is set, the loader resolves the config file path relative to that directory instead of ~/.config.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the loader silently ignoring XDG_CONFIG_HOME and reading from `~/.config` anyway. A unit test that only checks the constructed path string (mocking the file open) cannot catch a loader with two separate open() calls — one for the XDG branch and one hardcoded. The failure only surfaces when the loader actually attempts to open a file at the resolved path. REAL-INFRA: Requires a real temp directory with a config file placed at `$XDG_CONFIG_HOME/tool/config.yaml` so the loader must successfully read from there to pass. MOCK-HIDE: Mocking the file open would hide exactly the regression we care about (wrong path used in open). REJECTION-GATE: System was considered but the behavior does not require a subprocess, real HTTP, or real external service — a temp dir is sufficient.",
+      "test_description": "Create a temp directory, set XDG_CONFIG_HOME to it, write a minimal config file at `<tmpdir>/tool/config.yaml` with a recognizable value, run the loader, and assert it returns that value. Also place a different (or absent) config at `~/.config/tool/config.yaml` to confirm the default path is NOT used.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.66,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a TOOL_-prefixed environment variable conflicts with a config file key, the environment variable value wins.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives in the merge/priority function: given a parsed dict and a set of env vars, which value is returned for an overlapping key? This is a pure algorithmic boundary. REAL-INFRA: No filesystem or OS interaction required beyond reading environment variables, which can be injected via monkeypatching or by passing a dict directly. MOCK-HIDE: Mocking env vars and the parsed YAML dict fully exercises the merge logic — there is no hidden module handoff the mock would skip. REJECTION-GATE: Integration was considered because the loader reads a real file before calling the merge function, but the behavior's failure mode (wrong priority in the merge) is isolated to the merge step; the parsed dict can be constructed directly in the test.",
+      "test_description": "Call the config-merge function (or the loader with monkeypatched env) with a parsed dict containing `database.host = 'from-file'` and an env var `TOOL_DATABASE_HOST=from-env`; assert the returned config has `database.host == 'from-env'`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the config file contains a YAML syntax error, the error message includes the line number where the problem was detected.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives at two steps: (a) the YAML parser raising an exception that contains a line number, and (b) the loader extracting that line number and including it in the user-facing message. Both steps are exercisable by passing a bad YAML string directly — no module handoff is required. REAL-INFRA: YAML parsing is pure CPU work on a string; no filesystem access is needed. MOCK-HIDE: Mocking the YAML parser would hide the actual exception structure (and whether the line number is present). The real parser must be called. REJECTION-GATE: Integration was considered because the loader reads a file before calling the parser, but the behavior's failure mode (line number absent from error message) is in the parse-and-format step, which is triggered by any YAML string — including an in-memory one passed directly.",
+      "test_description": "Pass a multiline YAML string with a deliberate syntax error on line 3 into the YAML-parsing layer of the loader (or call the loader with a temp file containing that string). Catch the resulting exception or error return and assert the message contains '3' (or a substring like 'line 3').",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the config directory does not exist at startup, the loader creates it and writes a defaults file before proceeding.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that the directory or file is never actually created on disk — for example, `os.makedirs` is called with wrong arguments, the defaults content is malformed, or the write is skipped on a code path. This cannot be caught by mocking makedirs/open, because the mock always 'succeeds' regardless. REAL-INFRA: Requires a real (temp) filesystem to assert the directory and file physically exist after the loader runs. MOCK-HIDE: Mocking `os.makedirs` and `open` hides exactly this failure — the mocks succeed even if the arguments are wrong or the write never happens. REJECTION-GATE: System was considered (e.g., running the CLI as a subprocess), but the behavior does not require a subprocess boundary — exercising the loader function with a real temp dir is sufficient to catch the real failure.",
+      "test_description": "Point the loader at a fresh temp directory that does not yet contain the `tool/` subdirectory (or set XDG_CONFIG_HOME to an empty temp dir), run the loader, then use `os.path.isdir` and `os.path.isfile` to assert the config directory and defaults file were created, and assert the defaults file is valid YAML.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-28",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "SUM(A1:A10) evaluates to the correct sum of the values in cells A1 through A10.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely inside the SUM evaluator's range-iteration logic — no module hand-off is needed. REAL-INFRA: None. MOCK-HIDE: A mock cell store would still exercise the exact algorithm under test. REJECTION-GATE: I considered Integration because cell values come from a cell store, but the failure mode (wrong sum) does not depend on how modules hand off data; it depends only on the range-iteration and accumulation logic, which is fully exercisable with an in-memory map of cell values passed directly to the evaluator.",
+      "test_description": "Construct an in-memory cell map with cells A1–A10 set to known values (e.g., 1–10). Call the SUM evaluator with the range A1:A10 and assert the result equals 55. Also test with mixed integers and floats, and with a range that includes a zero-valued cell.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A cell referencing another cell that contains a formula (=B1+1 where B1=A1*2) produces the correct cascaded result.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the module boundary between the formula evaluator and the cell store/dependency resolver. When evaluating B1+1, the evaluator must call back into the dependency system to obtain B1's already-computed formula result — if the cell store returns a stale raw value or the evaluator does not trigger recursive resolution, the bug only surfaces when both modules are wired together. REJECTION-GATE: I considered Unit because a single recursive evaluator could handle this internally, but the behavior explicitly tests that the engine produces a cascaded result, implying the evaluator and the cell resolution subsystem cooperate across a module boundary. A Unit test with a hand-crafted inline lookup would not catch integration failures in that hand-off.",
+      "test_description": "Wire together the formula parser, evaluator, and cell store. Set A1=3, B1='=A1*2', C1='=B1+1'. Trigger evaluation of C1 and assert the result is 7. Then change A1 to 5 and re-evaluate C1, asserting the result is 11 (proving cascaded re-resolution, not a cached stale value).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The engine detects a circular dependency (A1 references B1, B1 references A1) and returns a circular reference error instead of looping.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Cycle detection is an algorithm over a directed dependency graph. The failure (infinite loop or stack overflow) is entirely determined by whether the graph-traversal algorithm correctly identifies back-edges. No module hand-off is required to trigger it. REAL-INFRA: None. MOCK-HIDE: A mock would not hide this; the cycle is present in the graph structure itself. REJECTION-GATE: I considered Integration because detecting a cycle requires building the graph from formula ASTs, but the behavior's own failure mode (looping vs. error) is exercised purely within the cycle-detection algorithm given a pre-built graph with A1→B1→A1.",
+      "test_description": "Build a dependency graph node set with A1 depending on B1 and B1 depending on A1. Invoke the cycle-detection routine and assert it returns a CircularReferenceError (or equivalent sentinel) rather than running indefinitely. Also test a chain A1→B1→C1→A1 to confirm detection is not limited to two-node cycles.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.19,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "VLOOKUP with an exact match returns the correct value from the lookup table, and returns an error when the key is not found.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Both the match and the not-found error are determined entirely by VLOOKUP's internal key-comparison and result-extraction logic. The lookup table is just a value array; no separate module provides it at runtime in a way that could diverge from the test's assumption. REAL-INFRA: None. MOCK-HIDE: Passing the lookup table directly as structured data exercises the real algorithm. REJECTION-GATE: I considered Integration because in production the lookup table comes from a cell range resolved by the cell store, but the behavior's failure mode (wrong value returned, or no error on missing key) is in VLOOKUP's matching algorithm, not in how the table is fetched.",
+      "test_description": "Call the VLOOKUP function directly with a known in-memory table (e.g., [[1,'apple'],[2,'banana'],[3,'cherry']]), column index 2, and exact-match mode. Assert that lookup(2) returns 'banana' and lookup(99) returns a #N/A error value. Also assert that lookup(1) and lookup(3) return their correct values, ruling out off-by-one errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.76,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The IF function correctly handles nested conditions (e.g., =IF(A1>10, IF(A1>20, 'high', 'medium'), 'low')).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Nested IF evaluation is purely a recursive descent through the parsed AST; no module hand-off is involved. The failure (wrong branch taken, or parser mishandling nesting depth) is in the expression evaluator itself. REAL-INFRA: None. REJECTION-GATE: I considered Integration because the condition operands reference cell A1, but the cell value can be injected directly into the evaluator as a constant without a real cell store. The behavior's failure mode is in branch selection logic, not in cell resolution.",
+      "test_description": "Feed the expression parser+evaluator the formula =IF(A1>10, IF(A1>20, 'high', 'medium'), 'low') with A1 injected as a literal. Assert: A1=5 → 'low', A1=15 → 'medium', A1=25 → 'high'. Also test the exact boundary values A1=10 (→ 'low') and A1=20 (→ 'medium') to verify strict vs. non-strict inequality handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.14,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "CONCATENATE joins cell values with the correct separator and handles empty cells by skipping them rather than inserting blank strings.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The 'skipping empty cells' behavior depends on how the cell store represents an empty cell (null, None, absent key, or empty string) and how that representation flows into CONCATENATE's argument list. The bug only surfaces when the cell store's representation of 'empty' and CONCATENATE's check for 'skip' are wired together — if the cell store returns '' and CONCATENATE checks for None, the bug is invisible in a Unit test where you can pass None directly. REJECTION-GATE: I considered Unit because CONCATENATE's logic is a simple filter-and-join, but the behavior description specifically calls out the empty-cell case, which is a semantic contract between the cell store (what does 'empty' mean?) and the function (what should it skip?). That contract is only exercised at Integration level.",
+      "test_description": "Set up an in-memory workbook with cells A1='Hello', A2 left empty (no value written), A3='World'. Evaluate =CONCATENATE(A1, A2, A3) through the wired cell store + evaluator and assert the result is 'HelloWorld' (not 'Hello World'). Also test with all cells populated to confirm the separator behavior, and with A1 empty to confirm leading skip works too.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.6,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "A formula referencing a cell in a different sheet (=Sheet2!A1+1) resolves correctly when the referenced sheet exists.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Cross-sheet reference resolution requires the formula evaluator to query the sheet registry, which must locate and return the target sheet object, which the cell store then uses to fetch the value. The failure (wrong value, KeyError, or silent zero) only appears at the module boundary between the formula evaluator and the sheet registry. A Unit test that hand-wires the return value of 'Sheet2!A1' bypasses the exact boundary where real bugs live. REAL-INFRA: None. REJECTION-GATE: I considered Unit because the reference parser is testable in isolation, but the behavior requires the resolved value to be correct end-to-end, meaning the sheet registry lookup and cell fetch must actually execute.",
+      "test_description": "Create a two-sheet workbook in memory (Sheet1, Sheet2). Set Sheet2.A1 = 10. Evaluate =Sheet2!A1+1 in Sheet1 and assert the result is 11. Also test that referencing a non-existent sheet (e.g., =Sheet3!A1+1) returns a #REF! error rather than crashing or returning zero.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "When a referenced cell's value changes, all dependent formulas are recalculated in the correct topological order.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (stale value, or wrong evaluation order causing one formula to see another formula's pre-update value) only appears when the change-notification system, the dependency graph's topological sort, and the formula evaluator all cooperate. No single module in isolation can exhibit this failure. REAL-INFRA: None. REJECTION-GATE: I considered Unit for the topological sort algorithm alone, but the behavior's assertion is that 'all dependent formulas are recalculated in the correct order' — which requires the change propagation pipeline (mutation → dependency lookup → sorted re-evaluation) to be wired, not just the sort algorithm.",
+      "test_description": "Build a dependency diamond: A1=literal, B1=A1*2, C1=A1+10, D1=B1+C1. Change A1 from 3 to 5 through the engine's mutation API. Assert D1 is 25 (not 21 or a stale mix). Also assert that a deliberate ordering violation (evaluating D1 before B1 is re-evaluated) would produce the wrong answer, confirming the test is sensitive to order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The undo operation after editing a formula restores both the formula text and all previously computed dependent values.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (formula text restored but dependent values remain stale, or vice versa) only appears when the undo stack, formula store, and value/dependency cache all cooperate. Specifically, the bug is that undo might restore the formula text snapshot but fail to trigger re-evaluation of dependents (or restore a snapshot of computed values that is inconsistent with the restored formula). Neither the undo stack alone nor the evaluator alone can surface this. REAL-INFRA: None needed — no disk I/O is required for in-memory undo. REJECTION-GATE: I considered System because undo might interact with persistence, but the behavior says 'after editing a formula' with no mention of save/load, so it can be fully tested in memory.",
+      "test_description": "Set A1=2, B1='=A1*3' (evaluates to 6). Edit B1 to '=A1*10' (evaluates to 20). Call undo(). Assert B1's formula text is '=A1*3' AND B1's computed value is 6. Then change A1 to 4 and assert B1 re-evaluates to 12, proving the restored formula is live (not a stale snapshot).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.73,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Saving a workbook to disk and loading it back produces identical cell values and formulas — no data loss or precision change in floating-point results.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior is explicitly about writing to and reading from disk in a custom binary format. The failure modes (precision loss, formula truncation, encoding corruption) only appear with real filesystem I/O through the actual serialization/deserialization code path. MOCK-HIDE: Mocking the file layer would trivially pass because the mock would return exactly what was written. REJECTION-GATE: I considered Integration because the serializer and deserializer are local modules, but the custom binary format's correctness depends on how the OS and the actual file handle represent bytes — byte ordering, buffering, and file-size limits can only be exercised with a real file write+read. The behavior says 'saving to disk and loading back', making filesystem I/O the core of the test.",
+      "test_description": "Build a workbook with integer cells, formula cells, and floating-point cells (including values like 1/3 and π). Call save(path) to a real temp file. Construct a fresh engine instance and call load(path). Assert every cell's formula string and computed value are bit-for-bit identical to the originals. Also test an empty workbook and a workbook with cross-sheet references to cover edge cases in the binary format.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

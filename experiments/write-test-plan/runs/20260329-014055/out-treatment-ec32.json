@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-32",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A static prompt-template lint check rejects phase-specific instruction leakage copied from SKILL.md.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a pattern-matching check on a static text file — no module interaction is required. A single lint function reads the template and scans for forbidden strings. REAL-INFRA: Local file read is within Unit scope. LLM-DEP: No model involved. The check is purely algorithmic. MOCK-HIDE: Nothing to mock; the template text is the artifact under test. INTEGRATION-CHECK (N/A, already Unit): A single function call with the template content as input can reproduce the failure.",
+      "test_description": "Load the raw prompt-template file as a string. Apply the lint rule function directly with a set of forbidden phase-instruction patterns extracted from SKILL.md. Assert the function raises/returns a violation when a planted snippet is present and passes cleanly on a template with no leakage. Run both positive (leakage present) and negative (clean) cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The fully assembled prompt produced by the real test harness (after interpolation/fixtures) still contains no phase-instruction leakage.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode only appears when the harness's interpolation and fixture pipeline runs — a static lint on the template alone (Behavior 1) cannot catch leakage introduced by fixture substitution or interpolation steps. REAL-INFRA: No OS subprocess or real network; local in-process module wiring is enough. LLM-DEP: We are inspecting assembled text, not model output. INTEGRATION-CHECK: Down-test fails — no single function with crafted args can reproduce leakage that originates mid-pipeline; the full harness assembly must run. Up-test: no real infra needed. Integration survives because (a) cross-module wiring is required and (b) in-process wiring suffices.",
+      "test_description": "Invoke the real test harness's prompt-assembly pipeline (template loader → fixture injection → variable interpolation) with a representative skill fixture. Capture the fully interpolated prompt string before it reaches any model call. Assert that no forbidden phase-instruction substrings (from the SKILL.md forbidden list) appear in the assembled output. Include a regression case where a fixture is intentionally seeded with a leaking snippet to confirm the check fires.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The test invocation loads skill context from the plugin/skill files and validates behavior from that context rather than from hard-coded prompt rules.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the test harness silently substituting hard-coded rules for file-loaded skill context — this cannot surface from inspecting a single function; it requires the skill-file loader and the prompt-assembly step to be wired together so we can observe what source the assembled context actually came from. REAL-INFRA: Local filesystem reads, no real network. LLM-DEP: No model call needed — the claim is about the source of context, not model behavior. INTEGRATION-CHECK: Down-test fails — the bug is in the handoff between the file loader and the prompt builder, not inside either module alone. In-process wiring is sufficient; no real infra required.",
+      "test_description": "Stand up the skill-loading pipeline pointing at real plugin/skill files on disk. Invoke the test harness invocation step and intercept the prompt context object passed downstream. Assert that the context object's skill content matches the content of the actual SKILL.md file (e.g., by hash or substring), and assert no hard-coded rule strings appear unless they also exist verbatim in the file. Mutation: temporarily replace SKILL.md with an empty file and verify the context differs, proving the file is truly the source.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.62,
+        "System": 0.1,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the relevant SKILL.md section is removed or degraded, the behavioral test fails with the same user-style prompt.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: This behavior exists specifically to catch tautological testing — it is meaningful only when a real LLM is called without explicit phase instructions and we observe whether its behavior changes when SKILL.md is degraded. A deterministic mock or stub would return the same output regardless of whether the skill content is present, making it impossible to detect the regression the behavior is designed to catch. The test outcome varies with real model behavior, making it non-deterministic across runs. MOCK-HIDE: Any mock would permanently hide the failure. MULTI-STEP: Single model call (no sequential agentic steps), so Workflow is not required.",
+      "test_description": "Run the behavioral smoke test twice: once with the full SKILL.md intact, and once with the relevant section removed or replaced with filler content. In both cases, use only a plain user-style prompt (no phase instructions embedded). Assert that the test passes with the full skill and fails (or exhibits measurably degraded structured behavior) with the degraded skill. Record and compare structured output fields between runs. Accept inherent non-determinism by running multiple trials and using a majority-vote pass/fail threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Raw model output is captured to a diagnostic artifact before any JSON parsing or extraction logic runs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The ordering guarantee — capture before parse — is a pipeline-sequencing property that spans the model-call module, the capture/artifact module, and the parsing module. No single function exposes whether the capture precedes the parse; the modules must be wired together. REAL-INFRA: Artifact is written to local filesystem; no real network or subprocess. LLM-DEP: The model call can be stubbed with a deterministic fixed string — the behavior is about pipeline order, not model output quality. INTEGRATION-CHECK: Down-test fails — the bug (capture after parse, or capture skipped on parse error) only manifests when the full pipeline runs in sequence. In-process wiring with a fake model response is sufficient.",
+      "test_description": "Wire the pipeline with a deterministic model stub that returns a fixed raw string. Run one execution that succeeds through parsing and one where parsing raises an exception. After each run, assert that the diagnostic artifact file exists and contains the exact raw string from the stub, confirming it was written before the parsing step that may have thrown. Assert artifact contents match the stub output, not any parsed/extracted form.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.11,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Assertions verify structured behavior (for example field placement or schema shape), not mere keyword presence that could come from prompt echoing.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that an assertion passes on a response that only echoes keywords but has wrong structure. Testing a single assertion function in isolation (Unit) would verify its logic but not whether the assertion is actually wired into the test harness and applied to real pipeline output. The cross-module boundary between output capture, extraction, and assertion must be exercised to confirm the structured check is what actually runs. LLM-DEP: We can craft a deterministic fake output with correct keywords but wrong schema to probe this — no real model needed. INTEGRATION-CHECK: Down-test is borderline — if the assertion function is well-isolated, Unit could work; however, verifying it is the wired check (not a shadow keyword check) requires Integration. Up-test: no real infra needed.",
+      "test_description": "Construct two crafted model-output strings: (A) contains all expected keywords but has wrong schema shape (e.g., fields in wrong positions or missing required structure), and (B) has correct schema with expected fields. Feed both through the full extraction and assertion pipeline. Assert that pipeline A produces an assertion failure and pipeline B passes. This confirms assertions rely on structured schema checks, not keyword presence alone.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.03,
+        "Agentic": 0.1,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

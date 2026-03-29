@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when history exceeds the context window",
+      "minimum_level": "Unit",
+      "justification": "The trimming is a pure algorithmic operation — slice the last N items from a list before passing it to the LLM. MOCK-MISS: the failure (wrong slice boundary, off-by-one, wrong direction) lives entirely inside one function's logic. No module handoff is required to expose the bug. REAL-INFRA: none. LLM-DEP: the LLM is not involved in deciding what gets trimmed. A unit test with a crafted history of >10 messages verifying exactly which messages reach the LLM call is sufficient.",
+      "test_description": "Call the history-trimming function (or the chat handler's pre-LLM preparation step) with a synthetic history of 15 messages and assert that the slice passed to the LLM contains exactly the last 10 messages in order, with messages 1–5 absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.11,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: correctness here is entirely a function of what the real LLM produces. A mocked LLM trivially 'passes' — you define its return value, so the mock always answers correctly by construction. The failure mode (generic or off-topic reply) only appears when a real model is called with a real prompt. Running this 100 times with a real model can yield variation; a rule-based or mocked check cannot surface the failure. No amount of in-process wiring captures this.",
+      "test_description": "Send representative customer questions (e.g., billing dispute, password reset) to the real chatbot endpoint backed by a real LLM, and assert that each response contains domain-relevant content (key terms, correct entity references) and does not match a generic deflection template.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.03,
+        "System": 0.03,
+        "Agentic": 0.88,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure boundary is cross-module — the tone classifier must produce a signal, and the orchestrator must act on it to call the regeneration path. Neither module alone can expose the failure; it emerges at their handoff. INTEGRATION-CHECK down-test: calling the classifier in isolation only tests classification, not the trigger. INTEGRATION-CHECK up-test: if the tone classifier is rule-based (e.g., formality heuristics), no real LLM or OS is needed — in-process wiring with a stubbed LLM for regeneration is sufficient. If the classifier itself uses an LLM, the level escalates to Agentic; that uncertainty is reflected in the probability mass there.",
+      "test_description": "Wire the tone-checker module and the chat orchestrator together with a stubbed LLM that returns a fixed overly-formal response on the first call. Pass a casual-tier customer context. Assert that the tone checker flags the response and that the orchestrator invokes the LLM a second time (regeneration call count == 2) rather than returning the first draft.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.52,
+        "System": 0.04,
+        "Agentic": 0.32,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure lives at the boundary between the chat handler and the persistence layer — wrong schema, missing fields, timestamp not set, regenerations omitted. A unit test with a mocked DB always passes because you control the mock's return value; the real failure appears only when data flows into an actual database and you query it back. REAL-INFRA: a local/in-process test database (e.g., SQLite, in-memory Mongo) is sufficient — no real network or external service required. LLM-DEP: persistence logic is deterministic; LLM calls can be stubbed.",
+      "test_description": "Run the full chat handler with a stubbed LLM (returning a known response and a known regeneration), then query the test database directly and assert: one record exists containing the user message, the final response, the regenerated draft, and timestamps that are monotonically increasing and within a few seconds of the test start time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.86,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone-check triggers regeneration, the second response replaces the first and the rejected draft is never returned to the caller",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure is in the orchestration layer — the response returned to the caller must be the second one, not the first. This requires the tone-checker, the regeneration call, and the response-assembly step to all be wired correctly. No single function exposes this; it requires the full request path. INTEGRATION-CHECK down-test: calling one function in isolation cannot reproduce 'customer sees rejected draft' because that outcome is determined by which value the orchestrator forwards. Up-test: no real LLM, OS, or network is needed — stubbing the LLM to return draft-1 then draft-2 and verifying the caller receives draft-2 is achievable in-process.",
+      "test_description": "Configure the stubbed LLM to return a 'too-formal' response on call 1 and an acceptable response on call 2. Invoke the chat pipeline end-to-end (in-process, with the tone checker and orchestrator wired). Assert that the value returned to the caller equals the second LLM response, and that the first (rejected) response string does not appear anywhere in the caller-visible output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.76,
+        "System": 0.07,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

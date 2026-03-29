@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is not in any single function's logic — it is whether the OS filesystem watcher is configured and behaves correctly for recursive directory trees. REAL-INFRA: `fs.watch` / `chokidar` recursive behavior differs by OS (Linux inotify vs macOS FSEvents vs Windows ReadDirectoryChangesW). An in-process fake that manually emits events for subdirectory paths would bypass the exact configuration path that must be verified — whether the watcher was started with `recursive: true` (or equivalent) and whether the OS actually surfaces those events. MOCK-HIDE: Injecting synthetic subdirectory events always passes; it never proves the watcher is configured correctly. REJECTION-GATE: No text in the behavior description disqualifies System — the behavior explicitly concerns file placement inside a subdirectory of the watched root, which is a property of the real OS event stream. COMMIT-TO-REASONING: EVIDENCE-LEVEL = System; OUTPUT-LEVEL = System — no override.",
+      "test_description": "Create a real temporary directory tree (root/subdir/), start the daemon watching root, write a file to root/subdir/, wait for the daemon's processing pipeline to complete, and assert that the corresponding output file exists in the configured output directory.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.78,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The deduplication function's sole job is to check whether a path has been seen within a time window. The failure is entirely local to that one function — a wrong comparison, wrong eviction policy, or misconfigured window size. No module boundary handoff is involved. REAL-INFRA: No real OS, network, or subprocess is needed; the function operates on in-memory state and a clock. Using a fake/injectable clock is sufficient and more deterministic. MOCK-HIDE: Nothing to mock — the deduplication module's own state is the system under test. LLM-DEP / MULTI-STEP: Neither applies. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Unit; OUTPUT-LEVEL = Unit — no override.",
+      "test_description": "Instantiate the deduplication module with a short configurable window (e.g., 500 ms) and an injectable clock. Call `record(path)` twice for the same path within the window; assert the second call returns a 'duplicate/discard' signal. Call `record(path)` once more after advancing the fake clock past the window; assert it is accepted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The behavior description anchors the scenario to the OS emitting multiple events — the question is whether the daemon's debounce/coalescing layer correctly handles them. That layer's interaction with the actual event stream is what must be verified. REAL-INFRA: Whether the OS actually emits burst events for a single write (e.g., separate `add` and `change` events from chokidar, or multiple `change` events) is a real, OS-dependent phenomenon. An in-process test that manually emits two synthetic events can test the debouncer in isolation (that is behavior 2's concern). What behavior 3 adds is the end-to-end guarantee: under real write conditions, the pipeline runs exactly once. MOCK-HIDE: Injecting a pre-decided pair of events cannot reproduce timing-sensitive burst patterns that the real OS generates. REJECTION-GATE: The behavior says 'the operating system emits multiple filesystem events' — this is an OS-level precondition, not a constructed one. COMMIT-TO-REASONING: EVIDENCE-LEVEL = System; OUTPUT-LEVEL = System — no override.",
+      "test_description": "Using a real temporary watched directory, write a file using a method known to trigger multiple OS events (e.g., open + truncate + write + close sequence, or write via `dd` with sync). Instrument the transformation pipeline with a call counter. After settling, assert the counter equals exactly 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.14,
+        "System": 0.74,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure lives entirely at the OS boundary: does the daemon survive the inode-level invalidation of the watched path, detect the new directory inode, and re-attach the watcher? No single module boundary captures this — it requires the OS event subsystem, the daemon's error-recovery path, and the watcher re-registration to all function together. REAL-INFRA: `rm -rf dir && mkdir dir` changes the inode. The real watcher receives an OS 'unlink' or 'rmdir' event and may receive ENOENT errors on subsequent stat calls. Re-attaching to the new inode is an OS-level act. In-process fakes cannot reproduce inode invalidation, ENOENT propagation, or the re-watch syscall. MOCK-HIDE: Any stub of the watcher that does not surface real ENOENT/inode-change conditions will always pass, hiding the exact failure. COMMIT-TO-REASONING: EVIDENCE-LEVEL = System; OUTPUT-LEVEL = System — no override.",
+      "test_description": "Start the daemon watching a real temporary directory. Remove the directory entirely (`fs.rmSync(dir, { recursive: true })`), recreate it (`fs.mkdirSync(dir)`), write a file into the new directory, and assert the file is processed to the output directory — without restarting the daemon process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is between the event-intake module (which gathers arrival events) and the queue/scheduler module (which orders them). A unit test on a pure sort function is insufficient because the failure may lie in how file metadata (birthtime/mtime) is read and fed into the queue comparator — a handoff between modules. REAL-INFRA: The comparator logic can be exercised by stubbing `fs.stat` to return controlled timestamps; real filesystem sub-millisecond timestamp granularity is not the failure mode tested here. The failure is algorithmic ordering, not OS clock precision. INTEGRATION-BRAKE: (a) No real OS behavior needed — controlled timestamps via stub are sufficient. (b) No AI/ML. (c) No agentic chain. REJECTION-GATE: The behavior says 'order determined by their creation timestamps' — this is a scheduling/sorting contract between modules, not an OS timing phenomenon. System is rejected because the test does not need real simultaneous filesystem writes to exercise the ordering logic. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration; OUTPUT-LEVEL = Integration — no override.",
+      "test_description": "Wire the arrival-event intake module to the processing queue with a stubbed `fs.stat` that returns distinct, out-of-arrival-order birth timestamps for three files (file C arrives first in event order but has the oldest timestamp; file A arrives last but has the newest). Assert the queue drains in timestamp order: C, then B, then A.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.54,
+        "System": 0.29,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is at the boundary between the OS file-locking/size-stability layer and the daemon's readiness check. The daemon must probe real OS state (file size, exclusive lock, or open handle count) to determine write completion; this cannot be decomposed to a single module's logic. REAL-INFRA: Write-completion detection strategies (polling for stable size, attempting an exclusive open, waiting for close events) all depend on real OS file-handle semantics. A fake that simply flips a boolean 'is_writing' flag cannot reproduce the race between the arrival event firing and the OS releasing the write handle. MOCK-HIDE: Any mock of the write-completion check always returns a predetermined value, masking the real question: does the daemon's polling/detection survive actual OS handle contention? REJECTION-GATE: The behavior says 'a file that is still being written to when the arrival event fires' — this is a live OS handle condition that only exists with real file I/O. COMMIT-TO-REASONING: EVIDENCE-LEVEL = System; OUTPUT-LEVEL = System — no override.",
+      "test_description": "In the watched directory, open a file for writing and hold the handle open (simulating an in-progress write). Confirm the arrival event fires. Assert no processing has started. Close the write handle (and optionally flush). Assert the daemon picks up the file and processes it to the output directory within a short polling interval.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.86,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

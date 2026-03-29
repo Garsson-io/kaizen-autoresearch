@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys from identical query parameters are always identical; keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Key generation is a deterministic function applied to a query parameter input — the failure mode (collision or non-determinism) lives entirely inside that function's logic. No module handoff is required to expose it. REAL-INFRA: No OS, network, or subprocess involved. MOCK-HIDE: No external dependencies exist to mock. LLM-DEP: Fully deterministic. MULTI-STEP: No. REJECTION-GATE: Integration was considered and rejected — there is no module boundary whose crossing could expose a failure that the key-generation function alone cannot; the bug would be in the hashing/serialization algorithm itself.",
+      "test_description": "Instantiate the key generator in isolation. Assert that calling it twice with the same query parameter map produces byte-identical keys. Then assert that a set of structurally distinct parameter maps (different keys, different values, reordered keys, type-coerced values) all produce distinct keys — i.e., no two distinct inputs hash to the same output across a representative test matrix.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 min, product catalog = 1 hr).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: TTL computation is a lookup/calculation against a configuration table — the failure mode is a wrong arithmetic result or a missing/misconfigured rule, entirely within the TTL resolver function. No module handoff is necessary to expose it. REAL-INFRA: No OS or network involvement. MOCK-HIDE: Configuration can be injected directly; no real external config store is needed. LLM-DEP: Fully deterministic. MULTI-STEP: No. REJECTION-GATE: Integration rejected — the freshness rule table is static configuration; the function that reads it and returns seconds is self-contained. No inter-module state propagation is required.",
+      "test_description": "Construct the TTL resolver with a known in-memory freshness configuration (e.g., {user_profiles: 300, product_catalog: 3600}). For each configured data category, assert the resolver returns exactly the expected TTL in seconds. Also assert that requesting an unconfigured category either raises a clear error or returns an explicit default — not a silent zero or negative value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The switch is a conditional driven by a single numeric input (current_memory vs. threshold). The failure mode is wrong comparison logic or wrong strategy selection — both are local to the strategy-selector function. If memory pressure is injected (not polled from the OS), no module boundary crossing is needed to expose the failure. REAL-INFRA: If memory pressure is read from the OS directly, System would be required; however, the behavior describes a configured threshold check whose correctness is observable by injecting a synthetic pressure value. MOCK-HIDE: Stubbing the memory reading does not hide the relevant failure — the comparison and branch logic remain fully exercised. REJECTION-GATE: System rejected unless the implementation polls real OS metrics and the test cannot inject a synthetic value. Integration rejected — no persistent state handoff between modules is required to see the switch fail.",
+      "test_description": "Instantiate the cache or strategy selector with a configured threshold (e.g., 80% memory). Inject a synthetic memory reading below the threshold and assert the active strategy is LRU. Then inject a reading at or above the threshold and assert the active strategy switches to LFU. Repeat the boundary: memory just below threshold → LRU; memory at exactly threshold → LFU. This exercises the comparison operator and off-by-one edge.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode only appears when the write operation, the row-to-cache-key mapping, and the invalidation sweep execute in concert across module boundaries. A unit test of the invalidation function alone (given a list of row IDs) would miss failures in how the write event is captured and how affected rows are identified. REAL-INFRA: If invalidation is triggered by application-layer hooks (ORM after-write hooks, an event bus internal to the process), a local test DB suffices → Integration. System would be needed only if the mechanism relies on PostgreSQL server-side triggers, NOTIFY/LISTEN, or CDC — which are not specified. Defaulting to Integration as the minimum. MOCK-HIDE: Mocking the database write would bypass the row-identification logic that maps DB rows to cache keys, hiding the core failure. A real (or locally running) database is required. REJECTION-GATE: System rejected because the stated behavior does not name PostgreSQL-native triggers or CDC; the invalidation can plausibly be tested with a local embedded/containerized PG instance or equivalent. Workflow/Agentic: no LLM or multi-agent step involved.",
+      "test_description": "Wire the cache layer against a local PostgreSQL instance (or equivalent). Pre-populate the cache with several entries whose keys correspond to rows in a test table. Issue a write (INSERT/UPDATE/DELETE) that affects a known subset of rows. Assert that exactly the cache entries matching those rows are evicted and that unaffected entries remain. Repeat for a bulk write affecting multiple rows to verify all matching entries — not just the first — are invalidated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.58,
+        "System": 0.35,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: LRU and LFU are algorithms that maintain internal data structures (access order / frequency counters). The failure mode — evicting the wrong entry — is entirely within the eviction data structure's own tracking and selection logic, not at a module boundary. REAL-INFRA: No OS, network, or external process involved. MOCK-HIDE: No meaningful external dependency to mock; the cache can be constructed in-process. LLM-DEP: Fully deterministic. MULTI-STEP: No. REJECTION-GATE: Integration was considered and rejected — 'multi-tier' could imply tier-promotion interactions, but behavior 5 specifically scopes to which entry is removed when the cache is full; that decision is local to the eviction policy implementation and does not require inter-module data propagation to expose.",
+      "test_description": "Create a bounded cache instance configured for LRU. Insert entries up to capacity, then access a strict subset in a defined order. Insert one more entry to trigger eviction and assert the entry with the oldest last-access time was removed, not any other. Repeat with an LFU-configured instance: insert entries and access each a different number of times, then trigger eviction and assert the entry with the lowest access frequency is removed. Include a tie-breaking case to ensure the policy is deterministic under equal frequency.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.11,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

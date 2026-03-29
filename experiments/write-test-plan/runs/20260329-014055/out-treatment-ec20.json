@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Extracting transitive dependencies requires coordinating between multiple data sources — a manifest file (e.g., package.json) and a lock file (e.g., package-lock.json or requirements.txt + pip.lock). The failure mode — silently dropping transitive deps — only surfaces when the manifest parser hands off to the lock-file resolver or dependency-graph builder. A unit test on either component alone cannot catch a mismatch in how they compose. INTEGRATION-CHECK down-test: not satisfied — you cannot reproduce a missing transitive dependency by calling one function with crafted arguments if the transitive resolution requires reading and joining multiple files/modules. INTEGRATION-CHECK up-test: no real OS subprocess or live network is required; in-process module wiring with temp files or in-memory fixtures is sufficient. Integration survives both checks.",
+      "test_description": "Provide a manifest file (package.json) and a corresponding lock file (package-lock.json or requirements.txt + lock file) containing a known direct dependency A that itself depends on transitive package B. Wire the manifest reader and the dependency-graph resolver together with real in-process module calls. Assert that the final dependency list returned by the extraction stage includes both A and B with correct version strings. Vary the fixture to include multi-level transitive chains (A → B → C) to confirm depth is not truncated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.5,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The claim is that the real vulnerability database API returns results scoped to the version range specified in the query, not merely matching on package name. Mocking the API would only validate that our code passes the version parameter to the mock — it cannot validate that the real API correctly interprets and filters by version range semantics (e.g., `>=1.2.0,<2.0.0`). MOCK-HIDE: A mock always returns what we program it to return, so a mocked test would pass even if the actual API ignores version ranges and returns all CVEs for the package name. The real failure — the API returning CVEs for non-matching versions — can only be caught by calling the live (or faithfully sandboxed) external service.",
+      "test_description": "Using a controlled dependency fixture with a known pinned version (e.g., `lodash==4.17.15`), issue a real HTTP query to the vulnerability database API (or a live staging/sandbox instance of it). Assert that the CVEs returned all have affected version ranges that include 4.17.15. Then repeat with a version known to be outside all existing CVE ranges for that package and assert the result set is empty or excludes those CVEs. This confirms version-range filtering is enforced by the real API, not just our request formatting.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.65,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within a single sorting/comparison function. There is no cross-module handoff involved — the bug would be a wrong comparator key, wrong tier ordering, or wrong tie-breaking on CVSS score. REAL-INFRA: No I/O required. LLM-DEP: No model involved. MULTI-STEP: No. INTEGRATION-CHECK down-test trivially satisfied: call `sort_vulnerabilities(cve_list)` with a crafted list and assert the output order.",
+      "test_description": "Construct a list of CVE objects covering all four severity tiers (Critical, High, Medium, Low) and including at least two CVEs within the same tier with different CVSS scores. Call the sort function directly. Assert: (1) all Critical CVEs precede all High, all High precede all Medium, all Medium precede all Low; (2) within each tier, CVEs are ordered by descending CVSS score. Include an edge case where all CVEs share the same severity to isolate the CVSS tie-breaking logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within one function's text/AST manipulation logic — either it corrupts surrounding lines, changes the wrong entry, or introduces formatting artifacts. No cross-module handoff is involved. REAL-INFRA: No file I/O or subprocess is required; the function can accept manifest content as a string and return the modified string. INTEGRATION-CHECK down-test: trivially satisfied — call `bump_dependency(manifest_content, package_name, new_version)` with crafted inputs and diff the output against the input.",
+      "test_description": "Prepare a multi-dependency manifest string (e.g., a requirements.txt or package.json with five entries). Call the manifest-modification function targeting exactly one dependency. Assert that: (1) only that dependency's version line differs between input and output; (2) all other lines are byte-for-byte identical; (3) the structure (whitespace, punctuation, ordering) of the file is preserved. Also test that targeting a dependency name that appears as a substring of another package name does not produce false matches.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior claims a PR is created on a real repository. This requires a live HTTP call to a hosting API (GitHub, GitLab, etc.) and the resulting PR must actually exist and contain the correct diff. MOCK-HIDE: Mocking the API client would only confirm our code calls the client — it cannot verify that the PR was actually created, that the branch was pushed, or that the diff the hosting service computed matches the intended single-dependency change. The real failure modes (auth errors, branch naming conflicts, diff computed from wrong base commit, multi-file diffs leaking in) are invisible without the real API.",
+      "test_description": "Against a real (or dedicated test) repository instance, trigger the PR creation workflow with a known manifest and a single dependency bump. Retrieve the created PR via the repository API. Assert: (1) the PR was created and is open; (2) the PR diff touches exactly one file (the manifest); (3) within that file exactly one version string changed and it matches the intended bump; (4) all other dependency lines in the diff are unchanged. Clean up the test branch and PR after the assertion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Semver comparison is a pure deterministic algorithm with no I/O or module boundary. The failure mode is a wrong conditional in the version-comparison function. INTEGRATION-CHECK down-test: trivially satisfied — call `is_breaking_change(current_version, patched_version)` with string inputs. No cross-module wiring needed.",
+      "test_description": "Call the semver breaking-change function with a table of version pairs covering: major bump (1.x.y → 2.0.0, expected: True), minor bump (1.2.x → 1.3.0, expected: False), patch bump (1.2.3 → 1.2.4, expected: False), pre-release to stable (1.0.0-beta → 1.0.0, expected: False), and zero-major edge cases (0.1.0 → 0.2.0 — document expected behavior explicitly). Assert the return value for each pair matches the expected classification.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.005,
+        "Agentic": 0.003,
+        "Workflow": 0.002
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between two modules: the breaking-change detector and the PR orchestrator. A unit test on either module in isolation cannot catch a bug where the detector signals correctly but the orchestrator ignores the signal (or catches it but fails to propagate the review flag into the output formatter). The behavioral contract spans at least three components: detector → orchestrator → output. INTEGRATION-CHECK down-test: not satisfied — you cannot call a single function to reproduce this failure; you need the modules wired together so the signal actually flows. INTEGRATION-CHECK up-test: no real network, subprocess, or LLM is required; in-process module wiring with a stubbed PR client (to confirm it is never called) is sufficient. Integration survives both checks.",
+      "test_description": "Wire the breaking-change detector, the scanner orchestrator, and the output formatter together in-process. Stub the PR creation client to record whether it was invoked. Inject a vulnerability fixture where the only available patch requires a major version bump. Run the full scanner pipeline. Assert: (1) the PR creation stub was never called; (2) the scanner output object contains a review flag entry for that dependency; (3) the flag includes the package name, current version, and candidate version. Also run a control case (patch-only bump) and assert the stub IS called and no review flag appears.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

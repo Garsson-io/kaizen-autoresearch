@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent, meaning-preserving translation (not word-for-word).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Grammatically coherent' and 'preserves meaning' are quality judgments that only the real NMT model can answer. Any mock would return a hardcoded string that trivially passes. The test must call the real translation API and evaluate semantic/grammatical quality — outcomes may vary across runs. No amount of in-process wiring tests whether the NMT model is doing the right thing.",
+      "test_description": "Call the real NMT API translation endpoint with a set of source sentences whose correct translations are known. Assert that returned translations are semantically equivalent to references using a quality metric (e.g., BLEU score above a threshold), and do not degenerate into word-for-word literal substitutions that a bilingual reviewer would flag as incoherent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.9,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When translation API returns 503, service falls back to dictionary translator transparently without returning an error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the HTTP client layer and the service's error-handling/fallback dispatch logic. A unit test of just the fallback selector can mock the HTTP error, but that only tests one branch in isolation — it doesn't verify that the real service wires the 503 response into the fallback path and routes the SQLite result back to the caller. INTEGRATION-CHECK: Down-test fails (the failure requires the service, HTTP client, and SQLite translator to cooperate); Up-test passes (in-process HTTP mock + real/in-memory SQLite is sufficient — no real network needed).",
+      "test_description": "Wire the service with a mock HTTP client configured to return a 503 response, and a real (or in-memory) SQLite dictionary pre-loaded with a matching phrase. Call the service's translate method. Assert the return value is the dictionary translation, no exception is raised, and no error propagates to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary-based fallback returns the correct pre-stored translation for phrases present in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "INTEGRATION-CHECK Down-test: The lookup is logically one function call, but 'returns the correct pre-stored translation' inherently requires a real SQLite database populated with known data — there is no meaningful unit test without the DB. The level definitions classify local DB interaction as Integration. MOCK-HIDE: Mocking the DB query always returns whatever you tell it, completely bypassing the actual SQL and schema, so the test would be vacuous at Unit level.",
+      "test_description": "Set up an in-memory SQLite database with a known phrase-to-translation mapping. Instantiate the DictionaryTranslator (or equivalent) pointing at this DB. Call lookup with a phrase that exists in the DB and assert the returned translation matches the stored value exactly. Also call with an unknown phrase and assert the appropriate fallback behavior (e.g., None or exception).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes character-level edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "The behavior has two sub-claims: (a) edit distance is computed correctly — pure algorithm, Unit-testable; (b) the metric is stored — requires a real SQLite write. Since the behavior explicitly covers both and 'stores the metric' is a non-trivial persistence step (wrong table, wrong column, off-by-one in value), Integration is the minimum that validates the complete stated behavior. INTEGRATION-CHECK: Down-test partially succeeds for the algorithm alone, but fails for the store step without DB wiring.",
+      "test_description": "Call the quality-tracking function with two known strings (e.g., 'color' and 'colour', expected edit distance 1). Assert the returned/stored metric equals 1. Use an in-memory SQLite database and query it after the call to verify the metric row was written with the correct value, source text identity, and timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.38,
+        "Integration": 0.54,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives across two cross-module handoffs: (1) service must choose and return the primary translator's result, and (2) service must dispatch a background quality-comparison task that writes to SQLite — all without the caller waiting. A unit test of the routing logic alone cannot verify that the background task actually fires and persists the metric. INTEGRATION-CHECK: Down-test fails; Up-test passes — mock HTTP client returning success, mock fallback translator, and real in-memory SQLite for persistence is sufficient to reproduce a real failure here.",
+      "test_description": "Configure the service with a mock primary HTTP translator returning a known translation and a mock fallback translator returning a different known translation. Call translate. Assert the return value equals the primary translation. Wait for the background task to complete (or use a synchronous test mode), then query the in-memory SQLite metrics table and assert a quality-comparison row exists with the correct edit distance between the two mock outputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.78,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

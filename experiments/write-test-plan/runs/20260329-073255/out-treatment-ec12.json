@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans two module boundaries — the validator must identify missing fields AND the DLQ writer must capture the original row number. A Unit test on the validator alone cannot confirm the row number propagates correctly into the DLQ payload. REAL-INFRA: The DLQ can be an in-process fake (a list or stub queue); no real message broker is needed to reproduce the failure. MOCK-HIDE: Mocking the DLQ still validates the routing call and payload content. LLM-DEP: None. Minimum level is Integration because the bug lives at the validator→DLQ handoff, not within either module alone.",
+      "test_description": "Wire the real validator and real DLQ writer together with a fake/in-memory DLQ backend. Feed CSV rows where required fields (e.g. 'id', 'timestamp') are blank or absent. Assert each such row is absent from the output table stub, present in the DLQ, and the DLQ entry carries the exact source row number from the input file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is purely algorithmic — a parsing and normalization function. The failure is 'wrong output for a given input string', which is entirely self-contained. No cross-module state or I/O is involved. REAL-INFRA: None required. MOCK-HIDE: There is nothing to mock; the function takes a string and returns a string. LLM-DEP: None. MULTI-STEP: None. A Unit test with parameterized inputs covers all failure modes for this behavior.",
+      "test_description": "Directly call the date-transformation function with representative inputs: ISO 8601 ('2024-01-15T10:30:00Z'), US format ('01/15/2024'), European format ('15.01.2024'), and edge cases (leap day, year boundaries). Assert each returns the canonical form. Also assert malformed strings raise/return an error rather than silently producing garbage output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Memory and throughput behavior are properties of the full processing loop, not any single function. The failure (OOM or timeout) only appears when real data volume flows through the pipeline. REAL-INFRA: Real S3 and real PostgreSQL are not needed — the failure mode is the pipeline's streaming/batching behavior, which can be reproduced with a local 500k-row CSV file and stub I/O sinks. A System test would be needed only if wall-clock latency from real S3 or real DB writes was the bottleneck, which the behavior description does not specify. MOCK-HIDE: Mocking I/O sinks is fine here because the memory/CPU failure lives in the processing loop, not the sink. LLM-DEP: None. The test must actually process a large file — a mock that skips iteration hides the failure — but the infra can be local.",
+      "test_description": "Generate a local CSV file with 500,000 rows of realistic data. Run the full pipeline with stub S3 reader (reading from local disk) and a stub PostgreSQL writer (discarding rows). Assert the process completes within the configured timeout and peak RSS memory stays below a defined threshold (e.g. 512 MB). Use a memory profiler or resource.getrusage to measure peak usage during the run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.55,
+        "System": 0.38,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the interaction between the S3 client and the retry/backoff wrapper — a single-function Unit test cannot reveal whether the retry loop is wired to the correct error codes or whether backoff delays are computed correctly. REAL-INFRA: Real S3 is NOT needed. A stub HTTP server (or a patched HTTP client returning scripted 503 responses) exactly reproduces the failure: either the retry fires or it doesn't, and call timing/count is observable. Could-an-in-process-fake reproduce this? Yes — a stub response sequence [503, 503, 200] captures the behavior fully. MOCK-HIDE: A mock that always returns 200 hides the failure; a stub that returns 503 then 200 does not — so Integration with a scripted stub is the right level. LLM-DEP: None.",
+      "test_description": "Configure the S3 client with a stub transport that returns 503 twice, then 200 on the third call. Run the pipeline on a small batch. Assert: (1) no BatchFailure exception is raised, (2) the client is called exactly three times for the same request, and (3) the delays between retries satisfy exponential growth (e.g. delay[1] ≥ 2× delay[0]). Use a fake clock or capture timestamps around sleep calls to verify backoff without real wall-clock waiting.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.17,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Idempotency is a cross-module property — it depends on the real interaction between the pipeline's checkpoint/state logic and the database's constraint enforcement (e.g., ON CONFLICT). A Unit test cannot reveal whether the deduplication key is actually used on re-insert. REAL-INFRA: A real (local) PostgreSQL instance is needed; an in-memory mock DB that always accepts inserts would hide the failure because it won't enforce unique constraints or honor ON CONFLICT semantics across 'restarts'. SQLite is also insufficient if the pipeline uses PostgreSQL-specific upsert syntax. A local dockerized PostgreSQL satisfies this without requiring production infra, keeping this at Integration rather than System. MOCK-HIDE: A mock DB always passes inserts, hiding the duplication bug entirely. LLM-DEP: None.",
+      "test_description": "Using a local PostgreSQL test instance, run the pipeline on a batch of N rows and interrupt it after ~half the rows are written (simulate mid-batch restart by killing the pipeline process or raising an exception at a controlled point). Re-run the full pipeline on the same input. Query the PostgreSQL table and assert exactly N distinct rows exist — no duplicates. Verify uniqueness by primary key or business key count.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.62,
+        "System": 0.3,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

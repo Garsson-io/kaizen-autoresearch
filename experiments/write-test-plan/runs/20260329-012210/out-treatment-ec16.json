@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode appears at the boundary between two modules: the component that fetches changed files from the GitHub PR diff and the component that decides which files to pass to the linter. A unit test of the filter function alone cannot catch a bug where the diff parser emits wrong paths or the orchestrator ignores the filter entirely. The bug manifests only when these modules are wired together. MOCK-HIDE: mocking the GitHub API with a realistic changed-files payload still exercises the real filtering and dispatch logic, so mocking does not hide the failure. No subprocess, real network, or LLM required.",
+      "test_description": "Wire the PR diff parser module with the file-selection and analysis-dispatch modules using a stubbed GitHub API response containing 3 changed files and 2 unchanged files in the same repo. Invoke the full analysis pipeline and assert that the linter is invoked exactly 3 times, once per changed file, with none of the unchanged file paths appearing in any linter invocation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is entirely within the grouping/formatting function: given a flat list of findings, does the output correctly partition them into error/warning/info sections? This is a pure data-transformation algorithm with no I/O, no external dependency, and no module handoff. MOCK-MISS check: the bug (wrong grouping, missing severity bucket, merged sections) is fully reproducible by calling the grouping function in isolation. No subprocess, filesystem, network, or LLM is needed to expose the failure.",
+      "test_description": "Call the severity-grouping function directly with a list of Finding objects spanning all three severities (e.g., 2 errors, 3 warnings, 1 info). Assert that the returned comment string contains exactly three labeled sections in the correct order, each containing only findings of the matching severity, with counts matching the input.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "The failure mode is a wall-clock timing violation that only emerges when real subprocesses are spawned and real file I/O occurs at scale. MOCK-HIDE: mocking the linter subprocess or file reads eliminates all execution time, making the test trivially pass while hiding the actual bottleneck (process spawn overhead, I/O, sequential vs. parallel dispatch). REAL-INFRA: the test must spawn actual linter processes against actual files to measure true elapsed time. No LLM needed, but real subprocess execution and filesystem I/O are required.",
+      "test_description": "Create a temporary directory containing 200 minimal but syntactically valid source files. Invoke the CI step's analysis entrypoint against this directory with a fabricated PR diff listing all 200 files. Assert that the entire pipeline returns within 600 seconds of wall-clock time (measured with time.monotonic or equivalent), and that all 200 files appear in the results payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.1,
+        "System": 0.83,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is at the boundary between the process-management layer (which spawns linter subprocesses) and the orchestration layer (which decides whether to continue after a non-zero exit or exception). A unit test of error-handling logic alone cannot catch a bug where the orchestrator swallows the exception but also silently drops all remaining work items. MOCK-MISS: the bug only surfaces when the crash signal (non-zero exit code, exception from subprocess call) flows into the orchestrator and the orchestrator's continuation logic is exercised. MOCK-HIDE: simulating the crash via a mock subprocess that raises or returns non-zero exit is sufficient — actual OS process crash semantics are not needed to expose the control-flow bug.",
+      "test_description": "Configure the subprocess invocation with a side_effect list: one call raises subprocess.CalledProcessError (simulating a crash on the malformed file), and subsequent calls return normally with fixture finding payloads. Feed the orchestrator a list of 3 files where the first is the malformed one. Assert that the linter is invoked 3 times total, that results for files 2 and 3 appear in the final findings collection, and that the comment-posting call is made exactly once with a non-empty result set.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.22,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is entirely within the deduplication algorithm: given a collection of Finding objects, does it correctly identify and collapse entries that share the same file path, line number, and message? This is pure algorithmic logic with no I/O or module interaction. MOCK-MISS check: the bug (missed duplicate, over-aggressive dedup, wrong equality key) is fully reproducible by calling the dedup function with a crafted list of findings in isolation. No subprocess, network, filesystem, or LLM is needed.",
+      "test_description": "Call the deduplication function with a list containing: two identical Finding objects (same file, line, rule, message) produced by two overlapping rules, one near-duplicate with a different line number, and one unique finding. Assert that the returned list has exactly 3 entries — the duplicate pair collapsed to one, the near-duplicate preserved, and the unique finding preserved — and that no original finding objects are mutated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

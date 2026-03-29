@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves meaning, not just word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior makes a quality claim — 'grammatically coherent' and 'preserves meaning' — that is only evaluable against what a real neural MT model produces. A mock always returns whatever you hardcode; it trivially passes while hiding every real model failure. The correctness criterion depends on the actual model output, which may vary run-to-run. REAL-INFRA: reaching the model requires a real API call. MOCK-HIDE: mocking the MT API at this behavior makes the test meaningless — you are just asserting your own fixture. REJECTION-GATE for Integration/System: neither level adds value here because the failure mode is model output quality, not module wiring or HTTP behavior.",
+      "test_description": "With real API credentials, send a curated set of source sentences (e.g., sentences with idiomatic expressions, complex syntax) to the live neural MT endpoint. Compare results against human-verified reference translations using semantic similarity (e.g., BLEU or cosine similarity on embeddings) and assert scores exceed a quality threshold. Flag systematic word-for-word patterns (e.g., output equals a direct dictionary join of tokens) as failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.88,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode lives at the boundary between the HTTP client layer and the fallback routing logic — it only surfaces if both modules are wired together and the error-handling path actually triggers the fallback. REAL-INFRA: The behavior is about how the service handles a 503 HTTP status code, not about real network conditions. An in-process mock HTTP client that returns 503 fully reproduces the failure; the actual HTTP stack is not load-bearing here. LLM-DEP: No — correctness here is whether fallback is triggered, not translation quality. REJECTION-GATE for System: the behavior would fail identically with a mock HTTP client returning 503; real HTTP infrastructure is not required to catch this bug.",
+      "test_description": "Wire the service with a mock HTTP client configured to return a 503 response for the primary translation endpoint, and a seeded test SQLite database for the fallback. Call the service with a phrase present in the fallback dictionary. Assert: (a) no exception is raised to the caller, (b) the returned translation matches the dictionary entry, and (c) the primary translator was attempted exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.82,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The claim is about what actually comes back from SQLite — that the right row is found and its value returned correctly. A unit test with a mocked DB just returns whatever you tell it; it can't catch SQL query bugs, schema mismatches, or encoding issues. The failure boundary is between the fallback service and the real SQLite layer. REAL-INFRA: SQLite is a local file/in-process database — no OS-level network or subprocess required. Integration covers this. LLM-DEP: No — this is deterministic lookup. REJECTION-GATE for Unit: mocking the DB layer hides the exact failure mode (wrong column, wrong query, encoding mismatch).",
+      "test_description": "Create a temporary SQLite database, populate it with known phrase-to-translation rows. Instantiate the fallback translator pointed at this database. Query it with each seeded phrase and assert the returned string exactly matches the stored value. Also assert that a phrase not in the database returns the expected 'not found' sentinel (no false positives from partial matches).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.86,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two failure modes: (a) the edit distance algorithm is wrong — a Unit failure — and (b) the metric is not persisted correctly — an Integration failure at the DB write boundary. Testing only (a) at Unit level would miss storage bugs entirely. To catch any real failure of the full behavior, Integration is the floor. REAL-INFRA: SQLite storage is local and in-process; no external infrastructure needed. LLM-DEP: No — edit distance is a deterministic algorithm. REJECTION-GATE for Unit: a unit test can verify the algorithm alone, but the stated behavior explicitly includes 'stores the metric'; a mock DB trivially passes without verifying real persistence.",
+      "test_description": "Using a test SQLite database for metric storage, invoke the quality tracker with two pairs of strings whose correct Levenshtein distances are known (e.g., 'cat'/'car'=1, 'kitten'/'sitting'=3). Assert the returned edit distance values match expected values. Then query the metrics table and assert each comparison was persisted with the correct source, primary output, fallback output, and distance value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.66,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode requires multiple modules wired together: the service must call the primary translator, return its result to the caller, and separately trigger the background quality comparison task. A unit test on a single function can't catch a routing bug where the wrong output is returned or the background task is never scheduled. REAL-INFRA: No real HTTP, subprocess, or OS behavior is needed — mock translators with canned outputs fully reproduce the failure. LLM-DEP: The behavior is about routing and background task triggering, not translation quality; mocked translators returning distinct fixed strings are sufficient. REJECTION-GATE for Agentic: the behavior's correctness (primary output returned + background task logged) does not depend on what any real model produces.",
+      "test_description": "Wire the service with a mock primary translator returning a fixed string 'PRIMARY_RESULT' and a mock fallback returning 'FALLBACK_RESULT'. Call the service with both translators healthy. Assert: (a) the caller receives exactly 'PRIMARY_RESULT', (b) the background quality comparison task is triggered (verified via a spy or captured log entry) with both 'PRIMARY_RESULT' and 'FALLBACK_RESULT' as inputs, and (c) no error is raised.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

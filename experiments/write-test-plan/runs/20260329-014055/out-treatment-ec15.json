@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Embedding vector dimensionality matches the vector database index.",
+      "minimum_level": "System",
+      "justification": "The dimensionality is a fixed property of the real embedding model. MOCK-HIDE: mocking the embedding client means the test author defines the returned dimensions — the mock always passes regardless of the real model's output. The only way to catch a mismatch between the model's actual output shape and the DB index's expected shape is to call the real embedding model. The result is deterministic (same shape every run), so not Agentic, but the real external model call makes it System.",
+      "test_description": "Send a representative query string to the live embedding service and assert that len(vector) == EXPECTED_DIM, where EXPECTED_DIM matches the configured vector DB index dimensionality. No mocking of the embedding client.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.72,
+        "Agentic": 0.09,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the ordering is produced by the vector DB query, not application-level sorting code. Mocking the DB means the test defines the order — a real ordering bug is hidden. INTEGRATION-CHECK (down): reproducing the failure by calling one function with crafted args is not sufficient because the ordering emerges from the vector DB engine's query execution. INTEGRATION-CHECK (up): no real OS/network/subprocess is needed — an in-process vector store (e.g. FAISS or Chroma) seeded with known vectors can exercise real similarity ranking. Integration survives: (a) cross-module wiring with a real DB engine is required, and (b) an in-process DB is sufficient.",
+      "test_description": "Seed an in-process vector store with several documents whose embeddings are pre-computed at known cosine distances from a test query vector. Execute a similarity search and assert that returned scores are strictly non-increasing across the result list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.6,
+        "System": 0.22,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "LLM re-ranking changes the result order for queries with nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: the entire claim is about what a real LLM decides to do when given a nuanced query — specifically that it exercises non-trivial judgment and reorders results differently than cosine similarity alone. MOCK-HIDE: if the LLM client is mocked, the test author controls the returned order and the assertion trivially passes regardless of whether the real model would rerank at all. Correctness here is defined by LLM output, which is non-deterministic across models, prompts, and versions. This is squarely Agentic — the failure mode only surfaces with a real model call.",
+      "test_description": "Submit a curated nuanced query (e.g., 'lightweight laptop for travel photography' where raw cosine ranking surfaces a gaming laptop first) to the full embedding + search + real-LLM reranker pipeline. Assert that the LLM-reranked order differs from the raw similarity order for at least one position in the top-K list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.76,
+        "Workflow": 0.09
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches returns an empty result set instead of low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure appears at the boundary between the vector DB (which returns raw similarity scores) and the application's threshold/filtering layer. A unit test of the filter function in isolation only verifies the filtering logic for crafted scores, not that real similarity scores for unrelated queries actually fall below the threshold. INTEGRATION-CHECK (down): the threshold filter can be called with a crafted list of low-score results — this is a valid Unit test for the filter logic itself, but it does not verify that the DB + embedding pipeline actually produces low scores for truly unrelated queries. INTEGRATION-CHECK (up): no real network or LLM is needed; an in-process vector store seeded with known documents suffices. Integration survives: the failure mode spans the DB-to-filter boundary, and in-process wiring reproduces it.",
+      "test_description": "Seed an in-process vector store with a small domain-specific corpus. Embed a query deliberately outside that domain (e.g., an astronomy query against a product catalog), run the full search-and-filter pipeline, and assert the returned result list is empty or contains zero items above the similarity threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.57,
+        "System": 0.14,
+        "Agentic": 0.06,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "End-to-end latency from query receipt to re-ranked response stays below 2 seconds at the median.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: wall-clock latency measurement requires real HTTP, real network I/O, and real service calls — no in-process fake can produce meaningful timing. MULTI-STEP: the pipeline involves multiple sequential real steps (HTTP receive → embedding model call → vector DB query → LLM reranker call → HTTP response). LLM-DEP: the LLM reranking step is on the critical path; its latency is real and non-deterministic. All three escalation criteria apply simultaneously. Mocking any step removes the real latency contribution of that component, making the test meaningless for this behavior.",
+      "test_description": "Drive the live REST API endpoint with a representative set of queries (≥30 for stable median) using a real HTTP client. Record wall-clock elapsed time per request from sending the request to receiving the full response body. Assert that the p50 latency across all requests is below 2000 ms. All downstream services (embedding model, vector DB, LLM reranker) must be the real production or staging instances.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.11,
+        "Agentic": 0.14,
+        "Workflow": 0.71
+      }
+    }
+  ]
+}

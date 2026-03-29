@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "When a required key is absent from both the file and the environment, the error message names the missing key by its exact config path (e.g., database.host).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the error-formatting/validation logic — one function that inspects the parsed config dict and constructs the error string. No module boundary handoff is needed to trigger it. REAL-INFRA: No filesystem, subprocess, or network involved; a plain Python dict is sufficient input. MOCK-HIDE: Mocking the config loader to return a dict missing a key still exercises the real formatter, so no failure is hidden. LLM-DEP: Deterministic. REJECTION-GATE: Integration rejected — the behavior's failure mode (wrong or missing key name in the message) is entirely inside the validation/formatting function, not at a module seam.",
+      "test_description": "Construct a parsed config dict that omits `database.host`; pass it to the config validator or startup entry point; catch the resulting exception or SystemExit; assert the error message string contains the exact substring `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the environment variable XDG_CONFIG_HOME is set, the loader resolves the config file path relative to that directory rather than ~/.config.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The meaningful failure is not just that a path string is computed incorrectly — it is that the loader reads from the wrong location. That failure only surfaces when the path-resolution module is wired to the file-reading module. Unit-testing the computed path string alone does not prove the loader uses it. REAL-INFRA: A real (or temp-dir backed) filesystem is sufficient; no subprocess or network is needed. A temp directory can reproduce the exact failure: place a config file under `$XDG_CONFIG_HOME/tool/config.yaml`, run the loader, and verify it is read from there rather than `~/.config`. MOCK-HIDE: Mocking the file-reader would pass even if the path-resolution module passes `~/.config` to it, hiding the failure. REJECTION-GATE: System rejected — no real OS subprocess or network is required; a local temp directory reproduces the failure completely.",
+      "test_description": "Create a temp directory; write a valid config file at `<tempdir>/tool/config.yaml` with a sentinel value; monkeypatch `XDG_CONFIG_HOME` to `<tempdir>`; run the loader; assert the sentinel value appears in the loaded config and that no read was attempted from `~/.config`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When an environment variable with the TOOL_ prefix conflicts with a key in the config file, the environment variable value is used.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (file value used instead of env value) only appears when the YAML parser output and the env-var reader output are merged by the combination layer. The merge priority is a boundary concern between those two modules; testing the merge function in isolation with two plain dicts misses whether the env-var key-transformation (`TOOL_DATABASE_HOST` → `database.host`) and the YAML parse step are correctly wired into the merge. REAL-INFRA: No real filesystem is required — a YAML string plus `monkeypatch` of `os.environ` keeps this in-process. MOCK-HIDE: If the YAML parser or env-var transformer is mocked away, the test passes even when the real modules disagree on key names. REJECTION-GATE: System rejected — all I/O is in-process (string-parsed YAML + env monkeypatch); no real subprocess or network is needed.",
+      "test_description": "Write a YAML string containing `database.host: file_value`; monkeypatch `os.environ` to add `TOOL_DATABASE_HOST=env_value`; run the full loader pipeline on that YAML string; assert the resolved value of `database.host` is `env_value`, not `file_value`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the config file contains a YAML syntax error, the error message includes the line number where the problem was detected.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode — error message missing the line number — lives entirely in the error-handler that wraps `yaml.safe_load`. No second module boundary is involved: the YAML library raises an exception with position metadata, and the handler formats the message. Both happen in a single call chain that can be exercised with an in-memory string. REAL-INFRA: No filesystem, subprocess, or network needed; `yaml.safe_load(bad_string)` is purely in-process. MOCK-HIDE: Mocking the YAML parser away would hide whether the library actually surfaces line-number metadata; using a real bad YAML string is the correct approach and is still Unit. REJECTION-GATE: Integration rejected — no module seam is crossed; the YAML library and the error formatter are exercised in the same in-process call.",
+      "test_description": "Construct a multi-line YAML string where line 3 contains a deliberate syntax error (e.g., a bare colon); pass the string directly to the config parser function; catch the resulting exception or SystemExit; assert the error message contains `3` (or a phrase like `line 3`).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.25,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the config directory does not exist at startup, the loader creates it and writes a defaults file before proceeding.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (directory not created, or defaults file not written, or wrong content) spans the directory-check module, the directory-creation call, and the defaults-writer — three distinct I/O steps that must be wired together correctly. Mocking any one of them individually would not catch a wiring error between them. REAL-INFRA: The failure mode is a real filesystem state change. A real temp directory is the minimal infrastructure that can assert the directory now exists, the file now exists, and the file has the expected structure — none of which can be meaningfully verified against a mock that always pretends success. An in-process fake filesystem (pyfakefs) also works and keeps this at Integration rather than System. REJECTION-GATE: System rejected — no subprocess, real network, or OS-level primitive beyond standard file I/O is required; a real temp directory or pyfakefs reproduces the failure completely.",
+      "test_description": "Point the config path at a non-existent subdirectory inside a pytest `tmp_path` fixture; call the startup loader; assert that the directory now exists on the real (or pyfakefs) filesystem; assert a defaults file is present at the expected path; assert the defaults file is valid YAML containing at least the required top-level keys.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.62,
+        "System": 0.23,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

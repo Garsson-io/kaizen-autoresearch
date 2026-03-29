@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is in how git rename status (R100 old new) is parsed and routed vs. how deletions (D) and additions (A) are counted. This is a parsing/categorization logic bug. In isolation you could unit-test the parser with a hard-coded git status string. REAL-INFRA: However, git's rename detection is threshold-based and its output format (--name-status R vs. --diff-filter=R) varies by invocation. The exact output the tool receives depends on how it calls git. A real git repo with an actual rename (content similarity ≥ threshold) is needed to expose whether the tool invokes git with flags that suppress or expose rename detection. Mocking the subprocess output presupposes you already know the correct format the tool uses — a circular test. REJECTION-GATE for Integration: in-process mocking hides any flag/invocation bug at the git call site. REJECTION-GATE for Unit: the parsing function receives whatever the tool passes to git; unit-testing the parser alone doesn't verify the correct git command is used.",
+      "test_description": "Create a real git repo via subprocess (git init, git add, git commit). Then rename a file (git mv old.txt new.txt, git add, git commit or stage only). Run the CLI tool against this repo and parse its stdout report. Assert the renamed file appears exactly once under the 'renamed' category, with count 0 for additions and deletions attributable to that file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is a crash — likely the tool tries to decode binary diff output as UTF-8 text, or attempts to parse 'Binary files a/foo and b/foo differ' as a normal diff hunk. REAL-INFRA: Git emits a special marker for binary files in its diff output. The exact bytes and format of that marker (including the null-byte detection path git takes) only appear with real binary content in a real repo. Mocking subprocess output with a plausible string doesn't guarantee the mock matches the real format git actually emits for every binary type (images, compiled artifacts, etc.). The crash is triggered by real git output; a mock that happens to look right would always pass. REJECTION-GATE for Integration: an in-process mock of the subprocess could be made to match, but it would be testing the mock rather than the tool's resilience to actual git output.",
+      "test_description": "Create a real git repo, commit a binary file (e.g., a small PNG or a file with null bytes written in Python), then modify it and either stage or commit the change. Run the CLI tool as a subprocess against this repo. Assert: exit code is 0 (no crash), the binary file appears in the 'modified' (or appropriate) category in the output, and the count is ≥ 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.08,
+        "System": 0.83,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: An empty git repository (git init, no commits) has no HEAD ref. Any git command that references HEAD — git log, git diff HEAD, git status against HEAD — exits with a non-zero status and a fatal error message. The failure mode is the tool either crashing, printing an error, or exiting non-zero when it encounters this. This behavior is entirely a function of real git's response to a HEAD-less repo; it cannot be reproduced with mocked subprocess output without already knowing the exact error string git emits. REJECTION-GATE for Integration: no in-process wiring of modules can reproduce git's 'fatal: bad default revision HEAD' condition — it is a property of the real git process. REJECTION-GATE for Unit: there is no pure-function logic that can be unit-tested here; the failure is in the tool's error-handling around the subprocess call.",
+      "test_description": "Create a temporary directory and run git init inside it (no commits). Run the CLI tool as a subprocess pointing at this empty repo. Assert: exit code is 0, stdout is a valid (empty) report (e.g., all category counts are 0 or the report structure is present but empty), and stderr contains no error message.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.89,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This is an end-to-end correctness claim: the numbers the tool reports must match what is actually in the repo. The failure mode is miscounting — off-by-one, double-counting, or missed files — which only becomes visible when the tool's output is compared against ground truth from a known repo state. REAL-INFRA: Constructing that ground truth requires a real git repo with a controlled, known sequence of changes (add N files, delete M files, rename K files, modify J files). The tool must then be run against that repo and its output validated against the known counts. Mocking git's output to return pre-canned counts is circular: you'd be testing that the tool echoes back what you told it, not that it correctly counts real changes. REJECTION-GATE for Integration: module-wiring tests can verify data flows but cannot verify that the counts are correct against a real change set.",
+      "test_description": "Create a real git repo and perform a known sequence of operations: add 3 files, delete 1 file, rename 1 file, modify 2 files — all committed (or staged, depending on the tool's scope). Run the CLI tool as a subprocess. Parse the structured stdout report and assert each category count exactly matches the known ground-truth (added=3, deleted=1, renamed=1, modified=2).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.09,
+        "System": 0.82,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Git's staging area (index) is a real OS-managed data structure separate from the working tree. The tool must invoke different git commands or flags to observe staged vs. unstaged changes (git diff --cached vs. git diff). Whether these two code paths produce identical structured output is a question about real git state. You cannot test this with a mock because you'd need to construct two different fake subprocess responses and assert they produce the same output — which again tests the mock rather than the tool. The failure mode is that the tool uses the wrong git invocation for one of the two states (e.g., always reads unstaged changes even when called in staged mode). REJECTION-GATE for Unit: there is no pure logic to test here — it is a property of which git command the tool calls in each mode. REJECTION-GATE for Integration: in-process module wiring does not reproduce git's index/working-tree distinction.",
+      "test_description": "Create a real git repo with a known base commit. Make a set of changes to tracked files without staging them (unstaged). Run the CLI tool and capture its stdout report. Then stage exactly the same changes (git add) without committing. Run the CLI tool again and capture its stdout report. Assert the two reports are byte-for-byte identical (same categories, same counts, same file names).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.87,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

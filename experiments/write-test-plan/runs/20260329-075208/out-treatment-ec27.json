@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "TSP heuristic produces a route no more than 1.5x the optimal length for inputs up to 20 stops",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the heuristic algorithm — wrong neighbor selection, incorrect distance accumulation, or bad initial tour construction. No module hand-off is required; the failure is observable by calling the function with a known coordinate set and comparing output route length against a brute-force optimal. REAL-INFRA: Pure in-memory computation over a coordinate matrix — no I/O, no OS, no HTTP. MOCK-HIDE: Nothing to mock; the function is self-contained. LLM-DEP: No AI/ML model involved. MULTI-STEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit — consistent.",
+      "test_description": "Parameterize with small, hand-crafted coordinate grids (e.g., 5-stop and 20-stop cases) whose optimal tour length is known analytically. Call the TSP heuristic directly, compute the returned tour length, and assert it is ≤ 1.5× the known optimal. Include a degenerate case (all stops collinear, single stop) to guard corner cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Delivery time window estimates are computed correctly from distance and configured average speed for the road type",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives inside a single computation — distance ÷ speed → time window. There is no module boundary to cross; the formula either produces the right value or it doesn't, with no state propagation from another module required. REAL-INFRA: None. MOCK-HIDE: Nothing to mock — inputs are a distance scalar, a road-type enum, and a speed config. LLM-DEP: No. MULTI-STEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit — consistent.",
+      "test_description": "Call the time-window estimator directly with a table of (distance_m, road_type, avg_speed_kph) triples and assert the returned (start, end) window matches the expected values computed by hand. Include at least: one highway stop, one urban stop, zero-distance edge case, and a fractional-minute boundary to expose floating-point rounding.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is a comparison and arithmetic error inside a single validation function — total_time > shift_remaining and returning the delta. No other module's state is needed. REAL-INFRA: None. MOCK-HIDE: Nothing to mock. LLM-DEP: No. MULTI-STEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit — consistent.",
+      "test_description": "Call the validator directly with (total_route_duration, remaining_shift_hours) pairs. Assert: (1) returns None/ok when total < remaining, (2) returns the correct positive excess when total > remaining, (3) handles exactly-equal as valid (boundary), and (4) handles zero remaining shift.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address fails geocoding, the service skips that stop, optimizes remaining addresses, and reports which were skipped",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only appears when three modules interact correctly: the geocoding client returns 'no results', the service layer detects and isolates that address, passes the remaining list to the TSP optimizer, and collects skipped-address reporting into the final response. A unit test of any single module would never reveal a bug in the hand-off (e.g., the skipped address leaking into the optimizer's input, or the reporting list being populated at the wrong stage). REAL-INFRA: The geocoding API call can be reproduced faithfully with a stub HTTP client that returns an empty-results payload for one address — real HTTP is not required to catch the failure. MOCK-HIDE: Mocking at Unit level (injecting a stub that returns None) collapses all module wiring into one function and hides integration bugs. INTEGRATION-BRAKE: (a) Stub HTTP suffices — no real OS/network needed. (b) No AI/ML. (c) No multi-step agentic chain. COMMIT-TO-REASONING: EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent.",
+      "test_description": "Wire together the geocoding client (using a stub/fake HTTP layer that returns empty results for one specific address), the service orchestration layer, and the TSP optimizer with real in-process logic. Submit a 4-address list where address #2 is the failing one. Assert: the optimizer receives exactly 3 coordinate inputs, the returned route contains 3 stops, and the response's skipped_addresses list contains exactly address #2. Also assert that when all addresses fail geocoding, the service returns an appropriate error rather than passing an empty list to the optimizer.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses are consolidated into a single stop with combined delivery items, not visited twice",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the deduplication and item-merging logic: detecting a duplicate key, merging item lists, and producing a deduplicated stop collection. This is a self-contained transformation over the input data structure and does not require a module hand-off to manifest. REAL-INFRA: None. MOCK-HIDE: Nothing to mock. LLM-DEP: No. MULTI-STEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit — consistent. REJECTION-GATE: Integration was considered. The behavior text describes only the consolidation rule ('consolidated into a single stop with combined delivery items') — it does not describe a hand-off failure between the dedup layer and the optimizer, so Integration is not the minimum level needed to catch this failure.",
+      "test_description": "Call the address-consolidation function directly with a list that contains the same address string appearing twice (with different delivery item sets). Assert: the output contains exactly one stop entry for that address, its delivery items are the union/concatenation of both input item sets, and the total stop count equals unique-address count. Also test: three duplicates, a case with no duplicates (output unchanged), and case-sensitivity / whitespace variants if the spec normalizes address strings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The backoff doubling logic and cap are purely algorithmic — there is no module boundary the failure hides behind. REAL-INFRA: No OS/network needed; a fake or injectable timer suffices. MOCK-HIDE: Mocking the HTTP transport still lets us observe computed delays. LLM-DEP: No. INTEGRATION-CHECK (down-test): The backoff sequence can be exercised by driving the retry loop through a mock HTTP dependency that always returns 429, then asserting the recorded delay values — a single-function entry-point test.",
+      "test_description": "Instantiate the retry client with backoff config (initial=100ms, multiplier=2, max=1600ms). Inject a mock HTTP transport that always returns HTTP 429. Capture the wait duration before each attempt (via a spy on the delay function or clock injection). Drive the client to exhaustion. Assert the recorded delay sequence is [100, 200, 400, 800, 1600, 1600, …] — doubling each time until the cap is reached.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Rate-limit detection (e.g., status 429 + Retry-After header) and wait-time computation are deterministic parsing/arithmetic. The failure mode lives entirely inside one function or small class, not at a module boundary. REAL-INFRA: No network needed; a crafted response object is sufficient. MOCK-HIDE: No escalation needed — the logic is self-contained. INTEGRATION-CHECK (down-test): Calling `isRateLimitResponse(response)` and `computeWaitTime(response)` with a hand-crafted response object exercises the full behavior.",
+      "test_description": "Construct response objects: (a) HTTP 429 with `Retry-After: 30` header, (b) HTTP 429 without the header, (c) HTTP 500. Call `isRateLimitResponse()` on each and assert it returns true only for (a) and (b). Call `computeWaitTime()` on (a) and assert the returned value equals 30 s; on (b) assert it falls back to the configured default.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.09,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is that the retry wrapper either sends a different request or fails to propagate the success response back — both detectable by inspecting a single injected mock transport. No cross-module wiring is required; the behaviour is contained in the `call()` method. REAL-INFRA: No. MOCK-HIDE: A mock that returns 429 then 200 will expose any re-request or result-propagation bug without hiding it. INTEGRATION-CHECK (down-test): Calling `client.call(args)` with an injected transport spy that yields [429, 200+body] and asserting the return value equals body reproduces the failure at Unit level.",
+      "test_description": "Inject a mock HTTP transport configured to return HTTP 429 on the first call and HTTP 200 with payload `{result: 'ok'}` on the second. Call `client.call({method:'GET', path:'/resource', headers:{…}})`. Assert: (1) the transport spy was called exactly twice, (2) both calls received identical arguments (same method, path, headers), (3) `call()` resolves to `{result: 'ok'}`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The retry counter and error-type logic are entirely inside the `call()` implementation; no module boundary is involved. REAL-INFRA: No. MOCK-HIDE: A mock transport always returning 429 surfaces the error type without hiding anything. INTEGRATION-CHECK (down-test): Calling `client.call()` once with maxRetries=3 and a transport that always returns 429 will reproduce the failure if the wrong error type is thrown.",
+      "test_description": "Configure the client with maxRetries=3. Inject a mock transport always returning HTTP 429. Await `client.call(…)` inside a try/catch (or use `.rejects`). Assert the rejection is an instance of `QuotaExhaustedError` (not a generic `Error`). Also assert the transport was called exactly 4 times (initial + 3 retries), ensuring it did not give up earlier or run past the limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is an infinite or runaway loop that emerges only when the retry coordinator, the backoff scheduler, and the quota tracker interact. Any one module in isolation can be made to terminate trivially. REAL-INFRA: No real network needed. MOCK-HIDE: Mocking each internal sub-module would give each component an artificial stop condition, masking an integration-level cycle. INTEGRATION-CHECK: Down-test fails — calling a single function with crafted args cannot expose a bug that requires the three internal modules to hand off state to each other. Up-test does not reach System: in-process module wiring is sufficient. Integration survives both checks.",
+      "test_description": "Wire the production retry coordinator, backoff scheduler, and quota tracker together without mocking their internal interactions. Inject a fake HTTP transport (always 429) and a fake clock/timer to avoid real delays. Set a hard timeout on the test (e.g., 2 s real time). Call `client.call(…)`. Assert the promise settles (does not hang), settles as a `QuotaExhaustedError`, and that the total number of HTTP calls equals maxRetries+1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.58,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — each concurrent caller maintaining its own isolated quota counter — is invisible when testing a single caller. The bug only surfaces when two or more callers are wired to the same shared bucket simultaneously. REAL-INFRA: No network required; in-process async concurrency suffices. MOCK-HIDE: Testing callers in isolation hides the shared-state bug entirely. INTEGRATION-CHECK: Down-test fails — a single-caller unit test cannot expose a shared-state isolation bug. Up-test does not reach System: concurrent Promises in the same Node.js process are sufficient to reproduce it. Integration survives.",
+      "test_description": "Instantiate one shared client (one shared quota bucket, maxRetries=2). Inject a mock transport that returns HTTP 429 for all calls. Fire `Promise.all([client.call(reqA), client.call(reqB), client.call(reqC)])`. Assert that the combined retry attempts across all callers never exceed (maxRetries+1)*3 total transport calls (i.e., the quota is shared and callers are not each given a fresh independent counter). Also assert all three promises reject with `QuotaExhaustedError`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO ordering only manifests when multiple callers submit to the same dispatch queue concurrently; a single-caller unit test cannot expose an ordering violation. REAL-INFRA: No real network needed; in-process async scheduling is sufficient. MOCK-HIDE: Testing each request in isolation hides any ordering bug. INTEGRATION-CHECK: Down-test fails — submitting requests one at a time never exposes an ordering bug in a concurrent queue. Up-test does not reach System: in-process async execution with a shared queue reproduces the failure. Integration survives both checks.",
+      "test_description": "Set the client's concurrency to 1 so all requests queue behind the first. Submit five requests in rapid succession: `Promise.all([client.call(req1), …, client.call(req5)])`. The injected mock transport records arrival order by appending a request identifier to a shared array. After all settle, assert the arrival-order array is exactly `[req1, req2, req3, req4, req5]`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.67,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

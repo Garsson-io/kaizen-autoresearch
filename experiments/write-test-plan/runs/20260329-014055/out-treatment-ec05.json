@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The ordering failure lives entirely in the sort/comparison function that ranks filenames by numeric prefix — no module boundary is crossed. The function takes a list of filenames and returns a sorted list; crafted input covers all edge cases (e.g., '10' vs '9', leading zeros, ties). REAL-INFRA: No filesystem needed; test with an in-memory array. MOCK-HIDE: Sorting is deterministic; no dependency being mocked can hide the failure. INTEGRATION-CHECK Down-test: calling the sort function with ['10_b.sql','2_a.sql','1_c.sql'] and asserting the returned order directly reproduces the bug without any module wiring.",
+      "test_description": "Call the filename-sorting function (or equivalent ordering utility) with an array containing filenames whose numeric prefixes are non-contiguous, out-of-lexicographic-order (e.g., ['10_create_index.sql', '2_add_column.sql', '1_create_table.sql']). Assert the returned order is [1, 2, 10] — not lexicographic [1, 10, 2]. Also test edge cases: single-digit vs multi-digit, filenames with identical prefixes, and zero-padded vs unpadded numbers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure requires the runner to query the _migrations table, compare its contents against the file list, and skip matched entries — a hand-off between the DB layer and the execution logic. If the ID comparison or table query has a bug, it only surfaces when real rows exist. MOCK-HIDE: Mocking the DB to return a pre-applied list tells us nothing about whether real INSERT + SELECT round-trips work correctly, or whether IDs are stored/compared in the same format. A real DB run followed by a second run is the minimum that faithfully exercises the state dependency. INTEGRATION-CHECK Up-test: no OS/subprocess needed — an in-process connection to a local test PostgreSQL instance is sufficient.",
+      "test_description": "Using a local test PostgreSQL database, run the migration runner against a fresh database containing one migration file. Verify the migration is applied and recorded in _migrations. Run the runner a second time against the same database. Assert: (a) the migration SQL was not re-executed (e.g., verify via a unique-constraint violation that would occur on double-insert, or via a migration-call counter), and (b) _migrations still contains exactly one row for that migration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Both sub-behaviors — rollback and halt — depend on cross-module wiring. Rollback correctness requires real transaction semantics (BEGIN/ROLLBACK actually undoing writes); a mock that says 'rolled back' proves nothing about data state. Halt requires the error propagating from the DB layer to the runner's scheduling loop. MOCK-HIDE: If the DB is mocked, a bug where the runner commits before detecting the error would be invisible. REAL-INFRA: A local PostgreSQL test instance provides real transaction semantics in-process; no external network or subprocess needed. INTEGRATION-CHECK Up-test: still in-process, so System is not required.",
+      "test_description": "Set up a local test PostgreSQL database with two migration files: the first inserts a row into a test table and then executes a statement guaranteed to fail (e.g., INSERT into a non-existent table). The second migration inserts a different row. Run the migration runner. Assert: (a) the test table contains zero rows (rollback was applied), (b) _migrations records no applied migrations for this run, and (c) the second migration was never attempted (verify by absence of its row or a side effect).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.76,
+        "System": 0.18,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is a race condition in database-level locking (e.g., advisory locks, SELECT FOR UPDATE, or serializable transactions). REAL-INFRA: Real concurrent OS processes and a real PostgreSQL instance with real lock scheduling are required — no in-process simulation can reproduce true lock contention and the timing windows that expose the bug. MOCK-HIDE: Any mock of locking semantics collapses the race to a serial execution, making the test vacuously pass. The only faithful reproduction is two separate Node.js processes started near-simultaneously against a live database. INTEGRATION-CHECK Up-test: subprocess execution and real PostgreSQL locking are required → System.",
+      "test_description": "Spawn two Node.js migration runner subprocesses simultaneously (e.g., via Promise.all with child_process.spawn) targeting the same real PostgreSQL test database containing one migration file. Wait for both to exit. Assert: (a) the migration SQL was applied exactly once (verify via the table's row count or a unique constraint), (b) _migrations contains exactly one row for that migration, and (c) neither process exited with an unhandled error. Run the scenario multiple times or introduce a deliberate artificial delay inside the lock acquisition path to increase collision probability.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.9,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is an ordering bug in the bootstrap sequence: if the runner tries to INSERT into _migrations before creating it, the migration crashes. This is a cross-module interaction between the initialization code (CREATE TABLE) and the migration executor (INSERT). MOCK-HIDE: If the DB is mocked and CREATE TABLE is stubbed, no error is ever raised regardless of order, so a mocked test would always pass even with the bug present. A real DB enforces the constraint that the table must exist before writes. REAL-INFRA: A local test PostgreSQL instance is sufficient; no subprocess or OS behavior needed. INTEGRATION-CHECK: (a) failure needs cross-module wiring ✓; (b) in-process real DB connection reproduces it ✓ → Integration survives.",
+      "test_description": "Point the migration runner at a real PostgreSQL test database that has been freshly created with no tables. Run the runner with at least one migration file. Assert: (a) the runner exits without error, (b) _migrations exists and contains exactly one row per applied migration, and (c) the migration's intended schema changes are present. To directly probe the ordering invariant, instrument or inspect query logs (e.g., via pg_stat_statements or a query-logging wrapper) to confirm the CREATE TABLE _migrations statement preceded the first migration INSERT.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

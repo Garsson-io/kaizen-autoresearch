@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Unit",
+      "justification": "Manifest validation is a pure parsing/algorithmic concern: does the validator correctly reject an object missing a required field? The failure mode (accepting an invalid manifest and proceeding to load plugin code) can be reproduced by calling the manifest validator function with crafted inputs. No module wiring, filesystem, or external dependency is needed to expose this bug.",
+      "test_description": "Call the manifest validator function directly with a manifest object that is missing each required field in turn (name, version, dependencies, etc.). Assert that the validator returns/throws a rejection error for each case, and assert that no plugin entry-point require/import is triggered (verify via a spy or by observing the validator's return value prevents further loading).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Integration",
+      "justification": "Unit-testing the topological sort in isolation only verifies that the resolver produces the correct ordered list, not that the hook invoker actually respects that order. The failure mode that matters here — B's hook fires after A's — only appears when the dependency resolver hands its output to the hook invocation loop. That cross-module handoff is what needs to be exercised. Down-test: a unit test of the sort function alone cannot catch a bug where the loader ignores or reverses the resolved order when it calls hooks.",
+      "test_description": "Instantiate the full loader in-process with two in-memory plugin stubs: stub A declares a dependency on stub B; both stubs record the timestamp/sequence of their onLoad calls. Call loader.loadAll([manifestA, manifestB]) and assert that B's onLoad sequence number is strictly less than A's.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.66,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Unit",
+      "justification": "Cycle detection is a pure graph algorithm applied to the declared dependency lists in the manifests. The failure (not detecting the mutual dependency) can be reproduced by calling the dependency resolver with two crafted manifest objects that reference each other. No module wiring, filesystem, or hook invocation is required to expose this bug — it lives entirely within the resolver's graph traversal logic.",
+      "test_description": "Call the dependency resolver (or the full resolver entry-point) with two manifest objects where A.dependencies includes B and B.dependencies includes A. Assert the resolver returns/throws a CyclicDependencyError (or equivalent), and assert that neither plugin's entry module is imported nor its onLoad called (verify via the absence of side-effects or by asserting load results are empty).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.83,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "The ordering invariant 'import and execute module code, then call onLoad' spans two distinct subsystems: the module importer (require/import machinery) and the hook invoker. A unit test of either subsystem alone cannot verify the sequencing between them. The failure — onLoad called before the entry module runs — only becomes visible when both subsystems are wired together and their interaction is observed. Down-test: a unit test of the hook invoker with a mocked importer would trivially pass even if the real importer is called after the hook. In-process wiring with a tracked module loader is sufficient; no real filesystem or OS calls are needed.",
+      "test_description": "Wire the loader in-process with a controlled module importer that appends 'imported:pluginX' to a shared call log, and plugin stubs whose onLoad appends 'hook:pluginX'. Call loader.loadAll([manifest]) and assert that 'imported:pluginX' appears at an earlier index in the call log than 'hook:pluginX'.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.63,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "This behavior crosses at least two module boundaries: the error-catching mechanism in the hook invocation loop and the dependency graph that determines which downstream plugins must be skipped. A unit test of error catching alone cannot verify that dependents are correctly identified and excluded; a unit test of the dependency filter alone cannot verify it is consulted after a hook failure. The specific failure mode — a dependent plugin is loaded despite its dependency having failed, or an independent plugin is incorrectly skipped — only emerges when these modules are wired together. In-process wiring is sufficient; no real filesystem or OS behavior is needed.",
+      "test_description": "Wire the loader in-process with three plugin stubs: A whose onLoad throws, B with no dependencies, and C which declares a dependency on A. Call loader.loadAll([manifestA, manifestB, manifestC]) and assert: (1) the loader does not propagate an uncaught exception, (2) B's onLoad was called, (3) C's onLoad was not called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.66,
+        "System": 0.08,
+        "Agentic": 0.015,
+        "Workflow": 0.025
+      }
+    }
+  ]
+}

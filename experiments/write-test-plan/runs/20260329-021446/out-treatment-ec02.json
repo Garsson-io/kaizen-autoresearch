@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with non-matching signature is rejected with 401; body is not forwarded.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure boundary is a single function — the HMAC-SHA256 comparison and the handler's gate decision. The bug (accepting a bad signature or forwarding anyway) lives entirely inside that function's logic. REAL-INFRA: No OS, filesystem, or real network needed; the handler can be invoked directly with a fabricated req/res pair and a known secret. MOCK-HIDE: The crypto comparison is pure; nothing to mock that could hide the failure. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: A higher level (Integration) would only be needed if the failure mode emerged from the interaction of multiple modules — e.g., the secret being fetched live from a remote config store. No such dependency is stated.",
+      "test_description": "Call the signature-verification middleware directly (no HTTP server) with (a) a valid HMAC over the raw body and (b) a tampered body whose digest no longer matches. Assert that case (a) calls next() and case (b) responds with status 401 without invoking the queue-write path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The event is durably written to the persistent queue before the HTTP 200 response is returned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (returning 200 before the await on queue.write resolves) only becomes observable at the boundary between the handler and the queue module — if you mock the queue as a synchronous stub, the ordering bug in async code may not surface. REAL-INFRA: No OS or network required; an in-process fake queue with a deliberate async delay is sufficient to expose a missing await. MOCK-HIDE: A synchronous no-op mock would always pass even if the handler fires-and-forgets the write. The fake queue must be async (returned Promise that resolves after a tick) to reveal the bug. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: System is not required because the ordering guarantee does not depend on real network or OS behavior — the async sequencing is observable in-process.",
+      "test_description": "Wire the HTTP handler with a fake queue whose write() returns a Promise that resolves after one event-loop tick. Send a valid webhook request. Intercept the moment the response is sent (spy on res.end / res.json) and the moment the queue write resolves. Assert that the queue write's resolve timestamp precedes the response timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.65,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (handler awaiting the downstream consumer) only appears when the handler is wired to a downstream processor. A pure unit test of the handler function without a downstream dependency cannot observe whether it awaits something it hasn't been given. REAL-INFRA: An in-process fake downstream processor that never resolves is sufficient; no real OS or network required. MOCK-HIDE: A mock that resolves immediately would always pass, even if the handler incorrectly awaits it. The fake must be a Promise that never resolves (or resolves very slowly) so that a blocking handler would hang. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: System is not required — the fire-and-forget pattern is detectable in-process by checking that the response arrives before the downstream Promise settles.",
+      "test_description": "Wire the handler with a downstream processor whose process() returns a Promise that is intentionally never resolved. Send a valid webhook request and assert that the HTTP response arrives (status 200) before a short timeout (e.g., 500 ms) without the Promise having settled, confirming the handler did not await it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.62,
+        "System": 0.23,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This is a latency SLA under concurrent load. The failure mode (response latency exceeding 3 s) only appears with real concurrent HTTP connections sharing OS-level thread/event-loop resources. REAL-INFRA: An in-process supertest call is single-threaded and cannot reproduce real concurrent connection backpressure, OS socket queuing, or event-loop saturation caused by N simultaneous slow handlers. Only a real HTTP server accepting real concurrent TCP connections exposes these effects. MOCK-HIDE: An in-process single-request test with a mock slow processor would always pass regardless of real concurrency behavior. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: The specific failure text is 'slow and concurrent' — concurrency under real OS scheduler and network stack is the disqualifying phrase for Integration.",
+      "test_description": "Start the service as a real subprocess (or a live listen()ing server) with a downstream processor configured to sleep for 10 s per event. Fire 20 concurrent real HTTP POST requests with valid signatures. Assert that every response status is 200 and that the p99 wall-clock response time is under 3 s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.2,
+        "System": 0.72,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Idempotency requires coordination between the handler, an ID-tracking store, and the queue. The bug (double-enqueue) only surfaces when those modules are wired together and the store's 'already seen' state is correctly consulted before the queue write. Testing the handler in isolation cannot exercise this cross-module state check. REAL-INFRA: An in-process fake store (e.g., in-memory Set) and a fake queue are sufficient to catch the failure — no real DB or network required. MOCK-HIDE: Mocking both the store and the queue as always-succeeding no-ops would hide the bug. At minimum, the store must track actual insertions and the queue must expose a write-count spy. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: System is not needed because duplicate detection depends on shared in-process state, not OS or network behavior.",
+      "test_description": "Wire the handler with an in-memory ID store and a spy-wrapped fake queue. POST two requests carrying the same event ID with valid signatures. Assert that queue.write() was called exactly once and that the second request returns a 2xx (or appropriate idempotency status) without a second enqueue.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.73,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The handler must translate a 'queue full' signal from the queue module into a specific HTTP response shape (503 + Retry-After). The failure (missing header, wrong status) lives at the handler–queue boundary. REAL-INFRA: A fake queue that throws a QueueFullError (or returns a 'full' rejection) in-process is sufficient — no real infrastructure needed. MOCK-HIDE: A mock that swallows the error without propagating the fullness signal would never exercise the handler's error branch. The fake must actually surface a 'full' condition. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: System is not required; the Retry-After value and 503 status are pure handler response logic, exercisable in-process.",
+      "test_description": "Wire the handler with a fake queue whose write() rejects with a QueueFullError carrying a retryAfter field. POST a valid webhook. Assert that the HTTP response status is 503 and that the Retry-After header is present with a value derived from the error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.58,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior is about the queue module's own internal enforcement, not the handler's response to it. Testing the handler alone cannot reveal a capacity bug inside the queue implementation. The queue must be exercised directly. REAL-INFRA: 'Persistent' implies durable storage beyond a plain in-memory variable — at minimum a local file, SQLite, or embedded store. If persistence is backed by a separate process (Redis, Postgres), a real instance is required; if it is file/embedded, an in-process instance suffices. In either case no public network or OS-level subprocess is needed, so Integration is the floor. MOCK-HIDE: Mocking the storage layer would trivially pass, hiding any capacity logic bug. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: System would only be needed if the capacity enforcement depended on OS file limits or real network I/O to an external store — not stated.",
+      "test_description": "Instantiate the queue module directly (no HTTP handler) with capacity N=3. Enqueue 3 items and assert all succeed. Attempt to enqueue a 4th item and assert that the queue rejects it with a QueueFullError (or equivalent). Optionally restart the queue from its persistent backing store and assert the count is still 3, confirming durability.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

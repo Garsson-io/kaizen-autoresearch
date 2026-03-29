@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-28",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "SUM(A1:A10) evaluates to the correct sum of values in the referenced range.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the formula evaluator's range-argument handling and SUM function logic — both live within the formula engine object. No module handoff is required; an in-memory engine with pre-set cell values is sufficient. REAL-INFRA: No OS, network, or subprocess. MOCK-HIDE: No dependency to mock. LLM-DEP: No model. REJECTION-GATE: Integration was considered but rejected because the formula engine, range resolver, and SUM function are cohesive internals of one engine object — the failure (wrong sum, off-by-one range) is not gated by a module-boundary handoff.",
+      "test_description": "Create an in-memory spreadsheet engine. Set cells A1–A10 to known numeric values (e.g., 1 through 10). Set a result cell to the formula =SUM(A1:A10). Evaluate the result cell and assert the returned value equals 55. Also test with floating-point values and a mix of positive/negative numbers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A cell referencing another cell containing a formula produces the correct cascaded result.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — wrong cascaded result — only appears when the formula evaluator, cell value store, and dependency resolver hand off intermediate formula results correctly. If B1=A1*2 must be evaluated before C1=B1+1, the bug appears at the boundary where the evaluator looks up B1 and receives either a stale raw value or the correct computed result. A unit test of the evaluator in isolation cannot reproduce this because the hand-off of computed vs. raw values is precisely the failure boundary. REAL-INFRA: No OS/network needed; an in-process fake cell store suffices. REJECTION-GATE: System is disqualified — no subprocess or real external API is involved.",
+      "test_description": "Wire together the formula engine with its cell store and dependency resolver. Set A1=5, B1=A1*2, C1=B1+1. Trigger evaluation and assert C1=11. Then change A1=10 and re-evaluate; assert C1=21. Also test a three-level chain to confirm the cascade is not depth-limited.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The engine detects a circular dependency (A1 → B1 → A1) and returns an error instead of looping.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Cycle detection is a graph algorithm local to the dependency manager. The failure (infinite loop or missing error) is entirely determined by the cycle-detection logic applied to the in-memory dependency graph — no inter-module handoff is required to reproduce it. REAL-INFRA: No OS/network. REJECTION-GATE: Integration was considered; rejected because the dependency graph and cycle detector are a single algorithmic unit. Wiring in the full formula evaluator adds no new failure surface for this specific behavior.",
+      "test_description": "Create a dependency graph with A1 referencing B1 and B1 referencing A1. Call the engine's formula evaluation or dependency registration entry point. Assert that the result for A1 (and B1) is a circular reference error sentinel (not a numeric value and not a hang). Also test a longer cycle: A1→B1→C1→A1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.22,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "VLOOKUP with exact match returns the correct value; returns an error when the key is not found.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: VLOOKUP is a built-in function whose logic — argument parsing, table traversal, exact-match comparison — lives entirely within the function implementation. Both the happy path and the key-not-found error path are determined by the function's own loop and comparison logic; no inter-module handoff is at issue. REAL-INFRA: None. REJECTION-GATE: Integration was considered; rejected because VLOOKUP's arguments (the lookup table) can be injected directly as in-memory cell ranges without needing the full engine's cell store.",
+      "test_description": "Construct an in-memory lookup table (e.g., a 4-row × 2-column range with known keys and values). Call the VLOOKUP function directly with an exact-match flag. Assert the correct value is returned for a key that exists. Assert the appropriate error value (e.g., #N/A) is returned for a key that does not exist. Test case-sensitive vs. case-insensitive match behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "IF function correctly handles nested conditions (e.g., =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\")).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Nested IF evaluation is a recursive expression-tree traversal within the formula evaluator. The failure (wrong branch taken, incorrect short-circuit) is determined by the evaluator's recursive descent logic — not by a handoff between separate modules. REAL-INFRA: None. REJECTION-GATE: Integration was considered; rejected because the nested IF formula can be fully exercised by passing an expression AST or formula string to the evaluator with a single cell-lookup stub.",
+      "test_description": "Set A1 to three representative values: 5 (expect \"low\"), 15 (expect \"medium\"), 25 (expect \"high\"). Evaluate =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\") for each. Assert the returned string matches the expected branch. Also test boundary values 10 and 20 to confirm > vs >= semantics.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "CONCATENATE skips empty cells rather than inserting blank strings, and joins non-empty values with the correct separator.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — blank strings appearing in output — depends on how the cell store represents an empty cell (null, empty string, or a sentinel) and how CONCATENATE inspects that representation. This is a module-boundary bug: if the cell store returns \"\" for empty cells and CONCATENATE trusts it without a null/empty check, the bug only appears when the two modules are wired together. A unit test of CONCATENATE in isolation with hardcoded strings cannot trigger this failure. REAL-INFRA: No OS/network. REJECTION-GATE: System disqualified — no subprocess or external API involved.",
+      "test_description": "Wire the formula engine with its cell store. Set A1=\"Hello\", A2 to empty (unset/blank), A3=\"World\". Evaluate =CONCATENATE(A1, A2, A3) and assert the result is \"HelloWorld\" (empty cell skipped, no blank inserted). Also test with a separator variant and assert that a cell explicitly set to \"\" is also skipped (not just unset cells).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.62,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "A formula referencing a cell in a different sheet (=Sheet2!A1+1) resolves correctly when that sheet exists.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Cross-sheet reference resolution requires the formula evaluator to call into the workbook's sheet registry to locate Sheet2 and retrieve its cell A1. The failure (wrong value, sheet-not-found error when sheet exists) only manifests at the boundary between the formula evaluator and the multi-sheet workbook data structure. A unit test of the evaluator with a single-sheet stub cannot reproduce it. REAL-INFRA: No OS/network; an in-process two-sheet workbook object is sufficient. REJECTION-GATE: System disqualified — no external command or real network call required.",
+      "test_description": "Create a workbook with two in-memory sheets. Set Sheet2!A1=10. In Sheet1, set cell B1 to =Sheet2!A1+1. Evaluate B1 and assert the result is 11. Also test that the formula returns a #REF! error when the referenced sheet does not exist.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "When a referenced cell's value changes, all dependent formulas are recalculated in the correct topological order.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Correct topological recalculation requires the dependency graph, change propagation mechanism, and formula evaluator to agree on evaluation order. The failure (stale value in a downstream cell, or a downstream cell evaluated before its dependency) only emerges when these three components are wired together and process a real change event. A unit test of the formula evaluator alone never exercises the propagation ordering logic. REAL-INFRA: No OS/network. REJECTION-GATE: System disqualified — no subprocess or external API involved.",
+      "test_description": "Wire dependency graph, change tracker, and formula evaluator. Set up A1=2, B1=A1*3, C1=B1+A1 (expected C1=8). Mutate A1 to 5 and trigger recalculation. Assert B1=15 and C1=20 (not stale). Use a spy on the evaluator to assert B1 is evaluated before C1 in the propagation pass. Also construct a diamond dependency (A1→B1, A1→C1, B1+C1→D1) and confirm D1 is evaluated last.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The undo operation after editing a formula restores both the formula text and all previously computed dependent values.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Undo correctness depends on the command/history stack capturing a consistent snapshot of formula text AND computed cell state, then the formula engine restoring both. The failure (formula text restored but stale computed values, or vice versa) only appears when the undo manager and formula engine are wired together and process a real edit-then-undo sequence. REAL-INFRA: No OS/network; fully in-process. REJECTION-GATE: System disqualified — undo is an in-process state management operation with no subprocess or external API.",
+      "test_description": "Wire the undo manager with the formula engine and cell state store. Set A1=5 and B1=A1*2 (B1 evaluates to 10). Record an undo checkpoint. Edit A1 to 20 (B1 now evaluates to 40). Invoke undo. Assert A1 formula/value is restored to 5 and B1's computed value is restored to 10 — not stale at 40. Also test a two-level undo chain.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Saving a workbook to disk and loading it back produces identical cell values and formulas with no data loss or floating-point precision change.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (data loss, precision drift) lives in the binary serializer/deserializer interacting with real byte-level encoding of floats and formula strings — multiple modules (serializer, I/O layer, deserializer, cell population logic) must all be wired together. REAL-INFRA: Writing to a temp file is filesystem I/O, but the failure mode (precision loss in the custom binary format) is determined by serialization logic, not OS-specific behavior. A BytesIO in-process buffer would expose the same bug; the test does not require real filesystem-specific semantics. REJECTION-GATE: System level was considered due to file I/O, but the bright-line rule for System requires external command execution or OS behavior that in-process fakes cannot reproduce. A temp-file integration test catches the serialization precision bug just as well as a full System test. No subprocess or external CLI is involved.",
+      "test_description": "Build a workbook with a mix of integer cells, floating-point cells (including values that are lossy in 32-bit float, e.g., 1.1 + 2.2), formula cells (=SUM, =IF), and empty cells. Serialize to a temp file using the engine's save API. Deserialize from the same temp file using the engine's load API. Assert every cell value is bit-for-bit identical to the original (use exact equality for floats, not approximate). Assert every formula string is character-for-character identical.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

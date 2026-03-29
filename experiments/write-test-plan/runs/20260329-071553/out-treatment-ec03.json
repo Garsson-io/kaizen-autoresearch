@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely in the categorization/parsing logic — specifically whether the code handles git's R-status entries rather than decomposing them into D+A. This is a single-function boundary, not a multi-module interaction failure.\n\nREAL-INFRA: An in-process mock of the subprocess output accurately reproduces the failure. Git's rename output format (e.g., `R100\\told_name.txt\\tnew_name.txt` from `git diff --name-status`) is well-documented and deterministic. The bug — treating R as D+A — is visible with a correctly formatted mock string; it does not depend on real subprocess behavior.\n\nMOCK-HIDE: Mocking does not hide the failure because the categorization error is exposed by any input containing an R-status entry, whether from a real or mocked git invocation.\n\nREJECTION-GATE for System: The behavior text describes a categorization invariant ('appear in their own category'), not a subprocess or OS behavior. The failure is entirely in parsing/classification logic, which disqualifies System as the minimum level.",
+      "test_description": "Unit test: mock the subprocess call that invokes git (e.g., `git diff --name-status`) to return a string containing one R-status entry (`R100\\told_file.py\\tnew_file.py`). Call the categorization function directly. Assert the returned report has exactly one entry in the 'renamed' bucket and zero entries in 'added' and 'deleted' for those filenames. Also assert total counts: renamed=1, added=0, deleted=0.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description exercises only one local parsing/categorization function with a mock input — no I/O, no subprocess, no module wiring required. Consistent with Unit level.",
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.2,
+        "System": 0.22,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The crash risk for binary files is at the subprocess boundary. Git outputs `Binary files a/foo and b/foo differ` for binary diffs, but real binary content (null bytes, non-UTF-8 sequences) can appear in subprocess stdout when using flags like `--text`, or in the raw bytes captured before encoding. The exact encoding failure — a `UnicodeDecodeError` or similar — only surfaces when real binary content flows through the subprocess pipe. A carefully constructed mock can replicate the printed message, but may miss the encoding path that actually causes the crash.\n\nMOCK-HIDE: A mock that returns a clean ASCII string `'Binary files a/foo and b/foo differ\\n'` would pass even if the production code incorrectly opens the subprocess pipe in text mode without an error handler, because the mock never exercises that pipe. The failure is at the OS-level byte-stream boundary.\n\nINTEGRATION-BRAKE: (a) Yes — real subprocess byte encoding behavior is needed. This upgrades to System. (b) No AI/ML dependency. (c) No multi-agent steps.\n\nREJECTION-GATE for Integration: An in-process fake cannot reproduce encoding failures that arise specifically from Python reading real binary bytes off a subprocess pipe.",
+      "test_description": "System test: create a real temporary git repository, commit a binary file (e.g., a small PNG or a file created with `\\x00\\x01\\x02...` null bytes), then run the CLI tool as a subprocess against that repo. Assert exit code is 0 (no crash). Assert the stdout report includes the binary file in a 'binary' or overall count category with a count of at least 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test description requires a real git repo, a real binary file on disk, and running the CLI via subprocess — exactly System-level infrastructure.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.15,
+        "System": 0.73,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The failure mode is that git commands fail with specific error codes or messages on an empty (commit-less) repository. For example, `git log` exits non-zero with `fatal: your current branch 'main' does not have any commits yet`, and `git diff HEAD` similarly fails. The tool must detect and handle these specific subprocess exit codes and error messages. An in-process mock that simply returns empty output or a zero exit code does not reproduce the failure — it bypasses the exact error path the tool must handle.\n\nMOCK-HIDE: Any mock that returns success hides whether the tool correctly handles the non-zero exit code. A mock that returns the real error message could simulate the failure, but the exact error string depends on the git version, so a real subprocess is the safest reproducer.\n\nINTEGRATION-BRAKE: (a) Yes — real subprocess exit code behavior from git on an empty repo is needed. Upgrades to System. (b) No AI/ML. (c) No multi-agent steps.\n\nREJECTION-GATE for Integration: The failure is specifically about subprocess error code handling; an in-process fake cannot accurately reproduce git's version-specific error messages and exit codes for the empty-repo case.",
+      "test_description": "System test: create a real temporary directory and run `git init` in it, then immediately run the CLI tool against that directory (with no commits made). Assert exit code is 0. Assert stdout contains a valid (parseable) report structure with all change categories present and all counts equal to 0. Assert stderr is empty or contains only informational (non-error) output.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires a real git init (subprocess), no commits, and running the CLI as a subprocess — correctly at System level.",
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.1,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Count accuracy is an end-to-end correctness invariant across the full read-parse-aggregate-output pipeline. The failure could live in any module: the git invocation arguments (wrong range), the parsing (off-by-one, missing a change type), or the aggregation. Testing only one layer with mocks cannot catch cross-layer disagreements.\n\nREAL-INFRA: 'Actual change history' means the ground truth is a real git repository. Mocking the git output and then asserting it equals a hand-rolled expected structure only verifies that the tool can parse what we gave it — it does not verify that the tool correctly reads a real repo's history. The failure mode (wrong counts vs. actual repo state) only appears with a real git history as the source of truth.\n\nMOCK-HIDE: A mock always passes this test because we control both the input and the expected output — there is no independent ground truth to compare against.\n\nINTEGRATION-BRAKE: (a) Real subprocess needed to read real git history — upgrades to System. (b) No AI/ML. (c) No multi-agent steps.",
+      "test_description": "System test: create a real temporary git repository and perform a precise, controlled sequence of commits — add exactly 3 files, delete 2, rename 1, modify 2 (in separate commits or one commit with known changes). Record the expected counts. Run the CLI tool against this repo as a subprocess. Parse the stdout report and assert: added=3, deleted=2, renamed=1, modified=2. Also verify the total file count matches the sum.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires creating a real git repo with known history and running the CLI as a subprocess to get actual output — System level confirmed.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.14,
+        "System": 0.72,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior requires operating git's staging area — running `git add` to stage changes, then comparing output for staged vs. unstaged analysis. The tool likely uses different git commands internally (`git diff` vs. `git diff --cached` / `git diff --staged`) or a flag to switch modes. The failure mode — diverging output between staged and unstaged modes — only manifests when real git staging mechanics are exercised. A mock cannot reproduce whether the tool issues the right git command variant for each mode.\n\nMOCK-HIDE: If we mock both the staged and unstaged git calls to return identical output, the test trivially passes regardless of whether the tool actually calls the correct commands. The failure is in which command is invoked, not what that command returns.\n\nINTEGRATION-BRAKE: (a) Real subprocess and real OS filesystem state (index vs. working tree) are needed — System. (b) No AI/ML. (c) No multi-agent steps.\n\nREJECTION-GATE for Integration: An in-process fake cannot replicate the distinction between git's index state and working-tree state; the failure requires real git staging operations.",
+      "test_description": "System test: create a real temporary git repository with a baseline commit. Make a set of file changes (add 1 file, modify 1 file, delete 1 file) but do not stage them. Run the CLI tool in 'unstaged' mode and capture output A. Then stage all those changes with `git add -A` and run the CLI tool in 'staged' mode and capture output B. Assert output A equals output B (same categories, same counts, same filenames). Run this for at least two different change sets to rule out accidental equality.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real git staging (git add), real subprocess CLI invocations in two modes, and comparing real outputs — System level confirmed.",
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.83,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

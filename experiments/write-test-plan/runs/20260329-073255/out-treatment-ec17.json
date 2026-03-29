@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not at a module boundary — it's about LLM output quality. Whether the LLM actually reads and incorporates email-specific points vs. produces a boilerplate response cannot be detected by wiring modules together. LLM-DEP: A stubbed LLM always returns whatever you program; it cannot reveal whether the real model uses email context. MOCK-HIDE: Any stub passes trivially. REJECTION-GATE: Integration is disqualified because no amount of module-wiring verifies that the real LLM grounds its output in the provided email thread content. System is disqualified because no OS/subprocess boundary is involved. Workflow is not needed — this is a single generation step.",
+      "test_description": "Feed a real email thread containing several named facts (e.g., a specific meeting time, a named project, a concrete ask) to the live LLM draft-generation step. Assert that the returned draft contains at least N thread-specific terms/phrases, and does NOT match a known generic template. Run across several distinct email threads to confirm context-sensitivity.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.81,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure boundary involves both the KB lookup and the checker's ability to recognize contradiction — not just routing. LLM-DEP: In an LLM-based assistant the consistency check is almost certainly performed by a language model asked to compare claims against KB entries. A deterministic stub would always return whatever label you hard-code, hiding whether the real model actually identifies semantic contradiction. MOCK-HIDE: A stubbed checker always 'flags' or 'passes' as configured, never revealing model accuracy. REJECTION-GATE: Integration is disqualified unless the checker is purely deterministic (e.g., exact-string diff); given the context, semantic contradiction detection requires real LLM judgment. Workflow is not needed — this is a single evaluation step.",
+      "test_description": "Populate an in-process knowledge base with a set of known facts (e.g., 'Product X launched in 2022'). Feed the checker a draft containing one statement that directly contradicts a KB entry and one that is consistent. Call the real LLM-backed checker and assert: (a) the contradicting claim is flagged, (b) the consistent claim is not flagged. Vary the phrasing to confirm the check is not a surface-string match.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0.62,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: There are two sub-concerns: (a) the KB lookup correctly returns empty and signals this upstream (Integration), and (b) the LLM actually emits a disclaimer rather than hallucinating facts (Agentic). The behavior explicitly tests (b) — the LLM's output disposition when context is absent. LLM-DEP: Whether the LLM hedges or fabricates is a real model quality property. A stub always returns whatever you code, masking the actual failure mode entirely. MOCK-HIDE: A stubbed LLM would trivially include a disclaimer string in its canned output. REJECTION-GATE: Integration is disqualified because it cannot catch LLM hallucination on empty KB context; that failure is invisible to in-process stubs.",
+      "test_description": "Configure an empty or topic-irrelevant knowledge base for a given query domain. Pass a real email thread in that domain to the full draft-generation step with real LLM. Assert that the returned draft contains an explicit uncertainty/disclaimer phrase and does not assert any domain-specific facts as certain. Repeat with several domain queries to check consistency of disclaimer behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.72,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that the send action is invoked before or without approval — this appears at the boundary between the approval-state component and the email-sender component, not inside a single function. REAL-INFRA: A real email API is not needed; a fake/spy sender is sufficient to observe whether send() is called. MOCK-HIDE: A spy sender that records calls will reveal a premature send even without real SMTP. LLM-DEP: The approval gating logic is deterministic state management, not LLM output. REJECTION-GATE: Unit is disqualified because the failure depends on the interaction between the approval gate and the sender — a single-function test cannot catch a missing gate in the wiring. Agentic/Workflow are disqualified because LLM quality is irrelevant to this control-flow invariant.",
+      "test_description": "Wire the approval state machine to a spy email-sender stub. (1) Trigger draft generation and presentation without providing approval — assert the spy sender is never called. (2) Then simulate user approval — assert the spy sender is called exactly once with the expected draft. Also assert that calling approve() twice does not double-send.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names four sequenced agentic steps: read → generate (LLM) → fact-check (LLM) → approval gate. Failures that only appear when these steps are chained — e.g., fact-check operates on the real LLM draft rather than a canned string, or approval UI receives the actual checked result — require all steps to run with real models. LLM-DEP: At least two real LLM calls are in the pipeline; output from step N feeds into step N+1, so non-determinism compounds. REAL-INFRA: 'real email thread' implies actual email content ingestion. REJECTION-GATE: Agentic is disqualified because that level covers a single LLM step in isolation; the behavior requires multiple LLM steps where each step's real output is the input for the next. Integration is disqualified because it cannot catch failures arising from real model outputs propagating through the chain.",
+      "test_description": "Run the full pipeline with a real email thread fixture (containing factual claims, some contradicting the KB and some not) against live LLM endpoints. Assert: (a) a non-empty draft is produced and references thread-specific content, (b) at least one KB-contradicting claim is flagged by the checker, (c) the draft is held in a 'pending approval' state with no email sent, (d) after simulated user approval the send action fires exactly once with the final draft. Capture pipeline logs to verify all four stages executed in order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.12,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

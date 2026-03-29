@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Missing required key error names the exact config path",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in error-message formatting logic — does the validator track and emit the full dot-notation path (e.g., `database.host`) rather than just the leaf key? This is a pure algorithmic question about how the validation layer constructs its error string. It does not require modules to hand off state to each other; the failure would appear on the validator itself when given a merged config dict with a missing nested key. REAL-INFRA: No OS, network, or subprocess needed — we pass in a Python dict. MOCK-HIDE: Mocking the config source does not hide the failure; the failure lives in the error-message code, not in how the config was loaded. LLM-DEP: None. COMMIT-TO-REASONING: Evidence points clearly to Unit. No override needed. REJECTION-GATE: Integration was considered but rejected because the failure does not depend on how two modules hand off data — it depends only on what the validation function emits when a key is absent.",
+      "test_description": "Construct a nested config dict that is missing a required leaf key (e.g., build a dict where `database.host` is absent). Call the config validator directly. Assert the raised exception or error string contains the exact path string `database.host`, not just `host` or a generic 'missing key' message.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.35,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "XDG_CONFIG_HOME redirects config file path resolution",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not purely in a path-construction utility — it is in whether the loader actually opens the file at the XDG-derived path. If path resolution is correct but the file-open call is hardcoded separately, a Unit test on a standalone helper would pass while the real failure remains hidden. The behavior says 'the loader resolves' the path, meaning we must exercise the loader end-to-end with both env-var reading and file-open wired together. REAL-INFRA: No real filesystem is required — we can mock `open` / `builtins.open` and assert the path argument. No subprocess or network involved. INTEGRATION-BRAKE: (a) No real OS/network/subprocess beyond in-process file-open mock. (b) No LLM. (c) No multi-step. Integration confirmed. COMMIT-TO-REASONING: Evidence points to Integration (two modules wired: env reader + path resolver → file opener). No override. REJECTION-GATE: Unit was considered but rejected because the behavior explicitly tests the loader's behavior, not an isolated utility function — a unit test on a path-building helper would miss a hardcoded open() call elsewhere in the loader.",
+      "test_description": "Set `XDG_CONFIG_HOME` to a controlled path (e.g., `/tmp/xdg_test`) in the test environment. Invoke the loader (mocking or stubbing `open` / file reads so no real file is needed). Assert the path passed to `open` starts with `/tmp/xdg_test/tool/` rather than `~/.config/tool/`. Also verify that when `XDG_CONFIG_HOME` is unset, the loader falls back to `~/.config/tool/config.yaml`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.58,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "TOOL_ environment variable overrides the same key from the config file",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives in the merge/precedence algorithm — does the code apply env-var values on top of (rather than under) file values? This is a single-function concern: given a parsed file dict and a parsed env dict, does the merge return the env value when both contain the same key? The failure does not require multiple modules to interact at runtime; it appears in the merge algorithm itself. REAL-INFRA: No real filesystem or network — we supply both dicts in-process. MOCK-HIDE: Mocking neither source hides this failure since the failure is in the merge order, not in how data was loaded. LLM-DEP: None. COMMIT-TO-REASONING: Evidence points to Unit (merge logic, single algorithm). No override. REJECTION-GATE: Integration was considered but rejected because the merge precedence failure is locatable in a single function; no cross-module handoff is required for the failure to manifest.",
+      "test_description": "Call the config-merge function (or loader with both sources injected as fakes) with a file config containing `database.host: file-value` and an env dict containing `TOOL_DATABASE_HOST=env-value`. Assert the resulting config has `database.host == 'env-value'`. Also test the reverse (no env var set) to confirm the file value is used when there is no conflict.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.37,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "YAML syntax error in config file produces error message with line number",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in error propagation: does the loader extract and surface the line number from the YAML parser's exception? YAML libraries (PyYAML, ruamel.yaml) include line information in their scanner exceptions; the question is whether the loader's error handler captures and formats it. This is testable by feeding a malformed YAML string directly to the parsing layer and inspecting the resulting error message. REAL-INFRA: No real filesystem needed — YAML can be parsed from a string or a `StringIO`. MOCK-HIDE: Mocking the file source with a controlled invalid YAML string does not hide the failure; the failure is in exception handling code, not in file I/O. LLM-DEP: None. COMMIT-TO-REASONING: Evidence points to Unit. No override. REJECTION-GATE: Integration was considered but rejected because the failure is in how the loader processes the YAML parser's exception, which is observable without wiring in real file readers.",
+      "test_description": "Provide the loader (or the YAML-parsing layer directly) with an in-memory string containing a deliberate YAML syntax error at a known line (e.g., a bad indentation on line 3). Assert the resulting exception or printed error contains the exact line number `3`. Test with errors at multiple line positions to confirm the line number tracks correctly rather than being hardcoded.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.3,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Missing config directory is created and defaults file is written on first run",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure involves actual filesystem side effects — `os.makedirs` must be called correctly and the defaults file must be written with the right content to the right path. While mock-patching `os.makedirs` and `open` would verify the calls are made, it would not catch bugs like wrong permissions flags, incorrect directory nesting, or file content that fails to serialize. Wiring the loader to a real temp directory (pytest `tmp_path`) provides end-to-end coverage of directory creation + file write in a single in-process operation. REAL-INFRA: Real local filesystem via `tmp_path` — no subprocess, no network. INTEGRATION-BRAKE: (a) Requires real filesystem I/O but no subprocess or network; tmp_path satisfies this within Integration. (b) No LLM. (c) No multi-step. Integration confirmed. COMMIT-TO-REASONING: Evidence points to Integration (real filesystem side effects, two coupled operations: mkdir + write). No override. REJECTION-GATE: System was considered but rejected — the behavior requires no subprocess invocation or external service; real filesystem access via tmp_path is local and in-process.",
+      "test_description": "Point the loader at a non-existent directory under `tmp_path` (e.g., `tmp_path / 'tool_config'`). Run the loader startup logic. Assert (1) the directory now exists on disk, (2) a defaults file (e.g., `config.yaml`) exists inside it, and (3) the file contains parseable YAML with the expected default keys. Also assert the loader continues to operate normally after writing the defaults rather than exiting with an error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.62,
+        "System": 0.28,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

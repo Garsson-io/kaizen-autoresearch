@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans two module boundaries — the validator must correctly detect missing fields AND the dead-letter writer must record the original row number. A unit test of the validator alone cannot catch a bug where the row number is dropped during handoff to the dead-letter writer. REAL-INFRA: An in-process fake dead-letter queue (e.g., an in-memory list) fully reproduces the failure — no real SQS or S3 required. MOCK-HIDE: Mocking the dead-letter queue at the unit level would hide the row-number propagation bug. INTEGRATION-BRAKE: (a) No real OS/network needed — fake queue suffices. (b) No AI/ML. (c) No multi-step agentic chain. EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration.",
+      "test_description": "Feed a CSV with several rows where required fields (e.g., 'id', 'date') are absent at known row numbers. Wire the validator to a fake in-memory dead-letter queue. Assert that each rejected row appears in the queue exactly once, carrying the correct original 1-based row number, and that the row's payload matches the raw input.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is a pure algorithmic question about a single transformation function. The failure (wrong date parsing for a given format string) lives entirely inside one function's logic and does not require any module handoff to manifest. REAL-INFRA: No I/O, no filesystem, no network. MOCK-HIDE: Nothing to mock — pure computation. LLM-DEP: None. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Unit, OUTPUT-LEVEL = Unit.",
+      "test_description": "Call the date-normalization function directly with a parametrized suite: ISO 8601 ('2024-03-15'), US format ('03/15/2024'), European format ('15.03.2024'), and edge cases (leap-day, single-digit month/day). Assert each returns the same canonical string (e.g., '2024-03-15'). No pipeline wiring needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Performance and memory-exhaustion bugs only surface under real data volumes; a unit or small-sample integration test cannot expose them. REAL-INFRA: The failure mode is OS-level resource exhaustion — actual memory allocation pressure and wall-clock timing. While tracemalloc can run in-process, real OOM conditions (e.g., buffering the entire file in RAM) require running the actual pipeline against real-scale input, which is effectively a system-level execution. An in-process fake with synthetic stub data would not reproduce streaming vs. batch accumulation bugs at scale. COMMIT-TO-REASONING: EVIDENCE-LEVEL = System, OUTPUT-LEVEL = System. REJECTION-GATE for Integration: an in-process Integration test with a stub CSV generator could surface some memory bugs, but it cannot reliably reproduce real file-read streaming behavior, OS memory pressure, or enforce wall-clock timeouts — the behavior text explicitly names 'configured timeout' and 'running out of memory', both OS-level concerns.",
+      "test_description": "Generate a real 500k-row CSV file on local disk. Run the full pipeline executable (subprocess or in-process with real file I/O) against it with the production timeout configured. Monitor peak RSS memory via psutil or /proc. Assert: exit code is 0 (or success signal), elapsed wall time is under the configured timeout, and peak RSS stays below the defined memory budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.13,
+        "System": 0.78,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode sits at the boundary between the S3 client and the retry/backoff orchestrator. A unit test of just the retry counter won't catch a bug where the S3 client swallows 503s before the orchestrator sees them. REAL-INFRA: A stub HTTP server (e.g., responses library or a local WireMock) that returns 503 then 200 fully reproduces the failure — real S3 network behavior is not needed to verify retry logic and backoff scheduling. MOCK-HIDE: Mocking sleep() is acceptable to avoid real delays while still asserting call counts and inter-call intervals. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration. INTEGRATION-BRAKE: (a) No real network needed — stub server reproduces 503. (b) No AI/ML. (c) No multi-step agentic chain.",
+      "test_description": "Wire the pipeline's S3 client against a stub HTTP adapter (or local server) configured to return 503 twice then 200. Patch the sleep/delay function to record call arguments without blocking. Assert: the pipeline does not raise a batch-failure exception, the stub received exactly 3 requests for the same key, and the recorded sleep durations follow an exponential sequence (e.g., ~1s, ~2s, ±jitter).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.73,
+        "System": 0.14,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The deduplication guarantee depends on the interaction between the pipeline's state-tracking logic and PostgreSQL's constraint enforcement (unique indexes, ON CONFLICT / upsert semantics). A mock DB will always accept writes without enforcing constraints, hiding exactly this class of bug. REAL-INFRA: A real (local Docker) PostgreSQL instance is required to enforce uniqueness constraints and verify that a second INSERT for the same row is either ignored or produces a conflict — this is a database-constraint behavior, not a network behavior. A local Postgres does not require real external network and counts as Integration. MOCK-HIDE: Yes — any in-memory mock would always pass, masking missing ON CONFLICT clauses or absent unique indexes. INTEGRATION-BRAKE: (a) Local Docker Postgres is not 'real external network/OS subprocess' in the sense that system-level behavior is needed. (b) No AI/ML. (c) No multi-step agentic chain. EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration.",
+      "test_description": "Point the pipeline at a local PostgreSQL test database with the production schema (unique index on row identifier). Process a batch of 10 rows; assert all 10 are written. Simulate a mid-batch crash by raising an exception after row 5. Restart the pipeline over the same input. Assert the table still contains exactly 10 rows (no duplicates) and that the 5 already-committed rows have identical values to their first write.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.72,
+        "System": 0.21,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    }
+  ]
+}

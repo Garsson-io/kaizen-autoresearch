@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-23",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The clause extractor identifies all key terms (parties, dates, obligations, penalties) present in the contract.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Identifies all key terms' is a quality claim about an AI reviewer's extraction output. Correctness depends on what the real model produces — a mock returning fixed outputs trivially passes but tells you nothing about actual extraction fidelity. You cannot verify recall across parties/dates/obligations/penalties without running the real model on real contract text. REJECTION of lower levels: Unit/Integration — the merge and dispatch wiring is irrelevant here; failure is entirely inside the extractor's model inference. System — no external subprocess or real network is the bottleneck; the bottleneck is LLM output quality.",
+      "test_description": "Run the real clause extractor against a curated set of legal contract fixtures that contain known, ground-truth key terms (party names, effective dates, obligation clauses, penalty clauses). Assert that every ground-truth term appears in the extractor's output, measured by recall >= threshold. Vary contract styles (plain, legalese, template-heavy) to probe generalization.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.78,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The risk assessor flags language that would be problematic under the configured risk policy, even when the problematic phrasing is indirect or euphemistic.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The critical qualifier is 'even when indirect or euphemistic.' That semantic leap — recognizing that 'may seek remediation' means 'can sue you' — is exactly what only a real LLM can perform. A mock always returns the preconfigured answer and cannot fail on indirect phrasing. Running 100 times with the real model may vary on borderline cases. REJECTION of lower levels: Unit — the risk assessor's failure mode is not in its wiring or configuration parsing, it's in model comprehension of euphemism. Integration — in-process fakes substitute deterministic stub outputs and hide the semantic gap entirely.",
+      "test_description": "Feed the real risk assessor a set of contract snippets where problematic language is expressed indirectly (e.g., 'the counterparty retains the right to seek equitable relief' instead of 'counterparty can seek injunction'). For each snippet, assert that the risk assessor returns a non-zero risk flag consistent with the configured policy. Include both direct and euphemistic forms of the same risk to detect model-level recall failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.03,
+        "System": 0,
+        "Agentic": 0.88,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The compliance checker correctly determines whether the contract meets all applicable regulatory requirements for the configured jurisdiction.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Correctly determines' compliance against jurisdiction-specific regulations is a quality assertion about AI reviewer judgment. Regulatory language is complex and context-dependent; a mock cannot exercise whether the model actually applies GDPR, CCPA, or industry-specific rules correctly. Different real-model runs may disagree on borderline compliance. REJECTION of lower levels: Unit — no deterministic algorithm produces jurisdiction compliance verdicts; the logic lives inside the model. Integration — an in-process fake would return a hardcoded verdict, making any test trivially pass regardless of the model's actual capability.",
+      "test_description": "Run the real compliance checker against contract fixtures with known compliance outcomes for specific jurisdictions (e.g., a GDPR-compliant DPA, a contract missing required CCPA disclosures). Assert that the checker's verdict (compliant/non-compliant) matches the ground-truth label for each fixture. Cover at least two jurisdictions with both compliant and non-compliant examples.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0.86,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two reviewers flag the same clause with conflicting assessments, the merge step preserves both assessments with attribution.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode here lives entirely inside the merge function's algorithm — given two structured reviewer outputs that reference the same clause with different labels, does the merge function produce a result containing both entries with their source labels? That is a deterministic transformation of in-memory data structures. No LLM is involved in the merge step itself. REAL-INFRA: No OS, filesystem, subprocess, or network is involved. LLM-DEP: Reviewer outputs are treated as fixed inputs to the merge step — we provide them directly as test fixtures, bypassing any real model call. REJECTION of higher levels: Integration — the failure is not at a module handoff boundary; we can construct inputs directly without running the extractor or risk assessor. Agentic — merge logic is deterministic given fixed inputs.",
+      "test_description": "Construct two ReviewerOutput fixtures in-memory: one from the clause extractor labeling clause-7 as 'standard obligation' and one from the risk assessor labeling clause-7 as 'high risk — indemnification trap'. Call the merge function directly with these two outputs. Assert the merged report contains exactly two entries for clause-7, each preserving the source reviewer's label and attribution field. Also assert no other reviewer's findings are dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — dispatching to all three reviewers, collecting results, merging into a unified report — completes correctly for a real contract without losing any individual reviewer's findings.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: Three independent AI reviewer steps execute (in parallel or sequence), each producing real LLM output, followed by a merge step that consumes all three. That is a full multi-agentic-step pipeline — exactly the Workflow criterion. REAL-INFRA + LLM-DEP: 'For a real contract' signals real model calls, not stubs. The failure mode being tested is end-to-end: findings dropped in dispatch, in async collection, or in merge are all in scope. REJECTION of lower levels: Agentic — a single-reviewer Agentic test cannot catch failures where one reviewer's output is silently dropped during parallel collection or merge. Integration — in-process fakes for all three reviewers would trivially pass by returning deterministic stubs; they cannot reveal timing, ordering, or result-collection bugs that emerge from real async LLM calls completing at different latencies.",
+      "test_description": "Run the full pipeline against a real contract document using all three live AI reviewers. After the pipeline completes, assert: (a) the unified report contains at least one finding attributed to each of the three reviewers (clause extractor, risk assessor, compliance checker); (b) total finding count in the report equals the sum of per-reviewer finding counts collected before merging; (c) no reviewer result object is null or empty. Use a contract fixture with known multi-reviewer coverage to make the assertions meaningful.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.12,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

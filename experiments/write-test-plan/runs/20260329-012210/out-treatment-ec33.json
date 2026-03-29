@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The real failure is at the boundary between two modules — the summary writer and the per-dimension findings store. A unit test on the validation function alone cannot catch a mis-wiring where the validator is never called, or is called against the wrong data. The block must be enforced as the summary write reaches the store, which requires both modules to be wired together under test. MOCK-HIDE: Mocking the findings lookup always returns whatever we tell it, hiding any real wiring failure. REAL-INFRA/LLM-DEP/MULTI-STEP: No subprocess, real network, or LLM needed — deterministic enforcement logic across local modules.",
+      "test_description": "Seed a test findings store with one FAIL verdict for dimension D1 and a PASS for D2 in round R1. Attempt to persist a PASS summary for round R1 through the real summary-write path (not mocked). Assert the write is rejected with an appropriate error. Then update the D1 finding to PASS and retry — assert the write now succeeds. Both the findings store and the summary-write module must be the real implementations wired together.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The root cause in the issue was that the gate was wired to read the wrong data source (summary text instead of stored findings). A unit test that passes pre-parsed findings into the gate function entirely bypasses this wiring failure — it can only be caught when the gate is connected to the real data-fetching layer. MOCK-HIDE: Mocking the data source always provides the test-authored value, hiding the real question of which source the gate queries. REAL-INFRA/LLM-DEP: No subprocess or LLM required — the gate logic is deterministic given known stored findings.",
+      "test_description": "Write a PASS verdict directly into the summary text field and a FAIL verdict into the per-dimension findings store for the same round. Invoke the stop-gate verdict computation through its real data-access path (no mock on the findings reader). Assert the gate returns FAIL (from stored findings), not PASS (from summary text). This directly reproduces the original incident: if the gate reads only summary text, the test fails.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two coupled concerns — flag enforcement (block the write without the flag) and audit persistence (the warning record must be durably stored and retrievable). Enforcement alone is Unit-testable, but 'auditable warning record' implies it must be written to a real or in-memory store and then readable by a separate audit reader. That cross-module handoff is the integration boundary. MOCK-HIDE: Mocking the warning store would always 'pass' even if the record is never written or written in an incorrect schema. LLM-DEP/REAL-INFRA: None required.",
+      "test_description": "Attempt to write a manual summary override without the override flag set; assert it is rejected. Then attempt with the flag set; assert the write succeeds. After the successful write, query the audit record store (real, not mocked) and assert exactly one warning record exists for the override, containing the actor, timestamp, and reason. Verifies both enforcement and durable audit trail in one wired path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the loop's finalization logic and the round-tracking state: the loop must check whether a review-agent invocation actually occurred against the post-fix diff before allowing PASS. A unit test on finalization logic that accepts a boolean 'fresh_round_ran' parameter entirely bypasses whether the loop correctly sets or reads that flag through real state. MOCK-HIDE: Mocking the round tracker always returns whatever we configure, hiding whether finalization actually interrogates the tracker. LLM-DEP: The enforcement predicate (was a round run?) is deterministic — we do not need a real LLM to test the gate; a stub agent that records invocations is sufficient. MULTI-STEP: Only one agentic step is involved; this is not a multi-step workflow.",
+      "test_description": "Instantiate the review loop with a stub review agent that records whether it was called and returns deterministic PASS findings. Simulate Phase 4 fix applied (diff updated). Attempt finalization WITHOUT invoking the stub agent post-fix; assert the loop rejects PASS and demands a fresh round. Then invoke the stub agent on the updated diff, then attempt finalization again; assert PASS is allowed. The loop, round tracker, and finalization gate must all be real (not mocked).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.12,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The escalation logic involves at least two module concerns: the round counter (exhausted?) and the findings classifier (any unresolved MUST-FIX?). The real failure mode is that these two checks are not composed correctly in the flow — e.g., round exhaustion is detected but the wrong outcome branch is taken. A pure-function unit test that receives both inputs as parameters misses any mis-wiring in how the flow assembles those inputs. MOCK-HIDE: Mocking findings always returns the test-authored status, hiding whether the flow actually queries unresolved findings at round exhaustion. LLM-DEP/REAL-INFRA: No real LLM or subprocess needed — deterministic stub agents returning MUST-FIX findings are sufficient. MULTI-STEP: The flow is a single logical gate, not a multi-step agentic pipeline.",
+      "test_description": "Configure the review flow with a max-rounds limit of N and a stub review agent that always returns one unresolved MUST-FIX finding. Drive the flow through N complete rounds without resolving the finding. After the final round, assert the flow emits an escalation outcome (not PASS) and that no PASS summary is written to the findings store. The round counter, findings store, and outcome emitter must all be real implementations wired together.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.63,
+        "System": 0.07,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

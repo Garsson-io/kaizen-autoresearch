@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation splits newline-separated statements into individual segments rather than treating the block as one monolithic string.",
+      "minimum_level": "Unit",
+      "justification": "The failure is entirely within a single parsing function: given a multi-line string, return a list of statement segments. No modules hand off data to each other, no I/O is required. A unit test that calls the segmenter with a newline-separated input and asserts the returned list contains distinct segments exercises the exact failure boundary described in the incident.",
+      "test_description": "Call the command-segmentation function with a string like 'VAR=foo\\ngh pr create -t title' and assert the returned list contains exactly two elements: 'VAR=foo' and 'gh pr create -t title'. Also assert a single-line input returns a list of one element.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block whose last meaningful statement is `gh pr create` is classified as a PR-create trigger by the hook.",
+      "minimum_level": "Integration",
+      "justification": "The incident bug lived exactly at the boundary between segmentation and trigger detection: the segmenter produced one segment, so the trigger detector never saw the `gh pr create` call. Testing the trigger-detector in isolation with pre-split input would pass even with the broken segmenter. The real failure only appears when both modules are wired together — making Integration the minimum level that can catch it. MOCK-MISS applies: mocking segmentation hides the actual bug.",
+      "test_description": "Wire the segmentation module and the trigger-classification module together (no mocks). Feed the combined pipeline the raw string 'TITLE=\"my pr\"\\nBODY=\"desc\"\\ngh pr create -t \"$TITLE\" -b \"$BODY\"'. Assert the pipeline returns a PR-create trigger result (not 'not_a_trigger').",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A multi-line block whose last meaningful statement is `gh issue create` is NOT classified as a PR-create trigger.",
+      "minimum_level": "Unit",
+      "justification": "The discriminative failure here is in the pattern-matching predicate that distinguishes `gh pr create` from `gh issue create`. That predicate is a single function operating on an already-segmented token or string — it does not depend on segmentation being correct. A unit test that calls the classifier directly with a pre-segmented 'gh issue create' segment fully exercises the failure boundary. No module handoff is required to expose a false-positive classification bug.",
+      "test_description": "Call the trigger-classifier function directly with the segment string 'gh issue create -t \"Bug report\"' and assert it returns a non-PR-trigger result (e.g., 'not_a_trigger' or a falsy value). Also assert with 'gh pr create' it returns truthy, confirming the discriminative boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.3,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook extracts the PR identifier from the command output or context and persists it to the review-loop state file.",
+      "minimum_level": "Integration",
+      "justification": "This behavior involves two distinct concerns that must hand off correctly: (a) extraction logic that derives the PR identifier from command output/context, and (b) persistence logic that writes it to a real file. Mocking the filesystem would hide serialization bugs (wrong key names, wrong format) that only appear when real file I/O is used. Integration with a real temporary directory is the minimum level; the bug would not surface if the write is stubbed.",
+      "test_description": "Wire the PR-identifier extraction and state-file persistence modules together against a real temp directory. Simulate a hook invocation where the tool output contains a PR URL like 'https://github.com/org/repo/pull/42'. Assert that after the hook runs, the state file exists in the temp directory and its contents include the correct PR identifier (e.g., '42' or the full URL), readable as structured data (JSON/YAML).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The review gate state file written by the PostToolUse hook is in a format that the pre-tool enforcement hook can successfully read and act on.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is a contract mismatch between two separate hook modules sharing a state file: the writer uses one schema and the reader expects another. Neither a unit test of the writer nor a unit test of the reader can expose this mismatch — both would pass independently. Only wiring both modules against a shared real temp file (Integration) catches format divergence. Mocking either side hides the interoperability bug. MOCK-HIDE applies strongly here.",
+      "test_description": "Run the PostToolUse hook's state-writing code path against a real temp directory to produce the gate state file. Then run the pre-tool enforcement hook's state-reading code path against the same temp directory. Assert the enforcement hook correctly reads the PR identifier, recognizes the gate as open, and would block a disallowed tool invocation. Assert no KeyError, schema validation error, or silent empty-read occurs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.75,
+        "System": 0.16,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

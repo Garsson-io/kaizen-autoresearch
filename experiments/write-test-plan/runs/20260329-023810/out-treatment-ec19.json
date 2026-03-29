@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Matching the expected interface is not just a parsing/validation problem — it's a question of whether the LLM faithfully follows the interface specification when generating code. LLM-DEP: A mocked LLM can test the extraction/validation pipeline, but cannot test whether the model actually adheres to interface constraints. The real failure mode is that the LLM ignores or misinterprets the spec (wrong param names, wrong types, missing return annotation). REAL-INFRA: No OS/subprocess needed; the failure is in model output quality. REJECTION-GATE: Integration was considered but rejected — mocking the LLM hides whether the model reliably follows interface specs. The behavior explicitly targets 'the generated signature', not the parsing logic that processes it.",
+      "test_description": "Call the service with a natural language description that specifies explicit parameter names, types, and return type. Use a real LLM call. Parse the generated code and assert the function signature matches the declared interface exactly — correct parameter names, type annotations, and return annotation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: 'First or a subsequent attempt' means the test must exercise the full generate→test→refine→test loop. A single Agentic call only covers first-attempt success. To cover subsequent attempts, at least two real LLM calls plus real test execution must occur in sequence — this is the definition of Workflow. LLM-DEP: Whether the implementation is correct depends on real, non-deterministic LLM output; mocking hides the real failure. REJECTION-GATE: Agentic was considered but rejected because validating 'first or subsequent attempt' inherently requires the multi-step loop — a single LLM call cannot exercise the refinement path.",
+      "test_description": "Submit a function description that is known to trip up single-shot LLM generation (e.g., a nuanced edge-case algorithm). Provide a test suite with comprehensive cases. Run the full service loop with a real LLM; assert that at some attempt ≤ 3, all tests pass. Confirm the result object indicates the attempt number on which tests passed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.28,
+        "Workflow": 0.6
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a cross-module handoff: the test-runner output is not forwarded into the prompt-builder before calling the LLM. This only manifests when the test runner and prompt construction are wired together — a Unit test of prompt building alone won't catch it. REAL-INFRA: No real subprocess or network is required; mock the LLM client and capture the prompt it receives, mock or stub the test runner to return deterministic failure messages. LLM-DEP: We do not need a real LLM — we need to inspect what is *sent to* the LLM. A mock LLM that records received prompts is sufficient. REJECTION-GATE: Agentic rejected — correctness of this behavior depends on prompt content, not on model output quality.",
+      "test_description": "Wire the service with a mock LLM that returns syntactically valid but logically wrong code on attempt 1, and capture all prompts received. Stub the test runner to return a specific failure message on the first test run. After the second LLM call is triggered, assert the captured prompt contains the exact failure message from the first test run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans the retry-loop controller, LLM call, test runner, and error object construction. A Unit test of the loop counter alone doesn't verify that test results are captured and returned per-attempt. REAL-INFRA: The test runner can be stubbed to always return failures — no real subprocess required since the behavior under test is the stopping condition and error structure, not test-runner fidelity. LLM-DEP: Mock the LLM to return deterministic bad code; real LLM non-determinism is irrelevant to verifying the cap-at-3 logic. REJECTION-GATE: System was considered because code execution may involve subprocesses, but rejected — the failure mode (wrong attempt count or missing test results in error) is caught with an in-process stub.",
+      "test_description": "Configure a mock LLM that always returns invalid code and a stub test runner that always returns failure messages. Call the service with a function description and test suite. Assert the service makes exactly 3 LLM calls, then returns a structured failure response containing all 3 attempts each paired with their respective test failure output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly describes the complete agentic pipeline: generate → test → refine → test again. At minimum two real LLM calls are needed (initial generation + at least one refinement). LLM-DEP: The entire premise is that a single LLM call typically fails but the loop succeeds — this comparative claim requires real, non-deterministic LLM behavior; it cannot be tested with mocks. REAL-INFRA: Real test execution is also required to confirm that the generated code actually passes the test suite (in-process stubs cannot validate real code correctness). This combines real LLM calls with real code execution across multiple rounds. REJECTION-GATE: Agentic rejected — a single real LLM call does not cover refinement; the loop behavior (improvement across attempts) is the claim being tested.",
+      "test_description": "Choose a well-known function that LLMs reliably fail to implement correctly on the first try (e.g., a tricky edge-case sorting or string manipulation problem). Provide a comprehensive test suite. Run the full service with a real LLM. Assert that the final result is a passing implementation, and that the attempt count is greater than 1, confirming the refinement loop contributed to success.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.15,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

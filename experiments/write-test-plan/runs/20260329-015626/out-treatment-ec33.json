@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a cross-module consistency gap — the summary writer must actually query the findings store and the block must be enforced at write time. Unit-testing the validation function alone would miss the wiring: if the findings-fetch is mocked, the test proves the logic exists but not that it is connected. MOCK-HIDE: Mocking the findings store would always let a stub return whatever the test injects, hiding any failure in the real retrieval path. REAL-INFRA/LLM-DEP/MULTI-STEP: No OS, real network, LLM, or multi-agent sequencing is needed — a real in-process or local-DB findings store wired to the summary writer is sufficient.",
+      "test_description": "Seed a round in the findings store with at least one dimension carrying a FAIL verdict, then call the summary-storage API requesting a PASS summary for the same round. Assert that the call is rejected (exception raised or error status returned) without persisting the PASS summary. Additionally verify that a round where all dimension findings are PASS does allow summary storage to succeed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The specific failure reported was that the gate trusted summary text instead of stored findings. Proving this behavior requires that the gate module actually fetches from the findings store during its computation — a unit test that injects findings as a parameter cannot verify that the gate ignores the summary text input. MOCK-HIDE: If the findings store is mocked, the test cannot distinguish between a gate that correctly reads findings and one that reads the mocked summary instead. The real distinction only surfaces when both the findings store and the summary are live in-process objects with divergent values. REJECTION-GATE for Unit: cannot point to concrete evidence that the gate is a pure function independent of its data source; the incident description shows the source-of-truth wiring is exactly what failed.",
+      "test_description": "Using a real (in-process) findings store and summary store, store dimension findings with FAIL verdicts, then store a summary record with hand-written PASS text for the same round. Invoke the stop-gate verdict computation and assert it returns FAIL — proving it read the findings store rather than the summary text. Then update the findings to PASS without changing the summary text and confirm the gate now returns PASS.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two coupled sub-requirements — (a) flag validation gates the override, and (b) an auditable record is persisted. The warning-record production is only meaningful if it is retrievable after the fact; a Unit test returning a warning object from a function does not verify the record actually reaches the audit store. MOCK-HIDE: Mocking the audit-record writer would pass regardless of whether the record is actually written and retrievable. REJECTION-GATE for Unit: the 'auditable' qualifier specifically implies persistence and retrievability, which requires the audit store to be wired in. LLM-DEP/MULTI-STEP: No LLM or multi-agent sequencing needed.",
+      "test_description": "Attempt to store a manual summary override without the override flag set; assert it is rejected. Then issue the same request with the flag set; assert it succeeds, then query the audit-record store and verify a warning record exists for that override event containing the round ID, the override flag, and the actor identity. Confirm that no warning record exists for a normal (non-override) summary write.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.58,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the loop's control-flow enforcement — it must track whether a review-agent round has run on the post-fix diff before allowing PASS finalization. This requires the loop orchestrator, the execution-tracking store, and the finalization gate to be wired together. MOCK-HIDE: If the agent itself is mocked (appropriate here since LLM output is not what is being tested), the test can still verify the loop's enforcement mechanism without hiding the real failure, as long as the tracking store is real. LLM-DEP: The behavior is about whether the loop requires an agent round to have run, not about the quality of the agent's output — a stub agent that returns a fixed verdict is sufficient. REJECTION-GATE for Agentic/Workflow: no concrete evidence the test must evaluate LLM output quality or sequence multiple real agent calls; a single stub agent invocation plus a real tracking store is enough.",
+      "test_description": "Initialize a review loop in a post-Phase-4 fix state (fixes applied, no fresh agent round recorded). Attempt to call the finalization gate and assert it rejects PASS. Then invoke a stub review-agent round (deterministic, no real LLM) against the updated diff and record it in the execution-tracking store. Attempt finalization again and assert PASS is now allowed, confirming the loop checks for a fresh round tied to the post-fix diff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.15,
+        "Workflow": 0.2
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The termination logic depends on the flow reading the round counter from state, reading unresolved MUST-FIX findings from the findings store, and emitting the correct outcome — at least three modules must be wired together for the real failure to be detectable. MOCK-HIDE: If the findings store or round counter is mocked, a test can pass even if the flow reads the wrong source or applies the wrong comparison. REAL-INFRA/LLM-DEP: The exhaustion condition and outcome emission are deterministic control-flow logic; no real LLM, OS, or network is required. REJECTION-GATE for Workflow: the behavior describes a terminal condition check, not a sequence of multiple real agentic steps; seeding state (exhausted rounds + open MUST-FIX findings) and triggering the termination check in-process is sufficient to expose the failure.",
+      "test_description": "Seed the review-state store with a round counter at the configured maximum and at least one MUST-FIX dimension finding still in FAIL status for that round. Invoke the flow's termination-check or outcome-computation entry point and assert it emits an escalation outcome (not PASS). Then verify the complementary case: same exhausted round counter but all MUST-FIX findings resolved to PASS emits a PASS outcome rather than escalation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.52,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.27
+      }
+    }
+  ]
+}

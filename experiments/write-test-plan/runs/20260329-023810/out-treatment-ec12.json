@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans two module boundaries — the validator must identify missing fields AND the pipeline must route that row to the DLQ with the correct row number preserved. A unit test on the validator alone cannot catch a bug where the row number is dropped or the DLQ write is skipped. REAL-INFRA: The DLQ can be an in-process fake (list, stub queue client); no real infrastructure is needed. A fake DLQ accumulator is sufficient to catch routing failures. REJECTION-GATE for System: there is no subprocess, real HTTP, or real OS dependency described in this behavior. In-process wiring of validator + DLQ writer is sufficient.",
+      "test_description": "Feed a batch of rows that includes several with missing required fields into the pipeline with a fake DLQ accumulator. Assert that every invalid row appears in the fake DLQ exactly once, carrying the original 1-based row number, and that no valid rows appear in the DLQ.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is pure parsing and formatting logic inside a single transformation function. The failure mode — wrong output for a given input format — is entirely captured by calling the function with each format and asserting the canonical output. No module handoff is involved. REAL-INFRA: No I/O of any kind. MOCK-HIDE: No dependency to mock; the function consumes a string and returns a string. REJECTION-GATE for Integration: there is no stated failure that only emerges from module wiring. The transformation could be wrong at the Unit level and that is the earliest detectable boundary.",
+      "test_description": "Parametrize a unit test with representative date strings for each supported format (ISO 8601, MM/DD/YYYY, DD.MM.YYYY, edge cases like Feb 29) and assert that the transformation function returns the canonical output in all cases. Include at least one case per format variant and one malformed input.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Memory footprint and wall-clock duration only manifest under real volume with real I/O. An in-process test can invoke the pipeline code, but accurately measuring peak RSS and enforcing a wall-clock timeout requires OS-level measurement, typically via subprocess. If the pipeline buffers rows in memory rather than streaming, the failure only surfaces at real scale — a unit or integration test with synthetic stubs will not apply real memory pressure on the reader, transformer, and writer together. MOCK-HIDE: Stubbing the CSV reader or DB writer replaces the I/O that drives the memory and timing behavior being tested. REJECTION-GATE for Integration: an in-process fake cannot substitute real OS memory pressure and real I/O scheduling at 500k-row scale without hiding the actual failure mode.",
+      "test_description": "Generate a real 500k-row CSV file on disk. Invoke the pipeline binary (or isolated process entry point) with a fake S3 source pointed at that file and a local PostgreSQL test container as the sink. Use a process-level memory monitor (e.g., tracemalloc or /proc/pid/status) and assert: (a) wall-clock time is under the configured timeout, and (b) peak RSS stays below a stated memory threshold (e.g., 2× the size of a single chunk, not 1× the full file).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.72,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode lives at the boundary between the pipeline orchestrator and the S3 client: the orchestrator must catch the 503 and re-invoke the S3 client with a delay. This requires wiring the two modules together; a unit test on the retry helper alone cannot confirm the orchestrator actually calls it on a 503. REAL-INFRA: A mock HTTP client that injects 503 responses is sufficient to reproduce this failure. The retry and backoff behavior is deterministic given controlled HTTP responses; real S3 is not required. MOCK-HIDE for real S3: the retry logic does not depend on S3-specific behavior beyond the HTTP status code, so a fake client that returns 503 then 200 does not hide the failure. REJECTION-GATE for System: real HTTP is not needed — the 503 can be injected in-process via a stub transport layer.",
+      "test_description": "Wire the pipeline with a fake S3 client that returns two 503 responses followed by a 200. Capture invocation timestamps. Assert: (a) the pipeline does not raise or fail the batch, (b) the S3 client is called exactly 3 times, and (c) the delay between the first and second retry is at least 2× the delay between the first call and the first retry (exponential growth). Optionally mock the sleep/timer to keep the test fast.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.18,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is idempotency at the database layer — whether unique constraints, upsert semantics, or a checkpoint mechanism actually prevent re-insertion when the pipeline is run twice over the same batch. This spans the pipeline writer module and the PostgreSQL driver/schema. REAL-INFRA: A real PostgreSQL instance (local test container) is required because the idempotency mechanism typically relies on PostgreSQL-specific behavior: `ON CONFLICT DO NOTHING`, serializable isolation, or advisory locks. SQLite or a mock DB will silently pass even if the real constraint is wrong or missing. REJECTION-GATE for System: a local PostgreSQL test container qualifies as Integration (local DB); no external service, real network, or OS subprocess is required beyond the DB container. The mid-batch restart can be faithfully simulated in-process by truncating processing after N rows and re-invoking the pipeline entry point.",
+      "test_description": "Using a local PostgreSQL test container, run the pipeline over a batch of 20 rows but simulate a mid-batch crash after row 10 (e.g., raise an exception in the writer). Re-run the pipeline over the full 20 rows. Query the destination table and assert that each row appears exactly once (no duplicates). Also assert that rows written before the simulated crash are present (no data loss).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.63,
+        "System": 0.32,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

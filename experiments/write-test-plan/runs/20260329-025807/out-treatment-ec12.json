@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure spans two modules — the schema validator (detecting missing fields) and the DLQ writer (recording the original row number). A unit test on the validator alone cannot confirm the row number propagates correctly into the DLQ payload; the routing/hand-off is the real failure boundary. REAL-INFRA: the DLQ can be a local in-memory queue or a test database table — no real external message broker is required. No OS, subprocess, or network dependency. Integration is the correct floor.",
+      "test_description": "Wire the CSV row parser, schema validator, and DLQ writer together. Feed a batch containing rows missing each required field (individually and in combination). Assert each rejected row appears in the DLQ exactly once, with its correct 1-based original row number and the original field values preserved. Verify valid rows do not appear in the DLQ.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: the failure is entirely within one transformation function's parsing logic. All three format variants are deterministic inputs with deterministic expected outputs. No module hand-off, no I/O, and no external dependency is involved. REAL-INFRA: none required. LLM-DEP: none. This is a pure algorithmic boundary — Unit is both necessary and sufficient.",
+      "test_description": "Call the date-transformation function directly with representative strings: ISO 8601 (2024-03-15), US (03/15/2024), and European (15/03/2024) formats. Assert each returns the same canonical output. Add edge cases: ambiguous dates where day/month could be swapped (01/02/2024), invalid date strings, and empty strings to confirm error handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: memory and throughput behavior at 500K-row scale depend on real I/O patterns — specifically whether the pipeline streams or buffers data across S3 reads, transformation, and PostgreSQL batch writes. An in-process fake S3 reader would also stream data, so buffering bugs might surface, but the configured timeout is presumably calibrated for production-like I/O latency. Real PostgreSQL write-path buffering (copy buffers, WAL, connection overhead) will not be faithfully reproduced by a mock and can be the source of the OOM or timeout. A System test with real local PostgreSQL and a local S3-compatible server (or direct file I/O) is the minimum to credibly measure peak RSS and wall-clock duration under realistic conditions.",
+      "test_description": "Generate a 500K-row CSV file. Run the full pipeline using a real local PostgreSQL instance (or a dedicated test instance) and either a local S3-compatible server (e.g., MinIO) or the file served directly. Wrap the pipeline process to capture peak RSS (e.g., via /proc or resource.getrusage). Assert: (1) the pipeline completes before the configured timeout, and (2) peak memory stays below a defined threshold (e.g., 2× the per-row footprint × batch size, or an explicit configured limit).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.28,
+        "System": 0.64,
+        "Agentic": 0.03,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "REAL-INFRA: the retry and backoff logic is driven by HTTP status codes and timing. MOCK-HIDE check: an in-process mock HTTP server that returns 503 twice then 200 is sufficient to expose the failure modes (no retry at all; retry but linear or no backoff). The exact failure does not require real S3 — real S3 would add noise (real network jitter) without revealing bugs that a deterministic stub hides. Backoff intervals can be verified by recording wall-clock timestamps of each request attempt. REJECTION-GATE for System: I considered System but the failure — wrong retry count or wrong backoff multiplier — is fully observable with a controllable in-process stub. No OS primitive or real network path is load-bearing here.",
+      "test_description": "Stand up a lightweight local HTTP server (e.g., using an in-process HTTP handler) configured to return 503 for the first two requests to the S3 endpoint, then 200 with valid CSV data. Run the pipeline's S3 reader against it. Assert: (1) the pipeline does not raise on the first 503; (2) it issues at least 2 retry attempts; (3) the elapsed time between successive retries is non-decreasing and each interval is at least 2× the previous (exponential backoff); (4) the batch ultimately succeeds when 200 is returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.27,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: idempotency on restart depends on the actual semantics of database constraints (ON CONFLICT, unique indexes) or application-level checkpointing. These are module-boundary behaviors between the write layer and the database state. MOCK-HIDE: a mock PostgreSQL cannot reproduce constraint violation handling, actual row-count queries, or the state-persistence that makes a restart idempotent — using a mock would almost certainly always pass regardless of whether the real implementation is correct. A real local PostgreSQL is required. REAL-INFRA: no real S3, OS subprocess, or network path is needed; the mid-batch restart can be simulated in-process (e.g., raising an exception after N writes). REJECTION-GATE for System: the failure mode is entirely reproducible against a local PostgreSQL instance — real cloud PostgreSQL adds no additional observable behavior.",
+      "test_description": "Using a real local PostgreSQL instance, insert a deterministic batch of rows. Simulate a mid-batch failure by raising an exception after writing the first half. Restart the pipeline with the same input batch. Query PostgreSQL and assert each row appears exactly once (verify via COUNT and a uniqueness check on the primary key). Test both directions: rows written before the interrupt are not duplicated, and rows not yet written before the interrupt are present after restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.76,
+        "System": 0.17,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

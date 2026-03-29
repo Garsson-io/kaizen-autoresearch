@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: This behavior does not describe a module wiring failure — it describes the semantic quality of NMT output. REAL-INFRA: No OS/subprocess dependency, so System is not required. LLM-DEP: 'Grammatically coherent' and 'preserves meaning' are inherently subjective quality claims about a neural model's output. No deterministic mock can reproduce this failure: any mock returns exactly what you tell it to, making the test trivially pass regardless of real model behavior. The only way to catch a real failure here is to call the real NMT API and evaluate the actual output. REJECTION-GATE for Workflow: there is only one agentic step (single translation call), so Workflow is not required.",
+      "test_description": "Call the real NMT API with a set of representative source sentences across at least two language pairs (e.g., EN→FR, EN→DE). For each, verify that the returned translation is not a direct word-for-word token substitution (e.g., does not merely replace each source token with its dictionary entry) and that a human-readable quality signal (e.g., BLEU score against a reference, or cross-lingual embedding similarity above a threshold) exceeds a defined floor. The test must use the live NMT endpoint without mocking the model.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.03,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the HTTP client layer, the service routing logic, and the SQLite fallback — not inside a single function. A unit test on the routing function alone, with the HTTP client and DB both mocked away, would never catch a marshalling bug between those layers. REAL-INFRA: A 503 response is a deterministic HTTP status code that an in-process fake HTTP client (e.g., responses library or httpretty) can reproduce exactly; the failure does not require real network conditions or real OS infrastructure. MOCK-HIDE: Mocking the SQLite layer entirely would hide failures in the actual fallback lookup path. Therefore, a real in-process SQLite (`:memory:`) must be used for the fallback side. LLM-DEP: No model output quality is involved. REJECTION-GATE for System: the 503 scenario does not require real network timeouts or real HTTP infrastructure — an in-process stub accurately reproduces the failure boundary.",
+      "test_description": "Wire the service with a stub HTTP client configured to return a 503 for all translation API requests, and seed an in-memory SQLite database with a known phrase and its translation. Call the service's translate() entry point with that phrase. Assert: (1) the return value equals the pre-stored dictionary translation (not an exception or error object), (2) no error is propagated to the caller, and (3) the fallback code path was executed (e.g., via a call-count assertion on the SQLite lookup).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.18,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior's own failure mode is at the boundary between the fallback module and SQLite: a mismatch in SQL query, schema column names, or encoding would not be caught if the DB is mocked. REAL-INFRA: SQLite is a local in-process file — an in-memory SQLite (`:memory:`) reproduces the exact failure boundary without requiring any OS subprocess or real network. This is local DB Integration, not System. LLM-DEP: No model involved. MOCK-HIDE: If the SQLite layer is replaced with a dict mock, schema issues, query bugs, and encoding problems in the fallback SQL are all hidden. REJECTION-GATE for Unit: the behavior explicitly claims correctness of the pre-stored lookup, which cannot be verified without actually reading from a database.",
+      "test_description": "Create an in-memory SQLite database, insert a known set of phrase→translation rows (including at least one multi-word phrase and one phrase with non-ASCII characters), then invoke the dictionary fallback module directly. Assert that each lookup returns the exact pre-stored translation string, that a phrase not in the database returns the appropriate sentinel (None or a defined miss value), and that no SQL error is raised.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two distinct sub-claims: (a) correct edit-distance computation (pure algorithm, Unit-testable in isolation) and (b) the metric is persisted to storage. The storage sub-claim requires wiring between the quality tracker and the DB layer; a unit test cannot verify that the computed value is actually written. REAL-INFRA: Local SQLite covers the storage side; no OS or real network needed. MOCK-HIDE: Mocking the persistence layer away hides bugs in the serialization of the metric value (e.g., float truncation, wrong column). LLM-DEP: Edit distance is a deterministic algorithm; no model involved. REJECTION-GATE for Unit: the behavior explicitly says 'stores the metric', so a pure-function unit test leaves the persistence path untested. Note: testing edit-distance computation correctness alone is Unit; but the full stated behavior requires Integration.",
+      "test_description": "Seed an in-memory SQLite metrics table. Invoke the quality-tracker with two known string pairs whose edit distance is precomputed by hand (e.g., 'cat'/'bat' → 1, 'kitten'/'sitting' → 3). Assert: (1) the returned edit-distance value matches the expected integer, and (2) a row with the correct metric value, source, and target identifiers is present in the metrics table after the call. Also verify that the stored value is not rounded or truncated if a non-integer distance variant is used.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.67,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans multiple modules: the service must (a) invoke the primary translator, (b) invoke the fallback (to have both outputs for comparison), (c) route the primary result to the caller, and (d) schedule the quality-comparison log as a background task. A unit test on the routing function with fully mocked dependencies cannot verify that the background task is actually enqueued or executed, nor that the correct output is selected. REAL-INFRA: Both translators can be replaced with deterministic in-process stubs; background task scheduling (e.g., asyncio, threading, or a task queue) can be exercised in-process. No real network or OS subprocess is needed to catch routing/scheduling failures. LLM-DEP: The behavior is about routing and task scheduling, not translation quality — stubs returning fixed strings are sufficient. MOCK-HIDE: Mocking the background scheduler entirely hides failures where the task is never enqueued. REJECTION-GATE for System: real HTTP is not required; stubs faithfully reproduce the failure boundary between the service, the translators, and the background task mechanism.",
+      "test_description": "Configure the service with a stub primary translator and a stub fallback translator, both returning distinct fixed strings, and with a real (or real-enough in-process) background task mechanism (e.g., run the event loop to completion in an async test). Call translate(). Assert: (1) the return value equals the primary stub's output, not the fallback's, (2) the background quality-log task was enqueued (e.g., via a call-count assertion on the quality tracker), and (3) after the background task completes, the quality metric record exists in the metrics store with the correct primary and fallback string values.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

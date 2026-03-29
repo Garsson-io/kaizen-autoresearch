@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior explicitly requires that invalid rows 'appear in the dead-letter queue' — this is a handoff between the validation module and the DLQ-writing module. A unit test on the validator alone can confirm rejection, but cannot confirm the row number is preserved through to the DLQ writer. The failure mode lives at the module boundary. REAL-INFRA: The DLQ can be an in-process fake (stub queue / list), so real infrastructure is not required. REJECTION-GATE: System was rejected because an in-process stub queue fully exercises the validation→DLQ routing without needing a real SQS or message broker. Unit was rejected because the behavior asserts end-to-end routing, not just the validator's return value.",
+      "test_description": "Wire the validator and DLQ writer together against an in-process stub queue. Feed a batch containing rows with each required field missing in turn. Assert that (a) each invalid row is absent from the valid-output list, (b) each invalid row appears in the stub DLQ with the correct original row number, and (c) valid rows in the same batch are unaffected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Correctness of date-format parsing and normalization is entirely local to the transformation function. The failure — producing a wrong output date — appears inside a single function, not at a module boundary. REAL-INFRA: No I/O or external system is involved. LLM-DEP: Deterministic string transformation; no ML/AI dependency. REJECTION-GATE: Integration was considered because the transformer runs inside the broader pipeline, but the failure mode (wrong canonical date output) is fully reproducible by calling the transform function in isolation with parameterized inputs. Escalating to Integration would add infrastructure cost without increasing fault coverage for this specific behavior.",
+      "test_description": "Call the date-transformation function directly with a parameterized set of inputs covering ISO 8601 (e.g. '2024-03-15'), US format ('03/15/2024'), and European format ('15.03.2024'), plus edge cases (leap day, end-of-year). Assert each returns the same canonical string (e.g. '2024-03-15'). Also assert that an unrecognized format raises or returns a typed error, not a silently wrong date.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Memory footprint and wall-clock duration are OS-process-level properties. The failure — OOM or timeout — only manifests in a real process under real memory pressure with a real large file. An in-process unit or integration test that loads 500k rows in the same pytest process would (a) share the test-runner's heap, masking streaming-vs-load-all-at-once bugs, and (b) cannot reliably measure wall-clock timeout against a configured limit. The failure mode requires running the pipeline as an actual process against a real (or local) large CSV file and measuring RSS and elapsed time from outside the process. MOCK-HIDE: An in-process fake would never expose a non-streaming read that buffers the entire file; only a real sub-process measurement reveals that. REJECTION-GATE: Integration was rejected because pytest's in-process execution shares heap with the pipeline code, making memory measurements unreliable and hiding buffer-all-at-once bugs.",
+      "test_description": "Generate a 500,000-row CSV fixture on the local filesystem. Launch the pipeline as a subprocess with its real entry point, pointing at the local CSV and a local PostgreSQL instance. Use psutil (or /usr/bin/time) to track peak RSS of the subprocess. Assert that (a) the process exits successfully within the configured timeout value, (b) peak RSS stays below a defined memory ceiling (e.g. 2× the ceiling for a single chunk), and (c) the output row count in PostgreSQL matches the valid-row count in the file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.12,
+        "System": 0.82,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — failing the entire batch instead of retrying — only appears when the S3 client layer and the retry/backoff middleware are wired together inside the pipeline. A unit test on the retry decorator alone cannot confirm it is actually applied to the S3 read call. REAL-INFRA: A fake HTTP server (e.g. responses library, httpretty, or a local stub server returning 503 then 200) fully reproduces the failure without requiring a real AWS endpoint. The retry logic fires based on HTTP status codes, not on real network conditions. MOCK-HIDE: Mocking the S3 client's method directly would bypass the HTTP layer where the 503 is observed — an in-process HTTP-level fake is the right fidelity. REJECTION-GATE: System was considered for the 'real HTTP' angle, but the backoff behavior is driven by the pipeline's own retry logic reacting to HTTP status codes, not by real network latency or OS socket behavior; a fake HTTP server captures it fully.",
+      "test_description": "Configure a fake/stub HTTP server (or use a library like `responses`) to return HTTP 503 twice, then 200 with a valid CSV payload, for the target S3 URL. Run the pipeline's S3-read path against this stub. Assert that (a) the pipeline does not raise or mark the batch as failed, (b) exactly 3 attempts were made (2 failures + 1 success), and (c) the recorded inter-attempt delays follow an exponential pattern (e.g. ~1s, ~2s) by inspecting call timestamps or captured sleep arguments.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.71,
+        "System": 0.19,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Idempotency on restart depends on the interplay between the pipeline's checkpointing/offset state and PostgreSQL's unique-constraint or upsert behavior. A unit test cannot confirm that the pipeline reads its own checkpoint and skips already-committed rows. REAL-INFRA: PostgreSQL-specific semantics (ON CONFLICT DO NOTHING, transaction isolation, unique index enforcement) are not faithfully reproduced by an in-memory dict or SQLite stub — the failure mode could be hidden by stub behavior that coincidentally deduplicates. A real local PostgreSQL instance is required. MOCK-HIDE: A mock DB that just records calls would not enforce unique constraints, so the test would pass even if the pipeline sends duplicate INSERTs. REJECTION-GATE: System was considered because 'restart' sounds like a subprocess boundary, but the restart can be simulated by running the pipeline's processing function twice in the same test process against a persisted local PostgreSQL state, which is sufficient to trigger the failure without a real subprocess.",
+      "test_description": "Using a local PostgreSQL instance, run the pipeline against a batch of 100 rows but simulate a mid-batch crash after 50 rows are committed (e.g. raise an exception in the pipeline after row 50). Then run the pipeline again from the beginning against the same batch. Assert that the PostgreSQL table contains exactly 100 rows (not 150), confirming no duplicates. Verify by checking both the row count and that each source row ID appears exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.7,
+        "System": 0.22,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    }
+  ]
+}

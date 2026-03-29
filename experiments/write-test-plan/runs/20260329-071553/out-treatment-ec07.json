@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that the orchestration layer silently drops one source's data before passing it to the summary step — this is a module-boundary bug between the three fetchers and the aggregator. A single-function Unit test can't catch this unless all three fetch calls and the aggregation are inside one function, which is unlikely. REAL-INFRA: Real HTTP is not needed; stubs returning canned payloads are sufficient because the failure is in the wiring/aggregation logic, not in HTTP transport behavior. LLM-DEP: No AI/ML involved at this stage. REJECTION-GATE for System: The behavior asks about what is *passed* to the summary step, not about real network calls — an in-process stub for each API suffices.",
+      "test_description": "Wire three stub data-source clients (metrics, issue tracker, deployment log) into the real orchestrator function. Each stub returns a distinct canned payload. Call the orchestrator and intercept or inspect the argument passed to the summary-generation function. Assert that all three payloads are present in that argument, with no source omitted or overwritten.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.65,
+        "System": 0.11,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — script aborts instead of continuing — only appears when the orchestrator receives an exception from a fetcher module and must decide whether to propagate or swallow it and continue. That decision crosses a module boundary (fetcher → orchestrator → report assembler), so Unit is too low. REAL-INFRA: A stub that raises a connection/timeout exception is sufficient; we do not need a real unavailable server to trigger the code path. LLM-DEP: No AI/ML needed — we're testing error handling, not summary quality. REJECTION-GATE for System: The behavior says 'unavailable', which triggers in-process exception handling; no real network failure is required to exercise the branch.",
+      "test_description": "Wire the real orchestrator with two stub sources that return valid canned data and one stub that raises a connection error. Run the orchestrator end-to-end (up to, but not including, the summary-generation step, which can be stubbed). Assert: (a) execution completes without raising, (b) the assembled report data structure contains valid entries for the two healthy sources, and (c) the failing source's section contains a 'data unavailable' marker.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Accurately represents' is a quality claim about generated text — it depends on what the real language model produces given the input. A stub always returns the same canned string and will always pass, hiding any drift in model behavior, prompt regression, or context truncation. Running this test 100 times with a real model could produce varying results precisely because accuracy is the thing under test. MOCK-HIDE: Any deterministic stub would make this test vacuous. REAL-INFRA: The test needs a real LLM/generation API call. REJECTION-GATE for Workflow: Only one generative step is described here — the summary step alone — so multi-step chaining is not required.",
+      "test_description": "Call the real summary-generation function (backed by the live LLM API) with a fixed, realistic input containing specific numeric values (e.g., deployment count, open-issue count, error rate). Assert that the returned narrative string mentions those specific key values and does not contradict them (e.g., does not describe a failing metric as healthy). Run with at least 3 independent samples and require the assertions to pass on all of them to account for non-determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.73,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly spans: (1) three real data-source API calls, (2) a real LLM summary-generation call, and (3) real SMTP/email-API delivery — each is a distinct agentic or I/O step. REAL-INFRA: 'Reaches the recipient's inbox' requires a real (or sandboxed) email delivery channel; an in-process email stub can't verify deliverability. LLM-DEP: The pipeline includes the summary-generation step, whose correctness is model-dependent. MOCK-HIDE: Stubbing any step collapses the test to a lower level and hides cross-step failures (e.g., character encoding from the LLM breaking the email body, or a large payload from one API being truncated before the summary step). REJECTION-GATE for Agentic (single-step): More than one agentic/real-I/O step is required — data APIs + LLM + email — so Workflow is warranted.",
+      "test_description": "Run the full scheduled script end-to-end against a staging environment: real (sandbox) metrics endpoint, real (sandbox) issue tracker, real deployment log fixture, live LLM API, and a test mailbox via a real SMTP relay or email testing service (e.g., Mailpit, Mailtrap). After script completion, poll the test inbox and assert: (a) exactly one email arrived, (b) the subject and recipient match configuration, (c) the body contains sections for all three data sources, and (d) the body contains a non-empty narrative paragraph.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.09,
+        "Agentic": 0.16,
+        "Workflow": 0.72
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Two distinct OS-level behaviors are required. First, the report must be persisted to the real filesystem (a temp-dir works, but we need actual file I/O, not an in-memory mock, to verify the file exists after a crash or process exit). Second, 'retried on the next scheduled run' requires re-invoking the script as a fresh process to confirm that the persisted state (pending report file or flag) is discovered and the retry is attempted — this is a subprocess boundary that in-process tests cannot cover. MOCK-HIDE: An in-process mock of the file system would miss bugs in path construction, permissions, or encoding. Mocking 'next run' as a second function call in the same process would miss failures in the startup/discovery logic. LLM-DEP: No new generation is needed for the retry path. REJECTION-GATE for Integration: The 'next scheduled run' clause explicitly requires a process restart; an in-process call-twice pattern cannot catch failures in the script's initialization and pending-report discovery logic.",
+      "test_description": "In a test with a real temp directory: (1) run the script as a subprocess with a stubbed email service that returns a connection-refused error; assert exit code is 0 and a report file exists in the configured fallback directory. (2) Run the script again as a second subprocess (simulating the next scheduled run) with the same stubbed email service now returning success; assert the previously-saved file is consumed (deleted or moved) and the email stub received the report payload. Also assert that a third run with no pending file makes no extra email calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.23,
+        "System": 0.58,
+        "Agentic": 0.05,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

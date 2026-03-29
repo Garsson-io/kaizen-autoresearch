@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is a pure algorithmic computation — f(n) = min(base × 2^n, cap). The failure mode lives entirely inside one function's math, not at a module handoff. REAL-INFRA: No HTTP, OS, or subprocess needed; the function takes a retry count and returns a duration. MOCK-HIDE: Nothing to mock — the algorithm is self-contained. REJECTION-GATE for Integration: no module boundary is crossed; a single call with a retry-count argument fully exercises the failure.",
+      "test_description": "Call the backoff-computation function (or method) with retry counts 0–N+1, where N is the configured cap. Assert that each successive value is double the previous, and that all values ≥ the cap are clamped to the cap. No HTTP client or timer involved.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: 'Identifies a rate-limit response' means inspecting a response object (status code, headers such as Retry-After). This is parsing logic on an in-memory object. The failure mode is entirely within that parsing + computation step, not at an I/O boundary. REAL-INFRA: A constructed mock response object (plain TypeScript object matching the interface) reproduces the exact failure — no real HTTP needed. REJECTION-GATE for Integration: the behavior does not describe a failure that only appears when the HTTP client hands off a real response; it describes a classification/calculation rule that can be verified with a stub response.",
+      "test_description": "Construct stub response objects (status 429 with a Retry-After header, 429 without, and a non-rate-limit status). Pass each to the rate-limit detection function. Assert correct boolean classification and that the extracted wait time matches the Retry-After value (or the backoff default when the header is absent).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure here is not in the backoff calculation — it is in whether the retry coordinator (a) invokes the sleep/timer module, (b) then calls the HTTP module again with the identical request, and (c) surfaces the 200 payload to the caller. This failure only appears at module handoffs: timer → HTTP dispatch → response propagation. A Unit test on any individual piece cannot catch a wiring bug (e.g., sleeping correctly but passing a mutated request on retry). REAL-INFRA: A fake HTTP client returning 429 then 200 fully reproduces the failure; no real network needed. REJECTION-GATE for System: an in-process stub sequence [429, 200] catches the exact regression without real HTTP.",
+      "test_description": "Wire the retry client with a fake HTTP transport that returns HTTP 429 on the first call and HTTP 200 with a known payload on the second. Stub/spy the sleep primitive. Assert: (1) sleep was called with the correct duration, (2) the second request carries the identical headers/body as the first, (3) the resolved Promise value equals the 200 payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.87,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears when the retry loop exhausts its counter and the error-surfacing path runs. Verifying the correct error type requires the counter, the loop, and the error-construction code to all cooperate — a multi-module interaction. Unit-testing just the error constructor would miss a bug where the loop throws the wrong error type or re-throws the raw HTTP error. REAL-INFRA: A fake transport always returning 429 fully reproduces the failure. REJECTION-GATE for System: the failure is in loop termination and typed error propagation, not in real network behavior.",
+      "test_description": "Configure the client with maxRetries = 3. Wire a fake HTTP transport that always returns 429. Call `client.call()` and await the rejection. Assert: the rejected value is an instance of `QuotaExhaustedError` (not `Error` or `HttpError`), and that the transport was called exactly maxRetries + 1 times.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.85,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Infinite-loop bugs live in the interaction among the retry counter, the quota tracker, and the loop condition — none of these modules alone can exhibit indefinite looping. The failure only surfaces when the orchestration layer is assembled. REAL-INFRA: A fake transport always returning 429 with a Jest fake-timer wrapping the sleep fully reproduces the failure. REJECTION-GATE for System: the termination invariant is about control flow across modules, not about real network or OS behavior. MOCK-HIDE: If we only unit-test the counter in isolation, a bug in how the loop reads the counter is invisible.",
+      "test_description": "Configure the client with small maxRetries (e.g., 2) and a fake transport always returning 429. Use fake/accelerated timers. Call `client.call()` and assert the Promise rejects within a bounded number of transport calls (maxRetries + 1) and that no test timeout occurs. Also assert the final error is `QuotaExhaustedError`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.88,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a shared-state bug: two callers holding separate references to independent quota buckets instead of a single shared instance, or race conditions in shared counter updates. This only surfaces when multiple async tasks are wired to the same client instance and fire concurrently. REAL-INFRA: In-process async concurrency with a fake transport can reproduce this exactly — no real HTTP or OS needed. REJECTION-GATE for System: the shared-state failure is about JavaScript's single-threaded async model and instance identity, not about real network conditions. MOCK-HIDE: Testing each caller in isolation always passes; the bug only appears under concurrent in-process dispatch.",
+      "test_description": "Create one client instance with a fake transport. Launch N concurrent `client.call()` Promises without awaiting individually. Instrument the quota bucket to record how many times it is decremented and which instance is referenced. Assert that all N calls reference the same bucket instance and that total decrements equal N (not N per caller).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.88,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO ordering is an emergent property of the queue data structure, the dispatch loop, and concurrent async scheduling all working together. A unit test on the queue alone cannot catch a bug where the dispatch loop drains in arrival order but the HTTP calls resolve in a different order, or where the queue is bypassed for ready-state requests. REAL-INFRA: An in-process fake transport that records call order and a controlled async scheduler reproduce the failure. REJECTION-GATE for System: ordering is determined by in-process queue management, not real network timing. MOCK-HIDE: Testing only queue push/pop misses wiring bugs between the queue and the HTTP dispatch loop.",
+      "test_description": "Submit N requests (tagged 1…N) to the client simultaneously while the fake transport is paused/held. Release the transport. Record the order in which the transport receives each request. Assert the transport call order matches submission order 1…N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.87,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

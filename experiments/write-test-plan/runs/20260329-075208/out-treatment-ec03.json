@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is in how the tool interprets git's rename status output (e.g., 'R100  old_path  new_path'). While a parser function could be unit-tested with a string, the real failure mode is the full path: subprocess call → raw git diff/status output → categorization. REAL-INFRA: Git's rename detection is a real subprocess concern — the output format varies by git version, diff algorithm, and rename-detection threshold (--find-renames). An in-process fake might not reproduce the exact status line format git emits, hiding the failure. REJECTION-GATE: No behavior text disqualifies System. The failure only manifests when real git rename detection output flows through the full pipeline. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System.",
+      "test_description": "Create a real git repo in a temp dir, add a file, commit it, then rename it (git mv). Run the CLI tool and assert: (a) the rename category count is 1, (b) the delete category count is 0, (c) the add category count is 0.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.12,
+        "System": 0.74,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The crash occurs when the diff parser encounters a 'Binary files a/X and b/X differ' line or when attempting to decode raw binary diff content. REAL-INFRA: Git emits special markers for binary diffs and may also emit raw binary data in some configurations. The exact encoding and byte sequences vary with the binary file content and git configuration. A mock subprocess returning a hardcoded string may miss encoding edge cases (e.g., null bytes in output stream, locale-dependent behavior). INTEGRATION-BRAKE: (a) Real subprocess behavior — git handles binary detection and output encoding at the OS level → System. REJECTION-GATE: Nothing in the behavior text limits this to pure string parsing; the crash risk is tied to the actual subprocess output stream. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System.",
+      "test_description": "Create a real git repo in a temp dir, commit a binary file (e.g., a small PNG or random bytes file), then modify it. Run the CLI tool and assert: (a) it exits with code 0, (b) the binary file appears in the modified-files count (or binary-files count), (c) no exception traceback is present in stdout/stderr.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.14,
+        "System": 0.68,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is triggered by git's specific behavior when run on an unborn HEAD. Commands like 'git log', 'git diff', and 'git status' all behave differently on a repo with no commits — some return non-zero exit codes, some print to stderr, some return empty output. REAL-INFRA: The exact exit code, stderr message, and stdout content that git emits for an empty repo are OS- and git-version-dependent. A mocked subprocess returning empty output would not reproduce the failure; the real failure is the tool misinterpreting git's error exit code or 'fatal: your current branch does not have any commits yet' stderr message. INTEGRATION-BRAKE: Real subprocess behavior with a specific git state → System. REJECTION-GATE: No behavior text suggests the failure is isolated to in-process logic. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System.",
+      "test_description": "Create a real git repo in a temp dir via 'git init' but make no commits. Run the CLI tool pointing at that repo and assert: (a) exit code is 0, (b) output is a valid (possibly empty) structured report, (c) no error/traceback on stdout or stderr.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.09,
+        "System": 0.82,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This is an end-to-end correctness check. The failure is a count mismatch between the tool's report and the real git history. Any mock of git output is circular — we'd be testing that the tool parses what we told it to parse, not that it correctly reads real history. REAL-INFRA: Correctness can only be verified against a real git repo with known, controlled history — actual commits with known file operations (adds, deletes, renames, modifications) — because count accuracy depends on the full pipeline: subprocess invocation, output parsing, deduplication, and aggregation all interact. INTEGRATION-BRAKE: Real subprocess and real filesystem state required → System. REJECTION-GATE: The behavior explicitly says 'actual change history,' which is inherently a real-infrastructure claim. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System.",
+      "test_description": "Create a real git repo with a scripted commit history: commit A adds 3 files, commit B modifies 2 and deletes 1, commit C renames 1. Run the CLI tool over the full history and assert the reported counts exactly match: added=3, modified=2, deleted=1, renamed=1 (with no overlap between categories).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.87,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is a behavioral divergence between two code paths: one that calls 'git diff --staged' (or '--cached') and one that calls 'git diff' (unstaged). The divergence only manifests when both paths are exercised against a real git index. REAL-INFRA: The git index (staging area) is a real OS-managed binary file (.git/index). Staged vs. unstaged state is controlled by 'git add' and is not reproducible with in-process fakes without a real git process updating the index. An in-process mock that returns the same output for both calls trivially passes, hiding any real divergence in command construction or output parsing. INTEGRATION-BRAKE: Real subprocess + real git index state → System. REJECTION-GATE: Nothing in the behavior text reduces this to pure in-process logic; it explicitly names a real git operational distinction. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System.",
+      "test_description": "Create a real git repo, make a baseline commit, then make identical file changes. Run the CLI once before staging ('git add') and capture output, then stage the same changes and run again. Assert both outputs are byte-for-byte identical (or structurally equivalent if formatting differs by design) in all category counts and file lists.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.11,
+        "System": 0.8,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

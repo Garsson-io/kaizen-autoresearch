@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary spans two modules — the validator that detects missing fields, and the DLQ writer that records the row. A unit test of the validator alone cannot verify that the correct row number is forwarded to the DLQ; a unit test of the DLQ writer alone cannot verify it receives the right payload from the validator. The two must be wired together. INTEGRATION-CHECK: Down-test fails — calling one function with crafted input cannot verify the cross-module handoff of row number. Up-test: no real OS/network required; an in-process list or fake queue is sufficient to observe the DLQ payload. Integration survives both checks.",
+      "test_description": "Wire the validator and DLQ writer together using an in-process fake queue (e.g., a list). Feed CSV rows with various missing required fields. Assert that each rejected row appears in the fake DLQ with the exact original 1-based row number and the original row content. Also assert that valid rows do NOT appear in the DLQ.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within one transformation function's parsing and formatting logic. No module handoff is needed; the bug would be a wrong output from a pure function given a specific input string. REAL-INFRA: None. LLM-DEP: No. The function is deterministic. INTEGRATION-CHECK not needed — this does not reach Integration.",
+      "test_description": "Parametrize a unit test over a table of (input_string, expected_canonical_output) pairs covering at minimum: ISO 8601 (YYYY-MM-DD), US format (MM/DD/YYYY), and European format (DD.MM.YYYY or DD/MM/YYYY). Assert the output equals the canonical form exactly. Include edge cases such as single-digit month/day, year boundaries, and invalid strings that should raise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Memory usage and wall-clock time are OS-level concerns that cannot be faked in-process. An in-process test can run the code but cannot observe the actual RSS/heap growth that would trigger OOM, nor enforce real timeout semantics against a subprocess. The failure mode (memory exhaustion or deadline exceeded) only surfaces under real OS resource accounting. A mock of S3 and PostgreSQL is acceptable here, but the pipeline itself must run as a real process under OS resource limits to catch the failure.",
+      "test_description": "Generate a 500,000-row CSV on local disk (no real S3 needed — configure the pipeline to read from a local path or use a mock S3). Launch the pipeline as a subprocess (or run in-process with memory profiling). Assert wall-clock duration is under the configured timeout. Assert peak RSS stays below the configured memory budget (e.g., using resource.getrusage or a memory-profiler). The test should fail deterministically if the implementation buffers all rows into memory instead of streaming.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.76,
+        "Agentic": 0.04,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The retry/backoff logic lives in the pipeline layer that calls the S3 client module. The failure would be the pipeline propagating the error rather than retrying, which requires both the pipeline orchestrator and the S3 client interface to be wired. A pure unit test of one function cannot exercise the call from orchestrator into the client and back. INTEGRATION-CHECK: Down-test — if retry logic is in a single self-contained fetch function, it is Unit; but the behavior says 'the pipeline retries', implying orchestrator-level recovery. Up-test — no real network needed; a fake S3 client that raises HTTP 503 deterministically is sufficient. MOCK-HIDE: mocking the S3 client to raise 503 does NOT hide the failure — it is the mechanism that exposes the bug if retries are absent.",
+      "test_description": "Create a fake S3 client whose `get_object` raises a 503/ServiceUnavailable error twice, then succeeds on the third call. Wire it into the pipeline. Run pipeline on a small batch. Assert: (1) the pipeline does not raise and completes successfully, (2) the S3 client was called exactly 3 times, (3) the delay between calls follows exponential backoff (capture call timestamps or mock time.sleep and inspect call args). Also assert a non-transient error (e.g., 403) is NOT retried.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the pipeline-to-database module boundary: the pipeline must track progress checkpoints AND the database write must be idempotent. Neither module alone can reproduce the failure. MOCK-HIDE: This is the critical one. A mock PostgreSQL cannot enforce uniqueness constraints or upsert semantics — the entire deduplication guarantee may depend on a real UNIQUE index or ON CONFLICT clause in the schema. A mock that always succeeds would hide a missing constraint entirely. A real (local/Docker) PostgreSQL is required to make this test meaningful. INTEGRATION-CHECK: Up-test — real PostgreSQL uniqueness semantics cannot be reproduced by any in-process fake. Integration survives because a local test-DB instance (no external network) is sufficient.",
+      "test_description": "Spin up a real PostgreSQL instance (Docker or test-container). Run the pipeline against a small batch, stopping it mid-batch by simulating a crash after N rows are written (e.g., raise an exception in the write loop or kill at a checkpoint). Restart the pipeline against the same input. Assert: the target table contains exactly the expected number of rows (no duplicates) using SELECT COUNT and SELECT DISTINCT checks. Also verify that rows written in the first run match rows written in the second run for the overlap region.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.68,
+        "System": 0.24,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

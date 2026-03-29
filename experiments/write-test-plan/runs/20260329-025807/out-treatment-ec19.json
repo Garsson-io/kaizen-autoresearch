@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The parsing/validation of a signature can be tested at Unit. But the behavior asserts that the *generated* signature matches — i.e., that the real LLM actually follows the interface spec from the natural-language description. A mocked LLM response only tests the parser, not whether the model honours parameter names, types, and return types as instructed. LLM-DEP: The failure mode — LLM ignoring or misinterpreting the interface spec — only appears with a real model call. REJECTION-GATE: Integration was considered; rejected because mocking the LLM to return a compliant signature would trivially pass, hiding the real failure that LLMs sometimes rename or reorder parameters.",
+      "test_description": "Send a real LLM request with a description specifying a precise interface (e.g., `def compute_discount(price: float, rate: float) -> float`). Parse the generated code and assert the function name, parameter names, parameter types, and return type annotation each exactly match the specification.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated implementation passes all provided test cases on the first or a subsequent attempt.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: Running the generated code against a test suite requires real subprocess execution — an in-process fake cannot reproduce actual execution semantics, import errors, or test framework output. LLM-DEP: Code correctness depends on real LLM output; results vary across runs. MULTI-STEP: 'First or a subsequent attempt' explicitly requires the generate→execute→(optionally refine→execute) loop, which chains at least two agentic steps. REJECTION-GATE: Agentic (single step) was considered; rejected because 'subsequent attempt' implies iteration — the loop's convergence behaviour only manifests across multiple real LLM calls fed with real test feedback.",
+      "test_description": "Run the full pipeline end-to-end against a real LLM with a moderately complex function description and a pre-written test suite (e.g., a string-manipulation function with 5 edge-case tests). Assert that after at most 3 attempts the service returns a status of success and the implementation passes every test case when re-executed independently.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.2,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When tests fail, the refinement step includes the failure messages in the next LLM prompt so the model can learn from its mistakes.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is about data flow between two modules: the test runner (which produces failure output) and the prompt builder (which must embed that output in the next request). Neither module alone can reveal this bug — a Unit test on the prompt builder with hardcoded strings would always pass regardless of whether the wiring exists. REAL-INFRA: The test runner output can be produced by an in-process fake returning realistic failure text; no real subprocess is needed to verify the prompt content. REJECTION-GATE: System was considered (real subprocess for test execution); rejected because the behaviour under test is prompt content correctness, not test-execution fidelity — an in-process stub returning a realistic failure string is sufficient to expose the real wiring failure.",
+      "test_description": "Configure the service with a mock LLM that returns syntactically valid but wrong code on the first call. Use an in-process stub test runner that returns a deterministic failure message (e.g., `AssertionError: expected 4, got 3`). Capture the prompt sent on the second LLM call and assert it contains the exact failure message text from the first run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The stopping logic, attempt accumulation, and error serialisation live in the service layer. The failure mode (e.g., making a 4th call, or dropping attempt data from the error) only appears when the attempt counter, LLM client, test runner, and error formatter are wired together. Unit-testing the counter alone cannot catch a bug where test results are not threaded through to the final error object. REAL-INFRA: No real subprocess or network is needed — a mock LLM always returning bad code and a stub test runner always returning failures suffice to drive all 3 iterations. LLM-DEP: The LLM is mocked, so no non-determinism. REJECTION-GATE: System was considered; rejected because the failure mode is service-layer control flow, fully reproducible with in-process fakes.",
+      "test_description": "Wire the service with a mock LLM that always returns syntactically invalid code and a stub test runner that always returns a fixed failure message. Invoke the service and assert: (a) the mock LLM was called exactly 3 times, (b) the returned error object has status 'failed', (c) it contains exactly 3 attempt records each carrying the corresponding generated code and the stub failure message.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full loop — generate, test, refine, test again — produces a working implementation for a function that a single LLM call typically gets wrong.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly requires at least two agentic steps in sequence (generate → test fail → refine → test pass) and asserts that the *loop* succeeds where a single call would not. REAL-INFRA: Real subprocess execution of generated code is needed; in-process stubs cannot reproduce actual runtime errors or import failures that the LLM must fix. LLM-DEP: The entire claim depends on real LLM non-determinism — a mocked LLM cannot demonstrate that iterative feedback actually improves the output. REJECTION-GATE: Agentic (single step) was considered; rejected because the defining property is that a single call 'typically gets it wrong,' meaning the test must run at least two real agentic calls to demonstrate convergence.",
+      "test_description": "Choose a target function empirically known to fail on first LLM attempt (e.g., a recursive algorithm with a tricky base case). Provide a test suite covering that case. Run the full pipeline with a real LLM and real subprocess test execution. Assert the service reports success, the final implementation passes all tests when re-executed independently, and the service required more than one attempt — confirming the loop's refinement step was exercised.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.17,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

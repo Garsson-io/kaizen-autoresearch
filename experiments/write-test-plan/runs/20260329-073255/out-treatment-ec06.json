@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is not in routing logic — it is in whether the OS watcher is configured to emit events for nested paths at all. REAL-INFRA: On Linux, `fs.watch` recursive behavior differs from macOS FSEvents and Windows ReadDirectoryChangesW. A fake/in-process event source would bypass the OS-level event emission entirely, hiding the exact failure (watcher configured non-recursively and never sees the subdirectory file). REJECTION-GATE: Integration was rejected because an in-process fake event source cannot reproduce the OS-level failure — you could inject a fake event for a subpath and the routing logic would pass, while the real daemon never fires at all on subdirectory writes.",
+      "test_description": "Start the daemon process against a real temporary directory. Create a nested subdirectory inside the watched root. Write a file into that subdirectory. Assert the transformation pipeline receives and processes the file. Repeat with two levels of nesting to confirm arbitrary depth.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.78,
+        "Agentic": 0.02,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This behavior is purely about an in-memory deduplication algorithm — a keyed map or set with a TTL. The failure mode lives entirely within that data structure's logic (key comparison, expiry check). REAL-INFRA: No OS, network, or subprocess involvement is required. Fake timers and synthetic event objects reproduce the exact failure. MOCK-HIDE: There is nothing to mock whose real behavior would differ from a stub — the dedup logic does not call out to any external system. REJECTION-GATE: Integration was considered but rejected because the failure is in the algorithm itself; wiring it into the broader pipeline adds no discriminating power for this specific behavior.",
+      "test_description": "Instantiate the deduplication module directly with a configurable time window (e.g., 500 ms) and a fake/controllable clock. Submit two processing requests for the identical file path within the window; assert exactly one request passes through. Advance the fake clock past the window expiry; submit a third request for the same path; assert it passes through. Also assert a request for a distinct path is never suppressed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The deduplication algorithm is covered by behavior 2. This behavior's additional claim is that the dedup layer is correctly wired so that real OS multi-event bursts (e.g., inotify emitting IN_MODIFY + IN_CLOSE_WRITE + IN_ATTRIB) are actually caught. REAL-INFRA: Whether the OS emits multiple events for a single write is platform-specific and cannot be reproduced by injecting synthetic events — an in-process fake would just re-test the unit logic. REJECTION-GATE: Integration was rejected because injecting two fake events through the wired pipeline merely retests behavior 2's dedup logic; it does not verify the daemon actually intercepts real OS-burst events before they reach the dedup layer.",
+      "test_description": "Start the full daemon against a real temporary directory. Write a file using a sequence that reliably triggers multiple OS events on the target platform (e.g., open + write + flush + close, or write-then-rename). Capture invocation counts on the transformation pipeline entry point. Assert the pipeline was invoked exactly once for that file path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.68,
+        "Agentic": 0.02,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is that the watcher holds a stale OS inode handle to the deleted directory and never re-attaches to the new one. REAL-INFRA: This is intrinsically an OS inode lifecycle problem. An in-process fake cannot reproduce the exact failure — when a watched directory is deleted and its inode recycled, the OS-level watch descriptor is silently invalidated. Only real `rmdir`/`mkdir` via the OS can trigger this. MOCK-HIDE: Any fake directory removal would bypass the kernel watch invalidation, causing the test to pass regardless of whether the daemon actually re-attaches. REJECTION-GATE: Integration was rejected because no in-process abstraction can simulate inode recycling and watch descriptor invalidation.",
+      "test_description": "Start the daemon against a real temporary directory. While the daemon is running, delete the entire watched directory using OS commands (`fs.rmSync` or shell). Wait a short interval. Recreate the directory at the same path. Write a new file into the recreated directory. Assert the daemon processes the file without having been restarted (verify via process PID stability and pipeline invocation).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.9,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior spans two modules: the filesystem stat/metadata reader and the ordering/scheduling queue. The failure can occur in either (wrong stat field read, wrong sort comparator, timestamp tie-breaking). REAL-INFRA: Reading `birthtime`/`ctime` from real files in a temp directory is local filesystem I/O, which the level definitions place at Integration — no subprocess, real network, or OS-level daemon lifecycle is required. MOCK-HIDE: Mocking stat results would test only the sort comparator, hiding failures in which timestamp field is actually read. Real temp files are needed to verify the correct stat attribute is used. REJECTION-GATE: System was rejected because the failure does not depend on process boundaries, OS watch event emission, or concurrent subprocesses — the ordering module can be exercised in-process with real temp files.",
+      "test_description": "In a real temporary directory, create several files with distinct, known creation timestamps (introduce small sleeps or use OS `utimes` to set known values). Feed the list of file paths to the ordering/scheduling module directly (in-process). Assert the module emits processing requests in ascending timestamp order. Include a case where two files have identical timestamps and assert the tie-breaking rule is stable.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.65,
+        "System": 0.22,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is in the write-completion detection mechanism (polling file size stability, exclusive lock probe, or watching for CLOSE_WRITE). That mechanism interacts directly with OS file locking and kernel buffer flush semantics. REAL-INFRA: Holding a file descriptor open in the same test process can simulate an incomplete write for some detection strategies, but race conditions and lock-probe behavior differ under concurrent OS-level writes versus same-process holds. The behavior says 'still being written to when the arrival event fires' — correctly reproducing this requires a real concurrent writer and real OS event timing. MOCK-HIDE: Faking the 'is-write-complete' predicate trivially passes regardless of whether the detection logic actually works with real OS file state. REJECTION-GATE: Integration was rejected because same-process file handle tricks do not reproduce OS-level exclusive lock behavior or the exact timing between event emission and buffer flush that causes the real failure.",
+      "test_description": "Start the daemon against a real temporary directory. In a concurrent child process (or async stream), begin writing a large file to the watched directory but do not close the file descriptor. Confirm the arrival event fires (via log or event hook) while the write is still in progress. Assert the transformation pipeline has NOT been invoked yet. Complete and close the write. Assert the pipeline is subsequently invoked exactly once for the file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.72,
+        "Agentic": 0.02,
+        "Workflow": 0.06
+      }
+    }
+  ]
+}

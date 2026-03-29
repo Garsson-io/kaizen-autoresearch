@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two inseparable parts — (a) validation rejects the manifest and (b) no module code is executed. Testing the validator in isolation proves (a) but cannot prove (b). Proving (b) requires the loader module to respect the validation result and not invoke require/import. That is a module-boundary interaction: validator → loader. REAL-INFRA: No real filesystem or network needed; the manifest can be a plain in-process object and require() can be stubbed to verify it was never called. MOCK-HIDE: If we only unit-test the validator, a bug where the loader ignores the validation result and loads the module anyway is invisible. REJECTION of System/Agentic: no OS I/O, no AI/ML, no subprocess is needed to reproduce this failure.",
+      "test_description": "Wire the manifest validator and the plugin loader together in-process. Provide a manifest object missing a required field (e.g., 'name'). Stub the module-import call (require/dynamic import). Assert the loader returns a rejection error AND that the import stub was never invoked, confirming no plugin code ran.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the handoff between the dependency resolver (which computes a topological order) and the hook executor (which iterates that order and calls hooks). A unit test of the resolver alone only verifies the sorted order is correct data; it cannot catch a bug where the executor ignores the order. These two modules must be wired together. REAL-INFRA: No real filesystem or network is needed; plugins can be in-memory stubs with fake onLoad hooks. MOCK-HIDE: Stubbing either the resolver or the executor in isolation always passes, hiding the failure. REJECTION of System/Agentic: call ordering is deterministic and requires no real OS resources or AI/ML model.",
+      "test_description": "Create two in-memory plugin stubs — plugin A declaring dependency on B, each with an onLoad that appends its name to a shared call-order array. Feed both to the loader. Assert that B's name appears before A's name in the call-order array.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Like behavior 2, this has two parts: cycle detection and the enforcement that neither plugin is loaded. Unit-testing the cycle detector in isolation only verifies it returns a cycle error; it cannot verify the loader honors that result and skips both modules. The failure boundary is the handoff between the cycle-detection algorithm and the loader's execution gate. REAL-INFRA: No OS/network required; manifests are in-memory objects. MOCK-HIDE: A unit test of cycle detection that stubs the loader would pass even if the loader had a bug that proceeded to load one of the plugins anyway. REJECTION of System/Agentic: deterministic algorithm, no real infrastructure.",
+      "test_description": "Create two in-memory plugin stubs where A depends on B and B depends on A, each with an onLoad that sets a flag. Pass both to the loader. Assert the loader returns a cycle-error diagnostic naming both plugins AND that neither onLoad flag was set.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is the sequencing contract between the module-import step and the hook-invocation step inside the loader. A unit test of the hook executor alone cannot verify it waits for the import to complete. The importer and hook executor must be wired together. REAL-INFRA: The 'has been executed' guarantee requires something to observe that the module body ran before onLoad fired. This can be satisfied in-process: a fake module stub that sets a flag when 'required', and an onLoad that reads that flag — no real filesystem or subprocess needed. MOCK-HIDE: Mocking the import entirely and asserting call order proves only sequencing of two stubs; it does not catch a bug where the loader starts onLoad before the async import resolves. REJECTION of System: a real file on the real filesystem is not needed — an in-process module stub reproduces the exact failure mode.",
+      "test_description": "Create a plugin stub whose 'module' sets an 'imported' flag when the loader invokes the import step, and whose onLoad asserts that the flag is already true when it runs. Pass this stub to the loader. Assert onLoad completes without throwing, confirming the import ran first.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.72,
+        "System": 0.19,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Do not depend on it' means the loader must consult the dependency graph when deciding which remaining plugins to skip vs. continue. This ties the error-handling path to the dependency-resolution module. A unit test of the loader's try/catch logic with a completely flat (no-dependency) plugin set would not catch a bug where the loader skips an unrelated plugin that shares no dependency edge with the failing one. REAL-INFRA: No real OS resources needed; all plugins can be in-memory stubs. MOCK-HIDE: Stubbing the dependency tracker always produces an empty skip-set, masking bugs in the loader's 'skip dependents' traversal. REJECTION of System/Agentic: deterministic error isolation logic, no AI/ML or real infrastructure.",
+      "test_description": "Create three in-memory plugin stubs: A (throws in onLoad), B (depends on A, should be skipped), and C (no dependency on A, should proceed). Feed all three to the loader. Assert the loader records an error for A, does not invoke B's onLoad, and does invoke C's onLoad successfully.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

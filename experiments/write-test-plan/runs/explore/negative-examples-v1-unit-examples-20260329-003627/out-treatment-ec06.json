@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Subdirectory files are processed by the daemon, not only files in the watched root directory.",
+      "minimum_level": "System",
+      "justification": "The failure—file watcher not recursing into subdirectories—only appears when the real OS file events are emitted for nested paths. Mocking the watcher to claim it watches subdirectories would pass a mock-based test but miss the actual watcher configuration. Real filesystem with nested structure and real OS events are needed to verify the watcher (chokidar, fs.watch, etc.) is configured for recursive watching.",
+      "test_description": "Create a real filesystem with a subdirectory under the watched root. Place a file in the subdirectory. Verify the daemon detects, processes, and outputs the file. Repeat with multiple nesting levels to ensure recursive watching works.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test uses real filesystem and real watcher; this is the only way to catch if the watcher is not configured as recursive.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Deduplication logic rejects a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure algorithm: given a path, a previous processing timestamp, and a current request timestamp, decide whether to process. No module boundaries are crossed—it's a stateful tracker (in-memory cache or simple store) that checks recency. The failure (duplicate processing) appears immediately when the deduplication logic is wrong, not at an integration boundary.",
+      "test_description": "Unit test the deduplication logic in isolation. Create a deduplication service/function. Submit path A at time T=0 (should process). Submit path A at time T=100ms within a 1-second window (should reject). Submit path A at time T=1001ms outside the window (should process). Verify rejection at 100ms and acceptance at 1001ms.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test does not need filesystem or watcher; it tests only the deduplication algorithm.",
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "The failure—processing a file multiple times—appears only when real OS filesystem events occur. Different operating systems (Linux, macOS, Windows) emit different event sequences for a single file write (e.g., 'add', 'change', 'close' on different platforms). Mocking OS events to emit a fixed sequence and then deduplicating would pass, but it would hide the real event patterns on the actual OS. Real filesystem operations and real OS-level event emission are needed.",
+      "test_description": "Write a real file to the watched directory and observe the actual OS filesystem events (use a real watcher or event listener). Verify the daemon processes the file exactly once despite multiple events. Test on the target OS (or test multiple OSes if targeting multiple platforms).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test must use real OS filesystem events; mocking event sequences misses the real OS behavior.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and recreated while the daemon runs, the daemon resumes watching the new directory without restart.",
+      "minimum_level": "System",
+      "justification": "The failure—daemon crashing or stopping when the watched directory is deleted, or failing to re-establish the watch when it is recreated—depends on real OS behavior and real filesystem state transitions. The daemon's recovery logic must handle actual OS file-not-found errors and directory re-creation events. Mocking directory deletion/recreation would not capture real OS error conditions or timing issues.",
+      "test_description": "Start the daemon watching a real directory. Delete the watched directory while the daemon runs. Verify the daemon handles the error gracefully (logs, attempts recovery). Recreate the directory. Verify the daemon resumes watching the new directory and processes new files without restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real filesystem operations and real OS error conditions; only real deletion/recreation can verify the daemon's recovery logic works.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Multiple files arriving at the same time are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "The failure—processing in wrong order (random, alphabetical, reverse)—appears when the sorting/ordering logic meets the daemon's processing loop. The core algorithm (sort files by creation timestamp) is Unit-testable, but the behavior requires the daemon to actually use that sorted order when processing. The minimum failure boundary is where the sorting logic integrates with the file-processing loop.",
+      "test_description": "Create multiple mock files with controlled creation timestamps (or use real files with known timestamps). Feed them to the daemon's processing queue (or simulate multiple file arrival events). Verify the daemon processes them in ascending timestamp order, not in arrival order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test integrates the sorting logic with the daemon's processing loop; however, using real filesystem timestamps would provide stronger assurance against timestamp edge cases (resolution, rounding).",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.5,
+        "System": 0.35,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file still being written when the arrival event fires is not processed until writing is complete.",
+      "minimum_level": "System",
+      "justification": "The failure—processing an incomplete/partial file—depends on detecting when a file is still open for writing. This requires real OS file-locking semantics, real file size checks, or real file-descriptor state. Different operating systems implement file locking differently (POSIX locks, Windows file locking, etc.). Mocking file size or lock status would not catch OS-specific behavior or race conditions with actual write operations.",
+      "test_description": "Start writing a real file to the watched directory. Before writing completes, verify the daemon does not pick it up for processing (or waits if it does detect an arrival event). Complete the write. Verify the daemon then processes the now-complete file. Test with real file writes to ensure real OS locking/size state is checked.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test must use real file writes and real OS file state; mocking file size or lock status misses OS-specific detection logic.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

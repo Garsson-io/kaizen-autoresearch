@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely in the backoff calculation algorithm — does successive doubling halt at the configured cap? This is a single function's arithmetic logic; no module boundary is crossed. REAL-INFRA: No network, filesystem, or subprocess involved; a fake clock or direct value injection suffices. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected because the bug (wrong doubling or wrong cap) is fully exposed by calling the backoff function directly with sequential failure counts — no cross-module wiring is required to surface the failure.",
+      "test_description": "Call the backoff-calculation function (or method) with failure counts 0, 1, 2, 3, …, and the configured maximum. Assert that each successive interval is exactly 2× the previous and that the returned value never exceeds the configured maximum. Use a fixed base interval so the test is deterministic.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode lives entirely in response classification (e.g. HTTP 429 detection, Retry-After header parsing) and the wait-time derivation from that response. Both steps belong to the same decision unit; passing a synthetic response object exercises the full logic without cross-module state. REAL-INFRA: A plain in-memory response object (no real HTTP call) is sufficient; the classifier does not depend on transport behavior. LLM-DEP: No. REJECTION-GATE: Integration rejected — the classification and computation do not depend on interaction with a second module; a correctly typed response object passed to one function is enough to reveal a mismatch.",
+      "test_description": "Construct synthetic HTTP response objects (status 429, various Retry-After header values and absent headers) and pass them directly to the rate-limit detection and wait-time computation function. Assert correct boolean classification and correct numeric delay for each case, including the fallback when Retry-After is absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not in any single function but in the handoff between modules: the retry coordinator must preserve the original request, invoke the HTTP transport again with exactly the same arguments, and thread the successful response back to the caller. A unit test of the backoff function cannot reveal whether the request was reconstructed incorrectly or the result was re-wrapped. REAL-INFRA: A mock HTTP client that returns 429 on the first call and 200+body on the second is sufficient; real network is not required. REJECTION-GATE: System rejected — the failure is fully reproducible with an in-process stub transport.",
+      "test_description": "Wire the retry coordinator to a stub HTTP client programmed to return a 429 response on the first call and a 200 response with a known body on the second. Call `client.call()` with a fixed request. Assert that the stub was called exactly twice with identical request parameters, that the caller receives the 200 body, and that no error is thrown.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The error type is produced by the interaction between the retry loop's count tracking and the error-construction path; neither component in isolation determines the final thrown type. The bug (wrong error type or wrong threshold) only surfaces when the retry coordinator exhausts its counter and hands off to the error factory. REAL-INFRA: A stub HTTP client that always returns 429 is enough; no real network needed. REJECTION-GATE: Unit rejected — a unit test of the error constructor cannot verify the counter triggers it at the right iteration.",
+      "test_description": "Configure a client with maxRetries=N. Wire a stub HTTP client that always returns 429. Call `client.call()` and assert it throws exactly `QuotaExhaustedError` (not a supertype or generic Error). Also assert the stub was called exactly N+1 times (initial + N retries), confirming exhaustion happened at the correct boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: An infinite loop only manifests when the retry loop, the quota tracker, and the termination condition are all wired together — no single component test reveals it. REAL-INFRA: A stub HTTP client perpetually returning 429 is sufficient; real network is not needed. The quota tracker is in-process state. REJECTION-GATE: Unit rejected — the loop-termination invariant spans multiple cooperating objects. System rejected — an in-process stub can exhaust the retry counter just as a real server can; no OS-level behavior is involved.",
+      "test_description": "Set a timeout (e.g., 2× the theoretical max wait for maxRetries iterations with fast fake delays). Use a stub clock to make sleeps instantaneous. Wire a stub HTTP client that always returns 429. Assert `client.call()` resolves (with `QuotaExhaustedError`) before the timeout fires, and that the quota tracker's internal counter matches the expected exhausted state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.91,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (each caller using a private counter instead of the shared one) is invisible at unit level because it only appears when two async flows interact through the same shared state at runtime. REAL-INFRA: Controlled async concurrency (e.g., `Promise.all`) with a stub HTTP client is sufficient; no real network is needed — the shared-state bug manifests purely in in-process coordination. REJECTION-GATE: System rejected — real HTTP endpoints are not needed to expose a shared-bucket violation; the failure is in memory-shared state, not transport behavior.",
+      "test_description": "Instantiate a single client with a shared quota bucket. Launch N concurrent `client.call()` invocations via `Promise.all` against a stub HTTP client that counts total calls and returns 429 for all of them. Assert that the shared quota counter reflects exactly N×(maxRetries+1) total attempts (not N independent sub-counters each reaching maxRetries independently), and that each caller receives `QuotaExhaustedError`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.88,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO dispatch order is a property of the interaction between the queue, the scheduler, and the transport — not of the queue data structure in isolation. A unit test of the queue itself confirms insertion order but cannot reveal whether the dispatcher respects that order when pulling from the queue. REAL-INFRA: A stub HTTP client that records call order is sufficient; real network is not needed to observe dispatch sequence. REJECTION-GATE: Unit rejected — the bug (dispatcher skipping or reordering) only appears when the queue is connected to the dispatch loop. System rejected — in-process wiring with an ordered stub fully exposes the failure.",
+      "test_description": "Submit N requests with distinct identifiers in a known order while the stub HTTP client is paused (e.g., first response is delayed). Release the stub and record the order in which requests arrive at the stub. Assert that arrival order matches submission order exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.87,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

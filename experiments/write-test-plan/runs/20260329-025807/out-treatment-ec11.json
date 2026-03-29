@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history is trimmed to the most recent 10 messages when the full history exceeds the context window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The trimming is a pure algorithmic operation — take a list, return the last N elements. The failure boundary is entirely within a single function; no module hand-off is involved. REAL-INFRA: No OS, network, subprocess, or filesystem is required. MOCK-HIDE: There are no external dependencies to mock — the input is a plain list of messages. LLM-DEP: The LLM is not involved in the trimming decision itself; the slice happens before the LLM is called. MULTI-STEP: No. REJECTION-GATE: Integration was considered and rejected — the behavior's failure mode (wrong slice index, off-by-one, wrong ordering) is fully observable from the function's return value alone, with no module boundary crossed.",
+      "test_description": "Pass a list of 15 synthetic message objects to the history-trimming function and assert the returned list contains exactly the last 10 messages in original order. Also verify edge cases: exactly 10 messages (no trimming), 9 messages (no trimming), and 0 messages.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Addresses the customer's question' is a claim about response relevance and quality — a judgment that only a real LLM output can satisfy or violate. Running this test 100 times with a mock always passes because the mock returns whatever you configure; running it with a real model may produce off-topic or formulaic responses. MOCK-HIDE: A mocked LLM trivially passes by returning a canned relevant-sounding answer — the mock never exposes prompt engineering failures, model drift, or context misuse. MOCK-MISS: The failure isn't at a module boundary; it's in the quality of what the model generates. REJECTION-GATE: Integration was considered and rejected — no amount of in-process wiring verification can validate whether the model actually answers the question asked.",
+      "test_description": "Send a realistic customer question (e.g., 'How do I reset my password?') through the full chatbot pipeline backed by a real LLM call. Assert that the response semantically addresses password reset, does not contain generic filler phrases unrelated to the question, and does not answer a different question. Use a set of 3–5 representative question types to cover generic vs. specific queries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.87,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Correctly identifies' is a classification-quality claim. The tone checker re-prompts the LLM — meaning the classification itself is an LLM judgment call. Whether a given response is 'too formal' is not deterministic; different runs or model versions may classify the same text differently. MOCK-HIDE: Mocking the tone-check LLM call means the test asserts nothing about actual tone classification correctness — it only verifies branching logic, not the classification. MOCK-MISS: The failure being tested is classification accuracy (does it flag what should be flagged?), not module wiring. REJECTION-GATE: Integration was considered and rejected — a mocked LLM call cannot validate that the prompt and classification logic actually produce correct formal/casual discrimination on real model output.",
+      "test_description": "Feed the tone-check step a set of human-curated responses: some clearly over-formal (e.g., 'Pursuant to your inquiry, I am pleased to inform you…'), some appropriately casual (e.g., 'Sure! Here's how you can fix that:'). Use a casual-tier customer context and call the real LLM-backed tone checker. Assert that formal examples are flagged and casual examples are not, with a pass threshold (e.g., ≥4 of 5 correct).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.8,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the module boundary between the exchange orchestrator and the persistence layer — incorrect field mapping, missing regeneration records, or timestamp generation errors only appear when the two modules are wired together. REAL-INFRA: A local test database (in-process or local instance) is sufficient; no real network, subprocess, or external API is needed. The failure mode (wrong schema, missing rows, bad timestamps) is fully reproducible with a local DB. LLM-DEP: The LLM output can be replaced with a fixed stub — the behavior under test is the persistence logic, not generation quality. REJECTION-GATE: System was considered and rejected — no OS-level or network behavior is required; a local test DB catches all relevant persistence failures.",
+      "test_description": "Wire the exchange orchestrator to a local test database with stubbed LLM calls (fixed first response + one regeneration). Invoke a full exchange, then query the database directly. Assert: exactly one exchange record exists, it contains the user message and final response, the regenerated draft is also stored, all timestamps are present and chronologically ordered (user message ≤ initial response ≤ regeneration), and no fields are null.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.82,
+        "System": 0.09,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the pipeline routing boundary — the orchestrator must correctly discard the first LLM response and return only the second. This is a control-flow / state-propagation failure that only appears when the tone-check result is wired into the response-selection logic. REAL-INFRA: No OS/network/subprocess needed. MOCK-HIDE: The LLM calls can be mocked with controlled outputs (first call returns a tone-flagged response, second returns an acceptable one) without hiding the routing failure — the behavior under test is the pipeline's decision to replace, not the classification quality. LLM-DEP: Classification quality is not the claim here; the claim is about which response is surfaced. Deterministic stubs are sufficient. REJECTION-GATE: Agentic was considered and rejected — the failure mode (draft leaking to customer, or first response not replaced) is entirely in the orchestration logic and is reproducible with mocked LLM calls.",
+      "test_description": "Configure two mocked LLM responses in sequence: first returns a response that the (also mocked) tone checker flags as too formal; second returns an acceptable response. Run the full chatbot pipeline. Assert: the value returned to the caller equals the second response, not the first; the first response is not present in the returned output; the pipeline invoked the LLM exactly twice.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.04,
+        "Agentic": 0.15,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

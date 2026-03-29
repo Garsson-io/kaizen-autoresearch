@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a grouping algorithm that takes a flat list of entries and buckets them by trace ID. The bug — entries from different microservices not landing in the same bucket — is entirely expressible at one function boundary with no inter-module handoff. REAL-INFRA: No OS, network, or filesystem needed; entries are plain data. MOCK-HIDE: No external dependency whose mock could hide the failure. LLM-DEP: No AI/ML involved. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit, no override.",
+      "test_description": "Construct a list of LogEntry objects where entries from at least three distinct microservice names share two different trace IDs. Call the grouping function directly. Assert that exactly two groups are produced, each containing all and only the entries whose trace_id matches, irrespective of the service field. Also assert that an entry with a unique trace ID forms its own singleton group.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely in the sort/skew-compensation algorithm. The bug — wrong ordering when two services' clocks differ by ≤500ms — is reproducible with constructed timestamps; no inter-module handoff is required. REAL-INFRA: No real clocks or network time sources needed; timestamps are plain values in test data. MOCK-HIDE: Nothing to mock. LLM-DEP: No. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit, no override.",
+      "test_description": "Construct a set of LogEntry objects across two services where service B's clock is 450ms ahead of service A's wall clock, causing raw timestamps to invert the true event order. Call the timeline-sort function. Assert the output order matches causal event order after skew correction. Also assert that a skew exceeding 500ms is NOT corrected (documents the boundary contract).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the detection/statistics algorithm — computing p99, computing baseline, applying the 3x threshold, and emitting a flag. All of this is algorithmic logic operating on a sequence of numeric values. The 'anomaly report' is an output value, not a separate I/O-bound module. REAL-INFRA: No OS/network needed. MOCK-HIDE: No dependency whose mock would hide the failure. LLM-DEP: The threshold comparison is deterministic arithmetic. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit, no override. REJECTION-GATE for Integration: nothing in the behavior text requires multiple modules to interact; the detection logic is self-contained.",
+      "test_description": "Construct two latency datasets: a baseline sample (e.g., 1,000 values with p99=100ms) and a spike sample where p99=350ms (3.5x baseline). Call the anomaly-detection function with these inputs. Assert the result contains a latency-spike anomaly entry referencing the spike sample. Also construct a boundary case where p99=299ms (2.99x) and assert no spike is flagged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.23,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior text's failure modes are (a) the pipeline crashes and (b) the skip count is wrong. 'Crashes the pipeline' implies the error propagates from the parser through the pipeline orchestrator and up to the caller — a cross-module handoff. A unit test of the parser in isolation only covers (a) if all error handling is in the parser; it cannot verify that the orchestrator correctly catches and counts parse errors rather than letting them bubble up. REAL-INFRA: No OS/network; an in-process test with a fake input stream is sufficient. MOCK-HIDE: Mocking the parser would trivially hide the crash scenario. INTEGRATION-BRAKE: (a) No real OS/network needed — Integration holds. (b) No AI/ML. (c) No chaining of agentic steps. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration, no override.",
+      "test_description": "Wire the parser, pipeline orchestrator, and report collector together in-process. Feed a mixed input stream containing 8 valid JSON log entries and 4 malformed entries (e.g., truncated JSON, wrong type for required fields, empty string). Run the pipeline to completion. Assert it does not raise an exception, that the output contains exactly 8 processed entries, and that the pipeline's result object reports skipped_count=4.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.62,
+        "System": 0.18,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure modes — dropped entries and falling behind — are throughput and backpressure failures that emerge from real scheduling, I/O buffering, and concurrent queue behavior. REAL-INFRA: 'Per second' is a real-time constraint. An in-process module-wiring test with a pre-built list of 10k entries does not reproduce the real failure: it exercises batch processing, not sustained throughput pressure. The bugs most likely to cause dropping/falling-behind (I/O buffer overflow, producer–consumer queue saturation, OS scheduling starvation) only manifest under real ingestion-rate pressure, typically via a real subprocess, pipe, or socket. An in-process fake stream with a loop cannot reproduce OS-level backpressure. MOCK-HIDE: Any in-process fake that generates entries synchronously would hide queue-saturation failures. INTEGRATION-BRAKE: (a) Real timing and OS-level I/O are needed to reproduce the failure — yes → System. REJECTION-GATE for Integration: the behavior says 'per second without dropping … or falling behind', which is a real-time rate constraint; nothing in the text limits the failure mode to in-process module wiring. EVIDENCE-LEVEL=System, OUTPUT-LEVEL=System, no override.",
+      "test_description": "Launch the log analysis tool as a real subprocess. Use a producer process (or a high-rate pipe writer) to stream 10,000 well-formed JSON log entries per second for a sustained 5-second window (50,000 total). After the window closes, signal end-of-stream and wait for the tool to finish. Assert that the tool's output entry count equals 50,000 (no drops), and that the tool's reported lag (time between last entry emitted and last entry processed) stays below an acceptable bound (e.g., 2 seconds), confirming it does not fall behind.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.22,
+        "System": 0.64,
+        "Agentic": 0.02,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature → 401, body not forwarded",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure boundary is entirely within the handler function: does it compute the expected HMAC, compare it to the header, and short-circuit before calling enqueue? That's one function's logic. A mock queue spy can verify enqueue was never called. REAL-INFRA: No OS, network, or subprocess required — HMAC is pure computation. MOCK-HIDE: A mock queue that asserts it was NOT called faithfully catches the failure. REJECTION-GATE: Considered Integration because the behavior mentions 'not forwarded' (a second module), but the failure — wrong signature passes or wrong status returned — is entirely in the handler's control flow with a mock queue verifiable at Unit.",
+      "test_description": "Call the handler function directly (no HTTP server) with a crafted request whose body does not match the HMAC-SHA256 of the X-Signature-256 header. Pass a jest mock as the enqueue dependency. Assert the return value / thrown status is 401, and that mock.enqueue was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event written to persistent queue before HTTP 200 is returned",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is a control-flow ordering bug inside the handler: does it await the queue write before emitting the response, or does it fire-and-forget the write and return 200 immediately (violating durability)? This is observable by making a mock queue.write return a promise that resolves on demand, then verifying the response promise does not settle until after queue.write resolves. REAL-INFRA: No external infrastructure needed — async ordering is fully observable in-process with controlled promises. MOCK-HIDE: A synchronous mock would make both orderings pass; use a deferred promise mock to expose the bug. REJECTION-GATE: Considered Integration (real queue ensures persistence), but the behavior is about ordering, not durability of storage — a controlled async mock is sufficient.",
+      "test_description": "Wire the handler with a mock queue whose write() returns a manually-controlled Promise. Invoke the handler. Verify the response-settled promise does not resolve before the queue.write Promise resolves. Then resolve queue.write and assert the response is 200.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.32,
+        "System": 0.05,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream processing to finish",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — handler awaits the downstream consumer instead of fire-and-forgetting — only manifests when real request/response I/O is in flight simultaneously with a blocking downstream. A plain function call test cannot observe that the HTTP response was flushed before downstream finished. REAL-INFRA: We need an actual HTTP layer (e.g., supertest against the live app) so the response timing is observable. MOCK-HIDE: The downstream consumer can be a mock that takes 5+ seconds; the key is that the HTTP response time is measured with real transport, not just return values. REJECTION-GATE: Considered System (real subprocess for timing accuracy), but an in-process supertest server with a controlled slow mock downstream is sufficient to catch the bug — no OS-level process boundary is required.",
+      "test_description": "Start the server in-process with supertest. Wire downstream processing to a mock that does not resolve for 5 seconds. POST a valid webhook. Assert the HTTP response arrives in under 1 second. Assert that the slow downstream mock is still pending (not yet resolved) at the time the response is received.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.28,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock time under concurrent slow downstream load",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This is an explicit wall-clock latency contract under real concurrent load. The failure mode — any form of back-pressure, accidental await, or event-loop starvation — only appears when multiple OS-level concurrent connections are in flight simultaneously. REAL-INFRA: Real concurrent HTTP connections are required; in-process supertest serializes requests, hiding concurrency bugs. A real HTTP server (e.g., node process or test server bound to a port) with concurrent client connections using real sockets is needed to reproduce the failure. MOCK-HIDE: Downstream can be mocked as slow, but the HTTP layer and OS scheduler must be real. REJECTION-GATE: Considered Integration (supertest), but supertest's async/sequential nature cannot reproduce the concurrent-connection scenario that triggers the failure. The 3-second wall-clock constraint with 'concurrent' and 'earlier events slow' requires real OS-level parallelism.",
+      "test_description": "Start the Node.js server as a real bound HTTP process. Wire downstream to a mock that stalls for 10 seconds. Fire N (e.g., 10) concurrent HTTP POST requests simultaneously using parallel fetch/axios calls. Record wall-clock time for each response. Assert every response arrives within 3 seconds, while downstream mocks are confirmed still pending.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.28,
+        "System": 0.65,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate event ID is not written to the queue a second time",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Deduplication requires persistent state that survives across two separate handler invocations. The failure mode — second invocation does not see the first invocation's recorded ID — only appears when real shared state (in-memory store, DB, or cache) is wired between calls. REAL-INFRA: An in-process real (or real-equivalent) deduplication store (e.g., a Set, Redis-backed store, or DB) is sufficient — no external network required. MOCK-HIDE: If the dedup store is mocked per-invocation, the second call always sees an empty store, making the test vacuous. The store must retain state across both handler calls. REJECTION-GATE: Considered Unit (mock store that returns 'seen' on second call), but that defines the dedup behavior rather than testing it — the real store module must be wired to catch actual implementation bugs.",
+      "test_description": "Wire the handler with a real (non-mocked) deduplication store (in-memory or test DB) and a mock enqueue. POST the same event (identical ID) twice. Assert mock.enqueue was called exactly once, and the second invocation returns 200 (idempotent acknowledgment) without enqueuing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.17,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Queue full → 503 with Retry-After header",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure boundary is purely within the handler: when queue.write throws a 'queue full' signal, does the handler catch it and return 503 with a Retry-After header? This is a single-function error-handling path. REAL-INFRA: No real infrastructure needed — a mock queue that throws the appropriate error is sufficient. MOCK-HIDE: The mock's behavior (throwing 'queue full') is explicitly the test's stimulus, not a hidden side-effect; this is the correct use of a mock. REJECTION-GATE: Considered Integration (real queue in full state), but behavior 7 already covers real queue capacity enforcement. This behavior is specifically about the handler's response when the queue signals fullness — that signal can be injected via mock.",
+      "test_description": "Configure the handler with a mock queue whose write() throws a 'queue full' error. Call the handler with a valid, signed request. Assert the response status is 503 and the Retry-After header is present with a valid value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior tests the queue module's own implementation, not the handler's response to a queue signal. The failure mode — the queue silently accepts items beyond capacity — only appears when the real queue code runs against a real (or real-equivalent) backing store. REAL-INFRA: An in-process test backing store (e.g., real SQLite or in-memory DB used by the queue module) is sufficient to verify actual enforcement. MOCK-HIDE: Mocking the queue here is circular — it proves nothing about the queue's actual implementation. The real queue module must run. REJECTION-GATE: Considered Unit (queue module alone with a fake backing store), which is actually plausible if the queue has a pure in-process implementation. However, 'persistent queue' implies a real storage backend (DB, file, Redis); an in-process fake for that storage would hide bugs in the queue's persistence/read-back logic. Integration with a test instance of the real backing store is required.",
+      "test_description": "Instantiate the real queue module (not mocked) configured with capacity N, backed by a test database or in-memory store. Insert N items successfully. Attempt to insert item N+1. Assert that the queue rejects it (throws or returns an error), without modifying the store beyond capacity. Assert item count remains N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

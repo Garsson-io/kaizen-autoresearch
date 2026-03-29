@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "When a required key is absent from both the file and environment, the error message names the missing key by its exact config path.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the validation/error-formatting logic — does the validator produce a message containing the exact dotted path (e.g. `database.host`)? That logic operates on an already-parsed dict; no module boundary crossing is required. REAL-INFRA: No filesystem, network, or subprocess is needed — pass a dict with the key absent, trigger validation, inspect the exception message. REJECTION-GATE: Integration was considered but rejected because the failure does not depend on how the file-reader hands off to the validator; it depends only on the validator's own message-formatting code, which can be exercised in isolation. LLM-DEP/MULTI-STEP: neither applies.",
+      "test_description": "Instantiate the config validator (or call the loader with a pre-parsed dict) where `database.host` is omitted from both the parsed config dict and the environment. Assert that the raised exception or returned error string contains the literal substring `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.36,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When XDG_CONFIG_HOME is set, the loader resolves the config file path relative to that directory rather than ~/.config.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the environment-variable reader and the path-construction code inside the loader. A Unit test on a pure `resolve_path()` function could miss a bug where the loader bypasses the resolver and hardcodes `~/.config` in a separate code path. Wiring both together is needed. REAL-INFRA: Setting `os.environ['XDG_CONFIG_HOME']` is in-process; a real temp directory (or mocked `open` that records the path argument) is sufficient to verify the correct path is used — no real subprocess or network is needed, so System is not required. REJECTION-GATE: System was considered but rejected because the failure mode (wrong path constructed) is fully observable with in-process env manipulation and a temp dir; no real OS primitive beyond standard filesystem is involved.",
+      "test_description": "Set `XDG_CONFIG_HOME` to a pytest `tmp_path` directory, write a minimal valid config at `<tmp_path>/tool/config.yaml`, invoke the loader, and assert it returns the values from that file. Also assert that no access to `~/.config/tool/config.yaml` occurs (e.g., by verifying the file at the real home path does not exist or is ignored).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a TOOL_-prefixed environment variable conflicts with a key in the config file, the environment variable value wins.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure typically emerges at the merge boundary: (a) prefix stripping and key normalisation (e.g. `TOOL_DATABASE_HOST` → `database.host`), and (b) the merge-order decision (env overrides file). A Unit test on a pure merge function could miss a bug where the loader performs the merge in the wrong order when reading from real sources. Wiring the file reader with the env reader is needed. REAL-INFRA: No subprocess or network needed; a temp config file plus `os.environ` manipulation is sufficient. REJECTION-GATE: System was rejected because there is no OS-level behaviour (subprocess exit codes, real HTTP, inotify events) involved — in-process env + temp file covers the failure completely.",
+      "test_description": "Write a config file containing `database.host: file_value`, set the environment variable `TOOL_DATABASE_HOST=env_value`, invoke the loader, and assert the resolved value for `database.host` is `env_value`. Also assert that a key absent from env vars but present in the file still uses the file value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the config file contains a YAML syntax error, the error message includes the line number where the problem was detected.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure sits at the boundary between the YAML library (which embeds line numbers in its parse exceptions) and the error-handling code that formats the user-facing message. If the YAML parser is mocked, the test will always pass because the mock's exception object may include a fake line number regardless of the handler's code. REAL-INFRA: The YAML library must be real (not mocked) to exercise the actual exception shape. However, the content can be a plain string passed to the loader via a temp file or in-memory string — no subprocess, network, or OS primitive is needed. REJECTION-GATE: System was rejected because the exact failure (line number missing from message) is fully reproducible with a real YAML parser call on an in-process string; no subprocess or real network is involved.",
+      "test_description": "Create a temp config file whose contents have a deliberate YAML syntax error on a known line (e.g., an unindented colon on line 3). Invoke the loader, catch the raised exception or CLI error output, and assert the error message contains the string `3` (or the exact line number the YAML library reports). Use the real PyYAML/ruamel parser — do not mock it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the config directory does not exist at startup, the loader creates it and writes a defaults file before proceeding.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the existence-check logic and the directory-creation + file-write logic. Mocking `os.makedirs` and `open` verifies calls were made but cannot confirm the defaults file has correct content or that the directory hierarchy is right. A real temp directory is needed to confirm the actual on-disk state. REAL-INFRA: This requires real filesystem I/O (directory creation, file write), so MOCK-HIDE is strong here. However, a local temp directory fully covers this — no subprocess spawn, real network, or special OS primitive (e.g., inotify) is involved. REJECTION-GATE: System was considered because real filesystem is involved, but demoted to Integration because the failure mode (directory not created, file not written or with wrong content) is fully observable with a standard `tmp_path` temp directory — no OS-level behaviour beyond ordinary posix I/O is exercised.",
+      "test_description": "Point the loader's config-home at a fresh `tmp_path` subdirectory that does not yet exist (e.g., `tmp_path / 'tool'`). Invoke the loader. Assert that `<tmp_path>/tool/` now exists as a directory and that `<tmp_path>/tool/config.yaml` exists with non-empty content representing the defaults (e.g., check for at least one expected default key).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.68,
+        "System": 0.24,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

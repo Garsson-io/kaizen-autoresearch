@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the changed-file resolver (GitHub API / git diff) and the file-analysis dispatcher. A Unit test of filtering logic alone can't catch a bug where the wrong file list is fetched and passed through. You need both modules wired together. REAL-INFRA: The GitHub API can be stubbed (no real network needed), so System is not required. MOCK-HIDE: Mocking the file resolver in isolation would always pass; you need to verify the resolver's output is actually what drives which files the scanner opens. REJECTION-GATE for System: the changed-file list can be injected via a test double of the GitHub API client, so no real HTTP call is necessary to catch this class of bug.",
+      "test_description": "Set up a local repo with several files, mock the GitHub API client to return a specific changed-file list (e.g., only file_a.py), wire it to the real analysis dispatcher, run the pipeline, and assert that only file_a.py was passed to the linter — not any other file present in the working tree.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Grouping-by-severity is a self-contained transformation: input is a list of finding objects, output is a formatted string or data structure. No module boundary is crossed; the bug would live entirely inside a single function or class. REAL-INFRA: No filesystem, network, or subprocess is needed. MOCK-HIDE: There is nothing to mock — the logic is pure. REJECTION-GATE for Integration: escalating would only be needed if the findings list is assembled by a pipeline that garbles severity values before reaching this function; but the behavior targets the grouping step itself, not the upstream assembly.",
+      "test_description": "Construct a list of finding objects with mixed severities (e.g., two errors, one warning, one info) using real model/data classes. Call the grouping function directly. Assert the returned structure has exactly the right findings under each severity key and that the formatted comment contains the correct section headers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Performance is not a logical property; it is an emergent property of real I/O, process spawning latency, and scheduling. REAL-INFRA: The linter runs as a subprocess per file (or in batches). Real subprocess spawn cost, file-read time, and CPU scheduling are all load-bearing for this constraint. Mocking subprocess calls would make 200 iterations instantaneous, trivially passing the timing assertion and hiding any real bottleneck. MOCK-HIDE: Yes — any mock collapses wall-clock time to near zero, so mocking always passes, making the test meaningless. REJECTION-GATE for Agentic: correctness here is deterministic wall-clock time, not probabilistic ML output; no LLM or AI model is involved in the timing measurement itself.",
+      "test_description": "Generate 200 small but syntactically varied real source files on the local filesystem. Run the full pipeline binary (or entry-point script) as a subprocess against those files, recording wall-clock elapsed time. Assert total elapsed time is under 600 seconds. Flag slow per-file averages as secondary diagnostics.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.82,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode appears at the boundary between the per-file subprocess invocation and the iteration/aggregation loop. A Unit test of the loop logic alone (with a fake callable) could work, but the real risk is whether the caller correctly catches the subprocess exception type (CalledProcessError, OSError, etc.) and continues. Wiring the real exception-catching code with the real dispatch loop is needed. REAL-INFRA: A real crashing subprocess is not required; patch.object on the subprocess runner to raise CalledProcessError is sufficient and catches the real failure class. MOCK-HIDE: Mocking at the right granularity (the subprocess interface, not the entire linter module) does not hide the failure. REJECTION-GATE for System: no real process crash is needed because the exception path through the code is exercised by injecting the exception via the mock.",
+      "test_description": "Prepare three file paths; mock the subprocess runner so it raises CalledProcessError on the second file and returns success stubs for the first and third. Wire the mock into the real analysis orchestrator. Run the orchestrator. Assert that findings from files 1 and 3 are present in the final output and the error for file 2 is recorded but does not abort processing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.18,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Deduplication is a pure algorithmic transformation over a collection of finding objects. The bug either lives in the dedup function's equality/hashing logic or it doesn't; no other module needs to be present. REAL-INFRA: No I/O or subprocess is involved. MOCK-HIDE: Nothing to mock. REJECTION-GATE for Integration: escalation would be warranted only if overlapping rules produce findings in a format that the dedup step never receives correctly — but the behavior statement targets the dedup output, not upstream rule execution, so the input list can be constructed directly in the test.",
+      "test_description": "Construct a list of finding objects that includes exact duplicates (same file, line, rule, message) and near-duplicates (same line but different rule). Call the deduplication function directly. Assert the returned list contains each unique (file, line, rule, message) tuple exactly once, and that near-duplicates on the same line but from different rules are preserved as distinct entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.03,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

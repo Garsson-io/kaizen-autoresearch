@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode — wrong execution order — lives entirely inside the sort/parse algorithm applied to filenames. No module boundary crossing is needed to expose it. REAL-INFRA: No DB or filesystem is required; the function can be called with an in-memory list of filename strings. MOCK-HIDE: Nothing to mock — the input is just data. LLM-DEP: No. COMMIT-TO-REASONING: Evidence points to Unit throughout. The word 'applied' in the behavior might suggest DB involvement, but the ordering failure occurs before any DB call; verifying the comparator function with a shuffled filename list is the minimal reproduction. REJECTION-GATE: Integration was considered but the behavior text says the order is 'determined by the filename prefix' — that determination is a pure sort, independent of DB interaction.",
+      "test_description": "Instantiate the migration file sorter/orderer with a shuffled in-memory list of filenames such as [\"003_add_index.sql\", \"001_create_users.sql\", \"002_add_email.sql\"] and assert the returned sequence is [\"001_create_users.sql\", \"002_add_email.sql\", \"003_add_index.sql\"]. Include edge cases: filenames without numeric prefixes, non-contiguous numbers, and zero-padded vs. unpadded integers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure emerges from the handoff between the file-discovery module, the `_migrations` table query, and the conditional skip logic — not from any single function's algorithm. A unit test cannot expose a bug where the query returns stale data or the set-difference logic is wrong. REAL-INFRA: Idempotency requires DB state written by a prior run to persist and be correctly read back. An in-process stub that is pre-loaded with 'already applied' rows exercises the skip path, and no real OS/network is needed beyond a local DB. MOCK-HIDE: A stub that always returns the correct 'applied' set would mask a query bug; the stub must be seeded from a prior write (or a realistic fixture) to be meaningful. INTEGRATION-BRAKE: (a) No real OS/network needed — local PostgreSQL is sufficient. (b) No AI/ML. (c) No multi-step agentic chain. Integration confirmed. COMMIT-TO-REASONING: Evidence is Integration throughout.",
+      "test_description": "Using a local PostgreSQL instance, run the migration runner once against a directory with three migration files to completion. Then run the runner a second time against the same DB. Assert that the `_migrations` table still contains exactly three rows (no duplicates), and that no migration SQL was re-executed (verify via a side-effect table that would gain duplicate rows if re-run).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode splits across two concerns: (a) transaction rollback actually reverting DB state, and (b) the runner halting further execution. Both require module interaction — the executor, the transaction manager, and the scheduler must all behave correctly together. REAL-INFRA: 'Changes are rolled back automatically' can only be verified against a DB that enforces real transaction semantics. A mock that merely records whether `rollback()` was called passes trivially even if PostgreSQL auto-committed a partial result. Local PostgreSQL is the minimum that exercises real transaction boundaries. MOCK-HIDE: Yes — a stub would always confirm rollback at the API level without verifying DB state was actually reverted. INTEGRATION-BRAKE: (a) Local PostgreSQL is 'local DB' per the level definitions — no real subprocess or external network needed. (b) No AI/ML. (c) No multi-step agentic chain. Integration confirmed. COMMIT-TO-REASONING: Evidence pointed to Integration (local DB) throughout; a stub is insufficient here.",
+      "test_description": "Using a local PostgreSQL instance, create a migrations directory where migration #1 creates a table, migration #2 contains intentionally invalid SQL (e.g., a syntax error or a reference to a non-existent column), and migration #3 alters the table. Run the runner. Assert: (a) the table from migration #1 exists, (b) no partial changes from migration #2 are present, (c) migration #3 was not applied, and (d) `_migrations` contains only the entry for migration #1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.6,
+        "System": 0.32,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is a data race across OS process boundaries and real DB lock acquisition. It does not exist within any single module or even within a single process. REAL-INFRA: Race conditions under concurrent execution are emergent properties of real OS process scheduling and real PostgreSQL advisory-lock or SELECT-FOR-UPDATE semantics. An in-process fake — even a thread-safe one — cannot reproduce real inter-process lock contention or the window between a lock check and a lock acquisition. Two real OS subprocesses against a real local DB are irreducible. MOCK-HIDE: Any mock trivially serializes calls, making the test always pass regardless of whether the runner implements locking at all. INTEGRATION-BRAKE: (a) Real subprocess behavior is explicitly required — LEVEL-DEFS place 'subprocess' at System. COMMIT-TO-REASONING: Evidence is System throughout; no disqualifying text exists. REJECTION-GATE: Integration was considered but the behavior text explicitly says 'two instances... start at the same time... separate processes' — 'separate processes' disqualifies Integration.",
+      "test_description": "Spawn two separate OS child processes (e.g., via child_process.spawn or shell script) running the migration runner against the same PostgreSQL database, triggered within milliseconds of each other (e.g., using a start barrier or concurrent shell commands). After both processes exit, query `_migrations` and the migrated schema. Assert each migration appears exactly once in `_migrations` and DB state reflects exactly one application of each migration file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans the bootstrap initializer and the migration executor — if the executor runs before the initializer, any attempt to record a migration will fail with 'table does not exist'. This cross-module sequencing bug cannot be exposed by testing either module in isolation. REAL-INFRA: The test requires a DB that genuinely lacks the `_migrations` table at the start. A local PostgreSQL instance dropped to a clean state provides this; no real external network or subprocess is needed. MOCK-HIDE: A mock pre-configured to answer 'table exists' to all DDL checks would hide the bootstrap failure entirely. The real DB must start without the table. INTEGRATION-BRAKE: (a) No real OS/network beyond local DB. (b) No AI/ML. (c) No multi-step agentic chain. Integration confirmed. COMMIT-TO-REASONING: Evidence is Integration throughout.",
+      "test_description": "Point the runner at a fresh local PostgreSQL database that has no `_migrations` table (verify absence first). Run the runner once with at least one migration file. Assert: (a) `_migrations` table exists after the run, (b) the migration file's effects are present in the DB schema/data, and (c) no error was thrown due to a missing metadata table during migration recording.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely inside the key generation function — does the algorithm produce stable, collision-free output? This does not require modules to be wired together; a bug here surfaces from a single function's logic. REAL-INFRA: No OS, network, subprocess, or DB involved — pure deterministic transformation. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Integration was considered but rejected — there is no cross-module handoff whose failure this behavior is describing; the behavior is about the algorithm itself.",
+      "test_description": "Instantiate the key generator in isolation. Assert that calling it twice with the same structured parameter map returns byte-for-byte identical keys. Then assert that varying each parameter dimension (different value, extra key, reordered keys) yields a distinct key, covering both the stability invariant and the collision-freedom invariant.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the TTL calculation logic — does the function look up the right freshness rule for a given category and return the right duration? This is a lookup + arithmetic operation on config data, not a cross-module state propagation problem. REAL-INFRA: Config can be passed in as a plain data structure; no I/O needed. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Integration considered for the config-loading interaction, but the behavior targets computation correctness given a config value, not the config-loading pipeline itself.",
+      "test_description": "Construct a TTL calculator with an in-memory config mapping categories to durations. For each known category (user_profile → 300s, product_catalog → 3600s), assert the returned TTL equals the configured value. Also assert an unknown category either raises or returns a documented default, covering the boundary of the lookup.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the memory-monitoring component and the strategy-selector component. A bug here surfaces only when the measured memory value flows from the monitor into the selector and causes (or fails to cause) a strategy swap — not inside either module alone. REAL-INFRA: The threshold comparison itself does not require real OS memory APIs if the cache tracks usage internally; an in-process fake pressure source can reproduce the failure. However, if memory measurement is OS-driven, System would apply — Integration is the floor here. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Unit rejected — the failure cannot appear when testing the selector or the monitor in isolation, only when they are wired together.",
+      "test_description": "Wire together the memory monitor (or a stub that reports a controllable usage value) with the eviction strategy selector against a shared config that sets the threshold. Drive memory usage just below the threshold and assert the active strategy is LRU. Then drive it just above the threshold and assert it switches to LFU. Confirm the strategy reverts when usage drops back below the threshold, covering hysteresis if the spec requires it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the handoff between the DB write path and the cache invalidation path — does a write event get translated into the correct set of cache key deletions? This is a cross-module concern: the write handler, the key-matching logic, and the cache store must all interact correctly. REAL-INFRA: If invalidation is triggered by application-layer code after a DB write (not PostgreSQL triggers or LISTEN/NOTIFY), an in-process fake DB can reproduce the failure; Integration is sufficient. If the implementation uses PostgreSQL triggers or CDC, real PostgreSQL would be required (System). Integration is the floor; System is strongly worth considering based on implementation details. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Unit rejected — the failure only manifests when the write path is wired to the cache store.",
+      "test_description": "Seed the cache with several entries whose keys map to distinct rows in a fake (in-memory or test-container) DB. Issue a write for a specific row. Assert that only the cache entries whose keys correspond to that row are removed and that unrelated entries remain intact. Also write to a row with no cached counterpart and assert the cache is unmodified, covering the no-op case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.55,
+        "System": 0.38,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the eviction algorithm itself — given a set of tracked entries with access timestamps or frequency counts, does the algorithm select the right victim? This is the algorithm's logic, testable against an in-memory data structure without wiring to a broader system. REAL-INFRA: No I/O. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Integration was considered because 'cache is full' implies a cache object is involved, but the eviction policy can be exercised by populating the policy's own internal tracking structure directly, isolating the algorithm. If the eviction policy is not separable from the cache store, Integration becomes necessary — but the minimum is Unit.",
+      "test_description": "For LRU: populate the policy with N entries, access them in a known order, add an N+1th entry, and assert the least-recently-accessed entry was evicted. For LFU: populate with N entries, access each a distinct number of times, add an N+1th entry, and assert the lowest-frequency entry was evicted. Include tie-breaking scenarios to lock down determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.24,
+        "System": 0.03,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

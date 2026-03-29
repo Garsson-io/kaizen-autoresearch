@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Dimensionality is a fixed property of the embedding model architecture, not application logic, so it cannot be verified by testing a wrapper function alone. MOCK-HIDE: Mocking the embedding model lets the test inject any vector shape, permanently hiding the real mismatch. The real failure only surfaces when the actual embedding model runs and its output is wired to the vector DB index configuration — a module-boundary failure. REAL-INFRA: Requires the real (local) embedding model to be loaded and invoked. Dimension output is deterministic across runs, so LLM-DEP and MULTI-STEP do not escalate the level.",
+      "test_description": "Load the real embedding model as used in production. Call the embedding function with a representative query string. Assert that `len(vector) == EXPECTED_DIM` where EXPECTED_DIM matches the dimensionality configured for the vector DB index. No vector DB call is needed; the test isolates the model's output shape. If the embedding API is remote (e.g. OpenAI), the level rises to System.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.35,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The ordering guarantee is enforced by the vector database engine, not application code. MOCK-HIDE: Mocking the vector DB lets the test return any pre-sorted list, making the test vacuously pass regardless of what the real DB does — it cannot catch a misconfigured query (wrong metric, missing sort, wrong direction). A real local vector DB instance (e.g. Chroma, Qdrant, Weaviate in embedded/local mode) with pre-inserted known vectors is required. The embedding model can be mocked with fixed vectors so results are deterministic. No LLM involved; does not escalate beyond Integration.",
+      "test_description": "Start a real local vector DB instance. Pre-insert three documents with known vectors at varying cosine distances from a fixed query vector. Inject the query vector directly (bypassing the embedding model). Execute the similarity search via the application's search module. Assert that the returned results are ordered by descending cosine similarity score and that scores are non-increasing across the list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.74,
+        "System": 0.17,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly tests whether the real LLM produces a different ordering than cosine similarity — the entire assertion depends on what the LLM outputs. A mocked LLM returns a fixed ordering, making the test trivially pass or fail regardless of real model behavior. Running the real LLM 100 times on a nuanced query may produce varying orderings — the test outcome is non-deterministic. MOCK-HIDE: Any stub of the LLM reranker completely hides whether reranking actually occurs. MULTI-STEP: Only one agentic call (the LLM reranker) is the subject of this behavior; the vector search upstream can use fixed/mocked results. Does not escalate to Workflow.",
+      "test_description": "Prepare a fixed list of 5 candidate results (with known text) from a nuanced query (e.g. 'lightweight running shoes for overpronation') where cosine similarity order differs from expected contextual relevance order. Call the real LLM reranker with this candidate list and the query. Assert that the reranker's output ordering differs from the input ordering for at least one pair of adjacent results. Run with a fixed seed or temperature=0 if the model supports it to reduce flakiness; flag the test as inherently probabilistic.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.06,
+        "Agentic": 0.84,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that the threshold/filtering logic in the application (or the vector DB query configuration) fails to exclude low-similarity results. This is a boundary between the similarity search module and the result-filtering module. MOCK-HIDE: Mocking the vector DB to return empty results or pre-set low scores tests only the filter branch, not whether the threshold is correctly configured end-to-end with the real DB query. A real local vector DB with known data and an out-of-domain query vector (injected directly, bypassing the embedding model) produces genuinely low similarity scores, exercising the real threshold logic. LLM-DEP: No LLM involved in this specific behavior; does not escalate.",
+      "test_description": "Populate a real local vector DB with a small set of product-domain vectors. Inject a query vector constructed to be orthogonal or far from all indexed vectors (e.g. a random unit vector in an empty region of the space). Execute the search-and-filter pipeline. Assert that the returned result list is empty (not a list of low-scoring items). Also assert that if the similarity threshold is relaxed programmatically, at least some results do appear — confirming the DB has items and the empty result is due to the threshold, not a broken query.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.64,
+        "System": 0.16,
+        "Agentic": 0.05,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: Latency is a property of the full live system — mocking any component removes its real timing contribution and makes the measurement meaningless. MULTI-STEP: The pipeline is: real HTTP request → real embedding model (AI/ML call) → real vector DB search → real LLM reranking (second AI/ML call) → HTTP response. Both the embedding model and the LLM reranker are real AI/ML calls in sequence, making this a multi-step agentic pipeline by the LEVEL-DEFS definition. Measuring only one step (e.g. just the LLM) would not capture the full latency budget allocation or pipeline bottlenecks. LLM-DEP: LLM call timing is non-deterministic. MOCK-HIDE: Any stub collapses real network/model latency to near zero, making a sub-2s assertion trivially pass.",
+      "test_description": "Stand up the full service stack (HTTP server, real embedding model, real vector DB with indexed data, real LLM reranker). Send N=20 representative natural-language queries via HTTP to the search endpoint. Record wall-clock latency for each round-trip from request send to response received. Assert that the median latency across all N requests is below 2000ms. Log p95 and p99 as informational output. Accept that individual runs may vary; flag the test as a performance regression gate rather than a strict pass/fail per run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.07,
+        "Agentic": 0.1,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

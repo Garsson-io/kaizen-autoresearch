@@ -10,7 +10,7 @@
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --model claude-haiku-4-5-20251001
 #   ./run-eval.sh --cli codex --model gpt-5.3-codex
-#   ./run-eval.sh -j 5                               # max 5 parallel probes (default: 10)
+#   ./run-eval.sh -j 8                               # max 8 parallel probes (default: 6)
 #   ./run-eval.sh --no-latest                        # skip updating runs/latest symlink (explore mode)
 #
 # Final line of output: "SCORE: <0.0-1.0>" (machine-readable for agents)
@@ -21,13 +21,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Defaults
 PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
-MODEL="claude-haiku-4-5-20251001"
-CLI="claude"
+MODEL="gpt-5.3-codex"
+CLI="codex"
 MODEL_SET=false
 ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)
 OUT_DIR="$SCRIPT_DIR/runs/$RUN_TS"
-MAX_PARALLEL=5
+MAX_PARALLEL=6
 NO_LATEST=false
 # Auto-detect corpus from corpus/*.md files (sorted)
 CORPUS_CSV=$(ls "$SCRIPT_DIR/corpus/"*.md 2>/dev/null | sed 's|.*/||; s|\.md$||' | sort | paste -sd,)

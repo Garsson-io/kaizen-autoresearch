@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "This is a module-wiring behavior. The failure mode is: 'data from source X is dropped or lost during collection/aggregation, so summary-gen receives incomplete data.' Catching this requires wiring together: three data sources (mocked) → collector/aggregator → summary-gen, then verifying the aggregated data structure includes contributions from all three sources. A unit test of the aggregation function alone wouldn't catch if the metrics collection is skipped entirely, or if logs are dropped in the handoff between modules.",
+      "test_description": "Mock the three data sources (metrics endpoint, issue tracker, deployment log) to return known distinct data. Run the collection and aggregation pipeline. Verify the aggregated data dict passed to summary-generation includes specific keys/values from all three sources—e.g., metrics fields, issue counts, deployment records.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is the minimum because the failure is at a module boundary (aggregation missing a source). A lower level (Unit) couldn't catch missing source inputs across the pipeline; a higher level (System) is unnecessary without external services.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "This is about error handling across module boundaries. The failure mode is: 'when source X fails, does the system abort the whole report, or does it continue with a partial-data note?' Catching this requires multiple modules coordinating: one source mocked to raise an exception, two sources returning data, aggregator handling the mix, summary-gen and report formatter adding a 'data unavailable' note. A unit test of 'error handler accepts None' wouldn't catch if the exception propagates up and kills the whole pipeline.",
+      "test_description": "Mock one data source (e.g., metrics endpoint) to raise an exception when called. Mock the other two to return known data. Run the full report generation. Verify the output report includes data from the two working sources and contains a 'data unavailable' or equivalent note for the failed source. Verify the report was not aborted—all other sections completed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is the minimum because the failure depends on how multiple modules coordinate when one fails. A unit test of one error handler wouldn't verify the full flow; System-level is unnecessary without testing real API failures.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "This is about the quality of LLM output, not system wiring. The failure mode is: 'does the real LLM accurately capture and represent key values, or does it hallucinate, omit critical facts, or misinterpret the data?' This depends on real LLM non-determinism—the same input may yield different summaries across runs, and accuracy varies with LLM model and prompt. Mocking the LLM to return a fixed string hides the real failure: whether the real LLM actually produces an accurate summary. The test must call the real LLM and verify output correctness.",
+      "test_description": "Create input data with known key values (e.g., '5 critical bugs fixed, 3 deployments completed, 2 P1 incidents'). Call the real LLM summarization function with this input. Verify the generated narrative mentions or directly refers to these key values (not hallucinating different numbers or omitting critical facts). Run multiple times to check consistency of accuracy across LLM invocations.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Agentic is the minimum because the failure (inaccurate or hallucinated summary) cannot be caught by mocking—you must test real LLM behavior. System-level (real API call) is subsumed by Agentic (real API call testing output quality).",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.15,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report—from data collection through email delivery—reaches the configured recipient's inbox correctly.",
+      "minimum_level": "System",
+      "justification": "This is about real email delivery infrastructure. The failure mode is: 'does the report actually reach the configured inbox, or is it lost/malformed in delivery?' This requires testing against a real or test-realistic SMTP/email service (e.g., Mailhog, test Gmail account, or a real SMTP server), not a mock that always succeeds. You must verify the email is actually sent to the configured address and arrives in a real inbox. The LLM summary (behavior 3) is tested separately; here, summary generation can be mocked and the focus is on delivery correctness.",
+      "test_description": "Seed test data in the three source mocks. Mock the summary-generation function to return a known summary. Configure the report generator with a test email address/recipient. Use a test SMTP service (e.g., Mailhog on localhost) or a real test email account. Run the full report pipeline end-to-end. Verify the report file is generated. Verify the email is successfully sent and the recipient's inbox actually contains the email with the full report body.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System is the minimum because the failure (email not reaching inbox) is an infrastructure concern requiring real email delivery testing. Integration-level mocks would hide delivery failures. Agentic is not required—summary accuracy is tested separately.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.7,
+        "Agentic": 0.15,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "This is about error recovery across module boundaries. The failure mode spans two time periods: first run (email fails, report must persist), second run (scheduler must detect persisted report and retry). Catching this requires multiple modules coordinating: report generator → error handling → file persistence → scheduler detection → retry logic. A unit test of 'save to file' alone wouldn't catch if the scheduler never detects the saved file; a unit test of 'scheduler retry logic' alone wouldn't catch if the report isn't persisted. The integration must work end-to-end.",
+      "test_description": "Mock the email service to raise an exception (simulating unreachable service). Run the report generator and verify it catches the email error. Verify the generated report is saved to a local persistence directory with a status marker (e.g., delivery_status='failed'). Simulate the next scheduled run by creating/running a scheduler task that scans the persistence directory. Verify the scheduler detects the saved report and attempts retry. Optionally, mock email to succeed on the second run and verify the report is marked as delivered or cleaned up.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is the minimum because the failure depends on error handling, persistence, and scheduler logic working together. A unit test of one piece wouldn't catch if the handoff between modules fails. System-level is unnecessary without testing real filesystem or real scheduler service.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

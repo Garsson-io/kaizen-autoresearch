@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The routing logic (flag → hold) is trivially testable with a stub, but that is not the failure this behavior describes. The failure is that the real AI vision model fails to classify explicit content as explicit. MOCK-HIDE: A mock that always returns 'explicit' will always pass, hiding any real misclassification. LLM-DEP: Correctness depends on the real model's classification accuracy — a deterministic stub cannot catch the real failure. REJECTION-GATE: Nothing in the behavior description limits the test to routing logic; the behavior explicitly asserts a classification outcome. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Agentic, OUTPUT-LEVEL = Agentic.",
+      "test_description": "Submit a set of known-explicit images to the real AI vision model endpoint and assert that each receives a flagged/held decision rather than a published decision. Use a curated fixture of images with ground-truth labels and verify the system routes all of them to the review queue.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.07,
+        "Agentic": 0.78,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is whether the real AI text model is robust to obfuscation, not whether the routing logic works. MOCK-HIDE: A mock that always returns 'hate speech' for the test input will pass no matter how bad the real model is at obfuscation. LLM-DEP: The ability to pierce obfuscation (e.g., '𝐡𝐚𝐭𝐞', letter substitution) is a model capability question — deterministic stubs always pass, hiding the real failure. REJECTION-GATE: The behavior text explicitly calls out obfuscation techniques as the concern, which is a model-quality property, not a wiring property. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Agentic, OUTPUT-LEVEL = Agentic.",
+      "test_description": "Compile a fixture of hate speech strings transformed by multiple obfuscation methods (unicode lookalikes, leet substitution, zero-width character injection, homoglyph swaps). Submit each to the real AI text classification model and assert that all variants are flagged. Include clean paraphrases of the same content as negative controls to verify low false-positive rate.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.82,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure this behavior targets is in the decision/routing logic — specifically that the publish path is reachable and correctly invoked when both checks return clean. This is a module-boundary failure (check results → publish decision → publish action), not a model-accuracy failure. MOCK-HIDE: Deterministic stubs that return 'clean' for both the vision and text models are sufficient; the behavior is about what the system does with those results, not whether the models produce them correctly. LLM-DEP: No — the test asserts system behavior given clean check results, which a stub can provide deterministically. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No AI/ML output quality dependence. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration.",
+      "test_description": "Wire the moderation pipeline with stub implementations of both the vision and text model clients configured to return clean/pass results. Submit a benign post and assert that the publish action is invoked exactly once, the hold/review queue is not touched, and the post is not silently dropped (i.e., a publish confirmation is returned).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: Mock AI calls return instantly, so a mocked pipeline will always pass the 5-second SLA even if the real pipeline is catastrophically slow. The failure is only observable with real model latency. LLM-DEP: Both the image and text model calls must be real to contribute realistic latency. MULTI-STEP: The pipeline chains two distinct real AI model calls (image check, then text check) in sequence before reaching the publish decision — this satisfies the Workflow definition of multiple real agentic steps in sequence. REJECTION-GATE: Nothing in the behavior limits the test to a single model call; it explicitly names all three pipeline stages. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Workflow, OUTPUT-LEVEL = Workflow.",
+      "test_description": "Submit a mixed post (image + text) to the fully wired pipeline using real AI model endpoints. Record wall-clock time from submission to publish/hold decision. Assert completion within 5 seconds. Run under representative concurrency (e.g., 10 simultaneous submissions) to surface queueing or resource-contention latency. Repeat enough times to detect intermittent slow outliers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the error-handling path — does the system queue or auto-approve when the vision model call fails? This is a module-boundary question between the vision client error and the queue/approve decision. REAL-INFRA: The key failure mode (incorrect auto-approval on error) is fully reproducible by configuring the vision model client stub to raise a connection/timeout exception. A real downed service would verify the same code path. MOCK-HIDE: Making the stub throw an exception is sufficient to exercise the error path; no real AI accuracy is at stake. LLM-DEP: No — this is pure error handling. INTEGRATION-BRAKE: (a) A stub raising a connection exception reproduces the failure without real OS/network. (b) No AI output quality dependence. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration.",
+      "test_description": "Configure the vision model client stub to raise a service-unavailable exception on every call. Submit an image post and assert: (1) the post appears in the retry queue with the original payload intact, (2) the post is NOT in the published set, (3) the post is NOT auto-approved/silently passed. Verify queue entry includes sufficient metadata (post ID, submission timestamp, retry count) for correct retry processing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.13,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: A mock always returns the same deterministic value, so it is consistent by construction — it can never detect real model non-determinism. MOCK-HIDE: The exact failure this behavior targets is the real AI model returning different classifications for identical borderline inputs across repeated calls; a stub always hides this. LLM-DEP: Non-determinism in borderline classification is an intrinsic property of the real AI model — temperature, sampling, and model internals can cause variation. Consistency is a claim about real model behavior, not about routing logic. REJECTION-GATE: The behavior explicitly uses the word 'consistent' in the context of repeated submissions of the same image, which is a real-model-variance question. Nothing in the description limits it to system-level caching or deduplication logic. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Agentic, OUTPUT-LEVEL = Agentic.",
+      "test_description": "Identify a curated set of borderline images (images that human raters score near the decision threshold). Submit each image to the real AI vision model N times (e.g., N=10) in rapid succession. Assert that the classification outcome is identical across all N submissions for each image. Record the raw model confidence scores to distinguish genuine consistency from near-miss variance. Flag any image where outcomes diverge.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.06,
+        "Agentic": 0.82,
+        "Workflow": 0.06
+      }
+    }
+  ]
+}

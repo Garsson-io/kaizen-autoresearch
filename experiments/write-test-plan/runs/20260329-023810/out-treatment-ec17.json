@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not at a module boundary — it is about whether the LLM's output is contextually grounded in the incoming thread. LLM-DEP: A mock LLM would return whatever you script it to return and would always 'pass'. The real failure only surfaces when a real LLM call produces a generic, context-free reply. REAL-INFRA: No OS/network primitives are needed beyond the LLM API. MULTI-STEP: Only one generation step. REJECTION-GATE: Integration is rejected because no amount of module wiring validates that the LLM output actually references specific thread content — that is inherently non-deterministic and model-dependent.",
+      "test_description": "Feed a real email thread with three distinct named topics (e.g., project deadline, budget approval, a specific person's name) into the full drafting pipeline using a real LLM call. Assert that the generated draft contains at least two of the three named topics, and does not return a boilerplate opener ('Thank you for your email') as the only substantive content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.78,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The consistency checker must reason over semantic contradiction, not just keyword presence. LLM-DEP: Whether a claim is recognized as contradicting a KB entry depends on model-level semantic reasoning. A hardcoded stub would never catch failures where the real model misses subtle contradictions or over-flags. REAL-INFRA: The KB itself can be an in-process fixture. REJECTION-GATE: Integration is rejected because even with real module wiring, a mocked LLM checker trivially passes — the real failure mode (a model that fails to detect a contradiction) only appears with a real model call. If the consistency checker were purely deterministic (e.g., exact-string comparison), Integration would suffice; the agentic context makes that implausible here.",
+      "test_description": "Load a knowledge base with a specific factual claim (e.g., 'Product X was released in 2022'). Inject a draft that contains a contradicting claim ('Product X was released in 2019'). Run the real consistency-check step. Assert that the checker's output marks that claim as flagged/contradicted. Run a second case with a consistent claim and assert no flag is raised.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.14,
+        "System": 0.04,
+        "Agentic": 0.66,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not at a module boundary — it is whether the LLM respects the 'no relevant KB entries' signal and inserts a disclaimer instead of hallucinating. LLM-DEP: A mocked LLM can be scripted to always return a disclaimer. The real failure only appears when the actual model ignores the signal and invents confident facts. REAL-INFRA: KB returning empty results is trivially reproducible in-process. REJECTION-GATE: Integration is rejected because the prompt-template path that injects a disclaimer hint is only half the story — whether the LLM follows that instruction non-deterministically is the actual failure mode. If the disclaimer were appended by post-processing code (not LLM), Integration would suffice, but the behavior claims the draft itself includes it, implying LLM compliance.",
+      "test_description": "Configure the KB to return no results for any query. Submit an email thread that asks a factual question (e.g., 'What is the refund policy?'). Run a real LLM draft generation pass. Assert that the returned draft contains a disclaimer phrase (e.g., 'I don't have specific information', 'unable to confirm', or similar hedging language) and does not assert a specific policy as fact.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.68,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the module boundary between the draft-presentation layer and the send-trigger. The question is whether the send action is ever called before the approval state is set. This is deterministic control-flow logic. REAL-INFRA: No OS, network, or subprocess primitives are needed to catch this bug — an in-process fake send function that records whether it was called is sufficient. LLM-DEP: This behavior is entirely about control flow and state, not LLM output. MULTI-STEP: No multiple agentic steps. REJECTION-GATE: Unit is rejected because the gating logic spans at least two modules (approval state manager + send trigger); the failure only surfaces when they are wired together. System is rejected because no real HTTP send or real OS primitives are needed — a mock send that raises if called pre-approval catches the failure.",
+      "test_description": "Wire the draft-presentation module to an approval-state tracker and a mock send function that records invocation. (1) Simulate the pipeline completing without any approval signal — assert the mock send was never called. (2) Simulate an explicit approval event — assert the mock send is called exactly once. Also assert that providing the approval signal a second time does not trigger a duplicate send.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.62,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names four sequential stages, two of which involve real LLM calls (draft generation + consistency check). Failures in state handoff between agentic steps (e.g., consistency-check output not surfaced to approval presenter, draft discarded mid-pipeline) only appear when all steps run in real sequence. LLM-DEP: Both generation and consistency checking are LLM-dependent. REAL-INFRA: 'Real email thread' implies real or realistic external input; at minimum the LLM API is real. REJECTION-GATE: Agentic is rejected because the behavior explicitly requires multiple agentic steps in sequence — a single Agentic test exercises only one model call, missing inter-step handoff bugs.",
+      "test_description": "Provide a realistic multi-message email thread (at least 3 messages, covering a factual topic present in the KB and one claim absent from the KB). Run the full pipeline end-to-end with real LLM calls. Assert: (a) a draft is produced that references thread content, (b) the consistency check result is attached to the draft presentation, (c) the send gate is open only after a simulated approval event, and (d) the presented draft contains the correct disclaimer for the KB-absent claim. Time-box the test and retry up to 3 times to account for LLM non-determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.03,
+        "System": 0.05,
+        "Agentic": 0.14,
+        "Workflow": 0.78
+      }
+    }
+  ]
+}

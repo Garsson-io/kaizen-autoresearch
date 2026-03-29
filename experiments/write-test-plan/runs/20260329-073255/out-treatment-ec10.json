@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a diff-parsing or scoping function passing full file content instead of changed hunks — a single function's output, not a multi-module handoff. REAL-INFRA: A synthetic diff string is sufficient; no real HTTP or OS needed. LLM-DEP: No model output affects this check. MOCK-HIDE: The scoping logic is deterministic; mocking the upstream diff source still lets you verify the filtering correctly. REJECTION-GATE: Integration was considered but rejected because the failure is self-contained inside the diff-extraction logic, not at a module boundary where two modules hand off transformed data.",
+      "test_description": "Feed a synthetic unified-diff string (containing both context lines and changed lines for several files) into the diff-scoping function. Assert that the returned review payload contains only the lines marked with `+` or `-` in the diff, with zero lines from unchanged context or file sections that had no changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.27,
+        "System": 0.04,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the diff-position calculator and the comment-posting module — correct position numbers must flow from one to the other and be accepted by the API stub. Testing just the calculation function (Unit) would miss bugs in how positions are passed to the API call. REAL-INFRA: A stub/fake GitHub API endpoint is sufficient to verify the position values sent in the request body; real GitHub rendering is not required to catch wrong position calculations. LLM-DEP: Position mapping is deterministic given a known diff. REJECTION-GATE: System was considered for GitHub rendering correctness, but the core failure (wrong diff position integer) surfaces without real HTTP — a stub that captures request payloads is enough.",
+      "test_description": "Wire the diff-position calculator and the GitHub comment-posting module together against a stub GitHub API. Provide a known synthetic diff and a set of findings at specified lines. Capture the HTTP requests sent to the stub. Assert that each request body's `position` field matches the expected diff-hunk offset for the target line, computed from the known diff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.55,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Correctness depends directly on whether a real LLM classifies the diff content as containing a defect. A stub that always returns 'bug found' would trivially pass while hiding real model failures; a stub that always returns nothing would always fail. Running 100 times with a real model may yield different results, which is exactly the non-determinism that requires Agentic. MOCK-HIDE: Any deterministic mock of the LLM makes this test vacuous — it tests the plumbing, not the detection quality. REJECTION-GATE: Workflow was considered, but the behavior describes a single-model classification step over a diff, not a multi-step agentic pipeline; the minimum failure boundary is one real model call.",
+      "test_description": "Prepare a pull request diff that contains a deliberately introduced bug (e.g., an off-by-one error or missing null check) as a known ground-truth fixture. Run the agent's analysis step against this diff using the real LLM. Assert that the returned findings contain at least one entry whose location or description corresponds to the introduced bug's line or code pattern.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.02,
+        "Agentic": 0.85,
+        "Workflow": 0.09
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the orchestration boundary where the inline-comment posting step and the summary generation step share the same finding list — one step may drop or add items the other does not. This is a multi-module interaction, not a single function's logic. REAL-INFRA: No real HTTP needed; a fake GitHub API stub that records posted comments is sufficient to observe both outputs. LLM-DEP: The consistency invariant is deterministic given a fixed list of findings; a stub LLM returning a known findings list lets the test verify the orchestration logic without model non-determinism. REJECTION-GATE: Agentic was considered because LLM output format could affect matching, but the consistency check (same findings appear in both outputs) is structural and can be fully exercised with a deterministic stub returning edge-case-format findings.",
+      "test_description": "Using a stub LLM that returns a fixed list of findings (including edge cases like findings with identical file/line pairs), run the full orchestration layer (inline comment posting + summary generation) against a stub GitHub API that records all posted requests. After execution, collect the set of finding identifiers from posted inline comments and from the summary comment body. Assert the two sets are equal — every finding in the summary has a matching inline comment, and no inline comment is missing from the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.25,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names three sequential agentic steps (read diff, post inline comments, post summary) that must all succeed in order. Each step's output feeds the next. REAL-INFRA: 'A real pull request' means real GitHub API calls — real HTTP authentication, real diff format from the API, real comment-posting endpoints. In-process stubs cannot reproduce failures that stem from real API response shapes, rate limits, or authentication edge cases. LLM-DEP: The agent uses a real LLM for analysis between the diff-read and comment-post steps, making at least one step non-deterministic. REJECTION-GATE: System was considered since real HTTP is required, but the explicit multi-step agentic pipeline (with LLM in the middle) exceeds System scope and reaches Workflow.",
+      "test_description": "Create or designate a real test pull request on a GitHub repository (or a test-scoped repo) that contains at least one changed file. Invoke the automation end-to-end with no human steps. After completion, use the real GitHub API to fetch the PR's review comments and issue comments. Assert: (a) at least one inline review comment exists, (b) exactly one top-level summary comment exists, and (c) every finding referenced in the summary has a corresponding inline comment on the PR.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.09,
+        "Agentic": 0.08,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

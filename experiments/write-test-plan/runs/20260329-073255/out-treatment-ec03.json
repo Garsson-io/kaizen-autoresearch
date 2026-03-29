@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is the tool misclassifying git's rename status codes (R050, R100, etc.) as a delete+add pair. This is a parsing correctness issue at the boundary between real git subprocess output and the tool's classifier. REAL-INFRA: Git encodes renames with a similarity percentage in its porcelain status output (e.g. 'R100 old.txt new.txt') and a distinct diff header. A hand-crafted mock risks using a slightly wrong format, letting the bug hide. A real git subprocess on a real repo with a real rename operation produces the canonical format. MOCK-HIDE: A mock that matches the expected format will always pass even if the parsing logic is subtly wrong about edge cases (partial renames, similarity threshold near 50%). REJECTION-GATE: Integration (in-process fake git output) is rejected because the exact byte-level format of git's rename output — including the similarity score and the porcelain v1 vs v2 distinction — is what drives the parser decision, and a fake is too easy to get slightly wrong in a way that masks the real bug.",
+      "test_description": "Create a temporary real git repository. Commit a file, then rename it via `git mv`. Run the CLI tool as a subprocess against this repo. Assert the output report contains exactly one entry in the 'renamed' category (with old→new names) and zero entries in 'added' and 'deleted' for that file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.18,
+        "System": 0.68,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The crash would occur when the parser encounters git's binary-file diff marker ('Binary files a/foo and b/foo differ') instead of a normal hunk. REAL-INFRA: Git's actual binary detection logic and the exact text it emits depend on the file content and git's own binary-detection heuristics. A fake subprocess returning a hardcoded string could pass even if the real git output contains subtle differences (e.g. null bytes in filenames, locale-dependent messages). Running a real git diff on a real binary file guarantees the canonical crash-triggering input. MOCK-HIDE: A hand-written mock of binary diff output is likely to match the format the developer already handled, defeating the purpose. REJECTION-GATE: Unit (feed a string to a parse function) is rejected because the exact marker text and surrounding context that causes the crash is only guaranteed by real git.",
+      "test_description": "Create a temporary real git repository. Add a commit containing a binary file (e.g. a small PNG or a file with embedded null bytes). Run the CLI tool as a subprocess. Assert it exits with code 0 (no crash) and the output report includes the binary file in a count category.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.14,
+        "System": 0.68,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is the tool crashing or propagating a non-zero exit code when git commands fail on an empty repo. REAL-INFRA: On an empty repo, `git log` exits 128 with 'fatal: your current branch does not have any commits yet', and `git diff` may behave differently still. The exact exit code, error message text, and stderr/stdout split are git implementation details that a mock cannot reliably reproduce — and the tool's error-handling logic must handle these precisely. MOCK-HIDE: A mock that returns exit code 128 and a plausible error string will pass only if the developer already modeled this scenario; a real git subprocess on a real empty repo catches cases the developer forgot. REJECTION-GATE: Integration is rejected because the specific git exit code and fatal message text that the tool must survive are only guaranteed by a real git subprocess on a real initialized-but-empty repository.",
+      "test_description": "Run `git init` in a fresh temp directory (no commits). Run the CLI tool as a subprocess pointing at that directory. Assert exit code 0 and that the structured output report contains empty counts for all categories (no error text).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.1,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is an off-by-one, double-counting, or missed-file error in aggregation logic. To detect this, the ground truth must be independently established and the tool's output compared against it. REAL-INFRA: The ground truth is a real git repository with a known, scripted history (N files added, M deleted, K renamed). The tool must be run as a subprocess on this real repo so that the full pipeline — git subprocess, parser, aggregator, output formatter — is exercised end to end. MOCK-HIDE: Using mocked git output means the mock author controls both the input and the expected output, making it impossible to detect systematic miscounting in the aggregation layer. REJECTION-GATE: Integration is rejected because the count correctness invariant only holds when the complete pipeline processes real git history; any intermediate mock decouples the count from actual repository state.",
+      "test_description": "Create a temp git repository and script a precise history: add 5 files in one commit, delete 2 in the next, rename 1 in the next. Run the CLI tool as a subprocess. Assert the report shows added=5, deleted=2, renamed=1, modified=0 (matching the scripted history exactly).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.83,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is the tool querying `git diff` (unstaged) vs `git diff --cached` (staged) and producing different results for the same logical change set. REAL-INFRA: This behavior requires actually staging and unstaging files in a real git repo, then running the tool both ways and comparing outputs. The staging area (`git add`, `git reset HEAD`) is an OS-level git object store operation; there is no meaningful in-process fake for it. MOCK-HIDE: Mocking both the staged and unstaged git subprocess calls with the same output trivially makes them equal — it cannot detect a bug where the tool uses the wrong diff mode or misroutes the result. REJECTION-GATE: Integration is rejected because the staging area state transition (`git add` / `git reset`) is a real filesystem and git object store operation that cannot be faithfully reproduced in-process.",
+      "test_description": "Create a temp git repo with a committed baseline. Modify several files without staging. Run the CLI tool as a subprocess in unstaged mode; capture output A. Stage all changes with `git add -A`. Run the CLI tool in staged mode; capture output B. Assert output A equals output B structurally (same category counts and file names).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.89,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

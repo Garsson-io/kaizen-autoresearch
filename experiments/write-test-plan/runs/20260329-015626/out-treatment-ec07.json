@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is a wiring bug: one of the three collection modules is never called, or its result is silently dropped before reaching the summary step. A unit test of the aggregation function with injected data cannot catch this — you need to wire the three collection modules to the aggregator and assert all three results appear at the summary input boundary. REJECTION-GATE for Unit: testing just the aggregator in isolation with pre-injected data would always pass even if a source is never called in the real pipeline.",
+      "test_description": "Instantiate mock versions of each of the three source clients (metrics endpoint, issue tracker API, deployment log), each returning distinct controlled payloads. Wire them through the real data-collection layer. Invoke the pipeline up to (but not including) the LLM summary call. Capture the argument passed to the summary step and assert it contains keyed sections from all three mocks.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode spans two module boundaries: the collection layer must catch the exception from the failing source, substitute the placeholder, and the report-generation layer must receive and render that placeholder without aborting. A unit test of just the error-handler would not verify that the pipeline continues to completion. REJECTION-GATE for Unit: if the error handling lives in the collection module but the abort risk lives in the orchestration layer, neither in isolation surfaces the real bug.",
+      "test_description": "Wire the three collection modules together through the real orchestration layer. Configure one source mock to raise a connection error on every call. Invoke the full data-collection-to-report-generation path. Assert the returned report object (a) is not None, (b) contains the expected 'data unavailable' text in the section corresponding to the failing source, and (c) contains real data for the other two sections.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "'Accurately represents' is a quality claim about real LLM output. Mocking the LLM returns a fixed string that trivially satisfies any assertion about accuracy, hiding the real failure entirely. The real failure — the model hallucinating, omitting, or misquoting specific numeric values from the input — only surfaces with a real model call. Running this test 100 times with the real LLM could produce different outputs (non-deterministic), making this inherently Agentic. REJECTION-GATE for Integration: a stubbed LLM always passes, so Integration cannot catch the failure described in this behavior.",
+      "test_description": "Compose a controlled input payload with specific, distinctive key values (e.g., deployment count=42, open P1 issues=7, mean latency=312ms). Pass this payload to the real summary-generation function using a real LLM API call. Assert the returned narrative string contains each of the three key values without significant distortion. Run multiple times to build confidence given non-determinism; flag flaky runs rather than silently passing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.82,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior explicitly requires two distinct real external dependencies in sequence: (1) a real LLM to generate the narrative (Agentic step), and (2) real email infrastructure to verify actual inbox delivery (System step). Neither can be mocked without hiding the class of failure described — a mock LLM hides generation quality failures, a mock SMTP client hides delivery failures. Combining a real LLM step with real email delivery across a full pipeline is a multi-step agentic workflow. REJECTION-GATE for Agentic (single-step): the behavior explicitly requires verifying inbox delivery, which demands real email infrastructure beyond the LLM call alone.",
+      "test_description": "Using a sandboxed test environment, run the full pipeline: point collection at stub data sources returning controlled payloads, invoke the real LLM summary step, then deliver via a real SMTP relay to a dedicated test inbox (e.g., a local Mailpit instance or a test mailbox). After pipeline completion, poll the inbox and assert an email arrived addressed to the configured recipient, with a subject and body that reflect the input data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.1,
+        "Workflow": 0.8
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "The behavior spans two module boundaries: delivery failure → file persistence, and then separately, startup/retry logic → picking up the saved file. Both halves can be exercised by calling the pipeline code twice in-process (simulating two scheduled runs) without requiring OS-level subprocess invocation or real email infrastructure. REJECTION-GATE for Unit: the file-persistence path and the retry-on-startup path are different modules; neither alone covers the full contract. REJECTION-GATE for System: 'next scheduled run' does not require a real subprocess if the retry logic is invokable as a function; escalate to System only if the entry point is subprocess-only.",
+      "test_description": "Configure the email delivery module mock to always raise a connection error. Run the full pipeline once (first 'scheduled run'): assert the generated report was written to the configured fallback file path and no exception escaped. Then run the pipeline a second time (second 'scheduled run') with the delivery mock restored to success: assert (a) the delivery mock was called with the previously saved report content, and (b) the fallback file is removed or marked as delivered after successful retry.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.55,
+        "System": 0.32,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

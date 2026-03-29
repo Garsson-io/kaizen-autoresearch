@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode sits at the boundary between the GitHub API (fetching changed file list) and the file-selection logic that gates what gets passed to the linter. A mocked HTTP client returning a fabricated PR diff payload is sufficient to reproduce a bug here — e.g., the code fetches all repo files instead of the changed set, or misparses the API response. No real network or subprocess is needed to catch this failure. REJECTION-GATE for System: the behavior does not depend on real HTTP timeouts, OS filesystem events, or subprocess exit codes — an in-process stub of the GitHub API client fully exercises the selection logic.",
+      "test_description": "Wire the file-fetching module to a stub GitHub API client that returns a controlled list of N changed files out of a larger repo. Invoke the analysis orchestrator and assert that the linter is called with exactly those N paths and no others.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "Grouping findings by severity is pure algorithmic logic: given a flat list of Finding objects each carrying a severity field, produce a structured comment string with sections per severity. No I/O, no external modules, no subprocess. The failure mode (wrong grouping, missing severity bucket, misordered output) is fully observable at the function boundary. REJECTION-GATE for Integration: the behavior explicitly describes a data-transformation step, not a handoff between modules. The comment-posting mechanism is irrelevant to whether the grouping logic itself is correct.",
+      "test_description": "Call the comment-builder function directly with a synthetic list of findings covering all three severity levels (and an empty bucket). Assert the returned string contains the correct section headers, the right findings under each header, and that the empty bucket is handled gracefully.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "This is a wall-clock performance requirement under real execution conditions. In-process fakes and mocked subprocesses eliminate the actual CPU/IO cost of spawning linter processes, reading files from disk, and serializing results — precisely the costs that could breach the timeout. The failure only manifests with real subprocess execution against real files. REJECTION-GATE for Integration: an in-process mock linter returns instantly and will always 'pass' this test regardless of real execution cost, so it cannot catch the actual failure mode (slow real linter × 200 files). REAL-INFRA applies: timing under real subprocess load is the subject of the behavior.",
+      "test_description": "In a real CI environment (or a local System test), create a fixture of 200 minimal but syntactically varied source files, trigger the full Action workflow, and assert that the end-to-end wall time is under 600 seconds. Measure from action start to comment-post completion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.88,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is in the orchestration layer: does the per-file or per-batch error handler catch a crashed linter invocation and continue the loop, or does it propagate the exception and abort? This is a module-wiring bug between the subprocess runner and the retry/continue logic. A stub subprocess runner that returns a non-zero exit code or raises OSError for one specific file is sufficient to trigger the real failure path — no actual OS process crash or real malformed file content is required. REJECTION-GATE for System: the behavior is about control-flow through the error-handling code, not about real OS signal delivery or filesystem behavior that an in-process stub cannot replicate.",
+      "test_description": "Configure the subprocess-runner module with a stub that raises an exception (or returns exit code 1) for one designated file path and succeeds for the rest. Invoke the analysis orchestrator over a set of 5 files including the bad one. Assert that results for the 4 good files are collected and the final comment is posted despite the one failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.21,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is a pure data-transformation step: given a collection of Finding objects, identify and remove those with identical (file, line, rule, message) keys. The failure mode — duplicate entries surviving into the output — is fully observable by calling the deduplication function with crafted inputs. No external modules, I/O, or subprocess involvement. REJECTION-GATE for Integration: the behavior describes an algorithm applied to an already-collected findings list, not a failure that emerges from module interaction. Even if deduplication runs inside a larger pipeline, the correctness of the dedup logic itself is testable in isolation.",
+      "test_description": "Call the deduplication function with a list that includes exact duplicates, near-duplicates (same line, different rule), and unique findings. Assert that the output contains each unique (file, line, rule) tuple exactly once and that non-duplicate entries are preserved in full.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

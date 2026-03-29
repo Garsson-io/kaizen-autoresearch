@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces when the module's request-construction logic is wired to an outbound HTTP adapter — inspecting one function in isolation cannot confirm what actually leaves the process boundary. REAL-INFRA: The HTTP call itself does not need to be real; a stub/mock HTTP client can capture the outgoing request payload. MOCK-HIDE: A mock HTTP client that captures request bodies does not hide this failure — if the taxonomy list is absent the assertion fails. LLM-DEP: Correctness here is about request structure, not AI output. REJECTION-GATE: Unit is disqualified because the taxonomy injection could happen at any layer of the request-construction pipeline (prompt builder, API adapter, serializer); only wiring the full module verifies what truly gets sent.",
+      "test_description": "Wire the classification module to a mock HTTP client that captures every outgoing request body. Call `classify(document)` with a sample document. Assert that the captured request payload contains every label in the configured taxonomy list (legal, technical, financial, other). Run once per taxonomy variant if labels are configurable.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns `\"unknown\"` instead of forwarding the unexpected value.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the response-validation function: `if label not in taxonomy: return 'unknown'`. This logic is self-contained and does not depend on how modules hand off state to each other. REAL-INFRA: No OS, network, or subprocess involvement. MOCK-HIDE: The API response is the input; stubbing it as an unexpected string (e.g., 'sports') does not hide the failure — if the module forwards 'sports' the assertion catches it. LLM-DEP: The API response is a deterministic fixture value. REJECTION-GATE: Integration is disqualified because the full module pipeline is not needed; the validation predicate can be exercised directly by passing a mock response object containing an out-of-vocabulary label.",
+      "test_description": "Call the module's response-handling function (or `classify()` with the HTTP client stubbed to return `{\"label\": \"sports\"}`) and assert the return value equals `\"unknown\"`. Also assert that a valid label like `\"legal\"` passes through unchanged. Cover the boundary between a valid and invalid label.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is LLM non-determinism — temperature, sampling, or model updates cause the same prompt to receive different labels on different calls. REAL-INFRA: No OS or subprocess dependency. MOCK-HIDE: A stub always returns the same value by construction, so the test trivially passes regardless of whether the real model is deterministic — the entire failure mode is hidden. LLM-DEP: Correctness is wholly contingent on what a real AI/ML model returns across multiple runs; a deterministic stub cannot reproduce the failure. MULTI-STEP: Single call pair, not a pipeline. REJECTION-GATE: Integration is disqualified because any in-process stub is deterministic by definition and cannot reveal inconsistency originating in the AI model.",
+      "test_description": "Call the real external AI classification API with the same document text at least 5 times (with the same prompt and budget parameters). Assert that all returned labels are identical. Flag flaky outcomes (label variance > 0) as a test failure and log the diverging responses for diagnosis. Accept a known determinism parameter (e.g., temperature=0) only if the module explicitly sets it; otherwise treat variance as a bug.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is that the module fails to pass a token-budget constraint (e.g., `max_tokens`) in the outgoing request, or ignores token-usage fields in the response. Both failure modes involve the module interacting with the HTTP adapter, not a single function. REAL-INFRA: A stub HTTP client can return a synthetic `usage.total_tokens` field; verifying that the module reads it and enforces the budget does not require real inference. MOCK-HIDE: A stub that returns a token count above the budget will expose whether the module raises, truncates, or silently exceeds — it does not hide the failure. LLM-DEP: Token-budget enforcement is a deterministic contract (set max_tokens, check usage), not dependent on model output quality. REJECTION-GATE: Agentic is disqualified because the module's enforcement mechanism (setting max_tokens in the request and/or checking usage in the response) is fully exercisable with a stub that returns controlled token-usage values.",
+      "test_description": "Wire the module to a mock HTTP client that returns a stub response with `usage.total_tokens` set to (a) a value within budget and (b) a value exceeding budget. Assert that in case (a) the label is returned normally, and in case (b) the module either raises a budget-exceeded error or truncates appropriately. Also capture the outgoing request and assert it includes a `max_tokens` parameter equal to the configured budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.22,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two modules: the HTTP adapter receiving a 429 response and the retry/backoff logic deciding to sleep and re-issue the request. This is a module-boundary interaction. REAL-INFRA: A stub HTTP server (or mock HTTP client) can return HTTP 429 on the first call and HTTP 200 on the second; real network rate-limiting is not required. MOCK-HIDE: A stub returning 429 then 200 does not hide the failure — if the module propagates the 429 as an error instead of retrying, the assertion on the final return value fails. LLM-DEP: The retry/backoff logic is deterministic. REJECTION-GATE: System is disqualified because real network conditions and real rate-limit responses are not needed; an in-process mock HTTP client that sequences 429 → 200 fully exercises the retry path.",
+      "test_description": "Configure the mock HTTP client to return HTTP 429 (with a Retry-After header) on the first call and HTTP 200 with a valid label on the second. Patch `time.sleep` to avoid real delays but assert it was called with an argument >= the Retry-After value. Call `classify(document)` and assert it returns the valid label (not an exception). Assert the mock HTTP client was called exactly twice.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

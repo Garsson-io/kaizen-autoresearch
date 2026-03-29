@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not in a single parsing function but in the handoff between the manifest reader and the transitive-dependency resolver — a unit test on either module alone would miss bugs where the resolved tree is silently truncated or where indirect deps are dropped before being passed to the vulnerability check. REAL-INFRA: Transitive resolution can be driven by a lockfile (package-lock.json, poetry.lock, etc.) loaded from a fixture directory; real network is not required. INTEGRATION-BRAKE: (a) No real OS/network needed — fixture files suffice. (b) No AI/ML. (c) Not multi-agentic. REJECTION-GATE: Nothing in the behavior text requires a live registry call, so System is disqualified.",
+      "test_description": "Construct fixture manifests (e.g., package.json + package-lock.json) with a known direct dependency A that pulls in transitive dep B and B pulls in C. Wire the manifest-reader and transitive-resolver modules together in-process and invoke the extraction pipeline. Assert that the resulting dependency set contains A, B, and C with their exact version strings. Also assert that a manifest containing only direct deps produces exactly that set with no extras.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.55,
+        "System": 0.22,
+        "Agentic": 0.06,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — querying by package name only and ignoring version constraints — appears at the boundary between the manifest parser and the HTTP query builder, not inside either alone. REAL-INFRA: A stub HTTP server can capture the outbound request and verify it carries version-range parameters; the correctness of query construction is observable without hitting the real CVE database. MOCK-HIDE: A mock that unconditionally returns canned CVE data would hide whether the version range was ever sent. Using a real stub server that inspects the request avoids this. INTEGRATION-BRAKE: (a) No real network needed — stub server in-process. (b) No AI. (c) Single step. REJECTION-GATE: The behavior is about query construction and response filtering, not about the database's own semver logic, so System is disqualified.",
+      "test_description": "Stand up a lightweight stub HTTP server (e.g., httpretty or responses library) that records incoming requests. Invoke the vulnerability-check pipeline with a fixture manifest declaring dep X at version ^1.2.0. Assert that the captured HTTP request to the CVE endpoint includes a version parameter (or query field) encoding the range ^1.2.0, not just the package name X. Also assert that the pipeline correctly discards stub responses whose affected_versions range does not overlap ^1.2.0.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.55,
+        "System": 0.3,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode lives entirely inside the sort comparator / key function. No module boundary is crossed — the input is a list of CVE records (plain data) and the output is a reordered list. REAL-INFRA: No I/O. LLM-DEP: No AI. MULTI-STEP: Single function call. INTEGRATION-BRAKE: All three checks are negative. A unit test with a hand-crafted list of mixed-severity CVEs is sufficient and necessary.",
+      "test_description": "Create a list of CVE objects (or dicts) covering all four severity levels, with at least two entries sharing the same severity but different CVSS scores (e.g., two High CVEs at 8.1 and 7.5). Call the sort function and assert the output order is Critical → High (8.1 before 7.5) → Medium → Low. Also assert that a single-element input and an already-sorted input are handled correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure — accidentally overwriting adjacent lines or fields — is in the text/AST transformation function itself, not at a module boundary. Passing an in-memory string through the modifier and diffing the result is sufficient. REAL-INFRA: File I/O is not the failure surface; the transformation algorithm is. LLM-DEP: No AI. INTEGRATION-BRAKE: All negative. REJECTION-GATE: The behavior says nothing about filesystem side-effects or concurrent writes; Integration is not required.",
+      "test_description": "Call the manifest-modification function with an in-memory string representing a package.json (or requirements.txt) that has five dependencies. Pass the name and new version of one dependency. Assert that the returned string differs from the input in exactly one place — the target dependency's version field — and that all other dependency entries are byte-for-byte identical. Test with both JSON and plain-text manifest formats if both are supported.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly states 'real repository.' PR creation requires real VCS API calls (GitHub/GitLab REST), real authentication, real branch creation, and a real diff computed from actual file state. Each of these surfaces failure modes (auth token handling, API pagination, branch naming collisions, diff format compliance) that an in-process stub hides. MOCK-HIDE: A stub VCS client will pass unconditionally; only a real API call verifies that the diff transmitted is a single-dependency change and that the PR is actually opened. INTEGRATION-BRAKE: (a) Real HTTP and VCS API — confirmed System. REJECTION-GATE: The word 'real repository' in the behavior text disqualifies Integration.",
+      "test_description": "Using a sandboxed test repository (e.g., a dedicated GitHub repo or a self-hosted Gitea instance), trigger the full scanner pipeline against a fixture manifest that has one known vulnerable dependency with an available patch. Assert that exactly one PR is opened on the test repository, that its diff modifies only the single vulnerable dependency's version line, and that no other files are touched. Tear down by closing the PR after the assertion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.12,
+        "System": 0.82,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the semver comparison function: does bumping the major component get flagged while minor/patch bumps do not? This is self-contained arithmetic on version strings with no module handoff. REAL-INFRA: No I/O. LLM-DEP: No AI. MULTI-STEP: Single function. INTEGRATION-BRAKE: All negative. A parametrized unit test covers the boundary exhaustively.",
+      "test_description": "Parametrize the semver-comparison function with pairs: (1.2.3 → 2.0.0, breaking=True), (1.2.3 → 1.3.0, breaking=False), (1.2.3 → 1.2.4, breaking=False), (0.9.0 → 1.0.0, breaking=True), (2.0.0 → 2.1.0, breaking=False). For each pair assert the function returns the expected breaking flag. Also assert that comparing a version to itself returns False.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.91,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the breaking-change detector and the PR-creation module — a unit test on either alone cannot verify that the gate actually suppresses the PR call and that the suppression correctly populates the output struct. These are two modules exchanging state. REAL-INFRA: PR creation can be stubbed; the test only needs to confirm the stub is never invoked and the output flag is set. INTEGRATION-BRAKE: (a) No real network required — stub PR client suffices. (b) No AI. (c) Not multi-agentic. REJECTION-GATE: Since PR creation is explicitly skipped, a real VCS API is not exercised; System is disqualified.",
+      "test_description": "Wire the breaking-change detector, the PR-creation module (replaced by a spy that records calls), and the output-formatter together in-process. Invoke the scanner pipeline with a fixture that has a vulnerable dependency whose only available patch is a major-version bump. Assert that the PR-creation spy was called zero times. Assert that the scanner output struct contains a review_required flag set to True and that the output lists the package name and both version strings. Also run the inverse: a non-breaking patch bump should invoke the spy exactly once and not set review_required.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.67,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The failure mode is whether the watcher is configured with recursive watching at the OS level. In-process mocks of the event emitter bypass whether the underlying fs.watch/chokidar call actually subscribes to subdirectory events. Only a real directory tree with a real file drop into a subdirectory can expose a misconfigured non-recursive watch. REJECTION-GATE: Integration is disqualified because injecting a synthetic 'subdirectory event' only tests that the handler accepts it — it cannot catch a watcher that was never told to watch subdirectories in the first place.",
+      "test_description": "Create a real temp root directory and a real nested subdirectory. Start the daemon pointed at the root. Drop a real file into the subdirectory. Assert that the file appears in the output directory, confirming the watcher emitted the event and the pipeline ran.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.1,
+        "System": 0.78,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely within the deduplication function's logic — tracking a path-keyed map and comparing elapsed time against a configurable threshold. No module handoff is required; the bug lives entirely in one function's conditional. REAL-INFRA: No OS, network, or subprocess dependency. A fake clock and in-process state are sufficient. REJECTION-GATE: Integration is disqualified because wiring multiple modules together does not change whether the core deduplication predicate is correct.",
+      "test_description": "Instantiate the deduplication module with a configurable window (e.g., 500 ms) and a fake/mocked clock. Call processRequest('/foo/bar') twice within the window; assert the second call is rejected. Advance the fake clock past the window; call again and assert it is accepted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.2,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the event listener and the deduplication/debounce layer — the bug appears when multiple events flow through the pipeline and the coalescing logic fails to suppress extras. A single-function unit test cannot expose this because the failure requires the event → debounce → processor wiring. REAL-INFRA: Synthetic injection of multiple events from the same path is sufficient to reproduce the failure; the OS is only the cause of the stimulus, not the detection mechanism. An in-process fake event emitter fully exercises the deduplication path. REJECTION-GATE: System is disqualified because generating multiple synthetic events for the same path does not require a real subprocess or real OS-level watcher to validate the debounce logic.",
+      "test_description": "Wire the event listener, debounce/deduplication module, and a spy-wrapped processor together in-process. Emit three rapid synthetic 'file-changed' events for the same path. Assert the processor spy was called exactly once, and that the output directory contains exactly one result file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.52,
+        "System": 0.32,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Directory deletion causes real OS inode invalidation events (IN_DELETE_SELF on Linux, kqueue NOTE_DELETE on macOS). Watcher libraries lose the watch descriptor when the directory is removed; recovery requires re-establishing a real OS watch on the new inode. An in-process fake cannot reproduce inode invalidation or the re-watch race. The failure is whether the OS-level watch descriptor survives or is correctly reinstated — invisible to synthetic mocks. REJECTION-GATE: Integration is disqualified because injecting a synthetic 'directory-removed' event only tests handler code paths, not whether the underlying watcher actually re-subscribes to the new inode created by rmdir+mkdir.",
+      "test_description": "Start the daemon watching a real temp directory. Use real OS calls to rm -rf the directory, then mkdir to recreate it. Drop a real file into the recreated directory. Assert the file is processed and appears in the output directory, confirming the watcher recovered its subscription without a restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans the boundary between event ingestion and the ordering/queue layer — the bug appears when concurrent arrival events are sorted by a timestamp attribute that must be sourced correctly (stat ctime or event metadata) and compared across items. This is not a single-function bug. REAL-INFRA: Real temp files with real stat timestamps are needed to verify that the ordering field is read from the correct source; however, no subprocess, OS daemon, or real network is required — a real local filesystem in a test temp dir is sufficient. REJECTION-GATE: Unit is disqualified because a sorting-function test cannot verify that the correct timestamp field is sourced from the filesystem. System is disqualified because no subprocess or OS-level daemon process is required.",
+      "test_description": "Create three real temp files with programmatically controlled creation timestamps (e.g., by setting mtime via fs.utimes). Wire the event ingestion and ordering queue in-process. Inject arrival events for all three files simultaneously. Assert that the processor receives them in ascending timestamp order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.57,
+        "System": 0.18,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Still being written to' is an OS-level state: the detection mechanism (polling size stability, trying an exclusive open, or checking OS file locks) depends on real file handles held by a real writer. An in-process fake cannot reproduce the OS file-lock or size-unstable state that the daemon's completion-detection code interrogates. The exact failure — premature pickup of an incomplete file — only manifests with a real file being actively written. REJECTION-GATE: Integration is disqualified because even with a real temp file in the same process, holding a write handle and testing O_EXCL or size-polling requires real OS file descriptor semantics that in-process mocks of the filesystem cannot replicate faithfully.",
+      "test_description": "Start the daemon watching a real temp directory. Open a real file handle for writing in the test process (keeping it open). Trigger the file-arrival event (by writing the first bytes so the watcher fires). Assert no output appears after a debounce interval. Then flush and close the real write handle. Assert the file is subsequently processed and appears in the output directory.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.21,
+        "System": 0.7,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Error message names missing required key by exact config path",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the validation logic — does the error formatter correctly extract and report the dotted config path from a missing-key exception? No module boundary is crossed; it is one function's output given a known-absent key. REAL-INFRA: No filesystem or network involved — the config can be supplied as an in-memory dict. MOCK-HIDE: Mocking the dict would not hide this; the dict is the fixture itself. LLM-DEP: None. MULTI-STEP: None. REJECTION-GATE: Integration was considered but rejected because the bug (wrong key name in message) would manifest in a pure in-memory call to the validator — no file I/O changes the formatter's behavior.",
+      "test_description": "Construct a minimal in-memory config dict that omits a required nested key (e.g., `database.host`). Pass it directly to the loader's validation function. Assert that the raised exception or error string contains the exact dotted path string `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "XDG_CONFIG_HOME overrides the default ~/.config path for config file resolution",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the path-construction branch: does the loader substitute `XDG_CONFIG_HOME` for `~/.config` when building the config file path? This logic lives in a single function that reads `os.environ` and joins paths — no cross-module boundary causes the failure. REAL-INFRA: Path joining is pure string manipulation; `os.environ` can be patched in-process. A fake or temp directory is not required to verify the *path that would be used* is correct. MOCK-HIDE: Patching `os.environ` exposes the real branch, not hides it. LLM-DEP: None. REJECTION-GATE: Integration was considered because a full loader run would also open the file; the behavior specifically says 'resolves the config file path', making the path-construction step independently testable at Unit.",
+      "test_description": "Patch `os.environ` to set `XDG_CONFIG_HOME` to a known string (e.g., `/tmp/xdg`). Call the loader's path-resolution helper. Assert the returned path starts with `/tmp/xdg/tool/config.yaml` (or equivalent) and does NOT contain `~/.config`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.4,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "TOOL_ prefixed environment variable overrides same key from config file",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the merge/priority logic — does the env-var value win when both sources provide the same key? This is a single merge function's algorithm; no cross-module handoff is required to trigger the bug. REAL-INFRA: Both inputs (file-parsed dict and env-var dict) can be supplied in-memory; no filesystem access changes the merge outcome. MOCK-HIDE: Supplying both dicts directly as fixtures cannot hide the priority bug. LLM-DEP: None. REJECTION-GATE: Integration was considered because the broader loader wires file-parsing and env-var scanning; but the priority bug itself is in the merge step, which can be tested with two in-memory dicts.",
+      "test_description": "Build a parsed-config dict containing key `database.host = 'file-value'`. Patch `os.environ` to include `TOOL_DATABASE_HOST=env-value`. Call the config loader's merge/override function. Assert the final config value for `database.host` is `env-value`, not `file-value`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "YAML syntax error causes error message that includes the offending line number",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the error-handling wrapper around the YAML parser: does it extract the line number from the parser's exception and include it in the user-facing message? This is one try/except block's output. REAL-INFRA: The real YAML parser (PyYAML / ruamel.yaml) must be exercised — not mocked — because the test verifies that the exception object emitted by the parser actually carries line-number information that the handler surfaces. However, YAML parsing operates entirely on an in-memory string; no file I/O is required to produce the error. MOCK-HIDE: Mocking the parser would hide whether it provides line numbers and whether the handler reads the right attribute. The real parser must run, but it runs on a string, keeping this at Unit. REJECTION-GATE: Integration was considered but the YAML parser is an in-process library call, not a module boundary that requires wiring.",
+      "test_description": "Supply a multi-line YAML string that has a deliberate syntax error on a known line N (e.g., line 3). Pass this string to the loader's config-parse function. Assert that the resulting error message or exception string contains the integer N (or a substring like 'line 3').",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Missing config directory is created and defaults file is written on first run",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior spans two observable side-effects — directory creation and file writing — that must survive a full loader startup sequence, not just a single function call. The failure could be in the existence check, the mkdir call, or the file-write call failing silently; any of these bugs spans module boundaries (startup orchestrator → filesystem layer → defaults writer). REAL-INFRA: Mocking `os.makedirs` and `open` would confirm call counts but not that the correct directory path was created or that the written defaults file contains valid content. An in-process temp directory lets the real I/O code run and produces artifacts that can be directly inspected — this is the minimal infrastructure that cannot be faked away without hiding real failures. MOCK-HIDE: Mocking the filesystem hides wrong-path bugs and content correctness bugs. LLM-DEP: None. REJECTION-GATE: System was considered but directory creation/file writing does not require a real subprocess, real OS signals, or real external network; a temp-directory integration test is sufficient.",
+      "test_description": "Use `tmp_path` (pytest fixture) as the config root. Patch the loader's config-home resolution to return a subdirectory of `tmp_path` that does not yet exist. Run the loader's startup function. Assert that (a) the config directory now exists on disk, and (b) a defaults file exists at the expected path with non-empty, valid YAML content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

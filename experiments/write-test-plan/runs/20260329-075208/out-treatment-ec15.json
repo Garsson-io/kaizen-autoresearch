@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode (wrong vector dimension) only appears when the real embedding model is called — a mock returns whatever dimension we hardcode, making the test circular. REAL-INFRA: The embedding model is an external API in this architecture; verifying actual output dimensionality requires a real HTTP call to the embedding service. MOCK-HIDE: A stub embedding always returns a pre-shaped vector of whatever dimension we specify, hiding any real misconfiguration (wrong model, model version change, API key pointing to different model). LLM-DEP: Dimensionality is deterministic for a given model — the same model always produces the same vector length regardless of input — so Agentic is disqualified. REJECTION-GATE: Agentic disqualified because 'running this test 100 times gives different outcomes' is false; dimension is a fixed property of the model. COMMIT-TO-REASONING: Evidence points to System; output is System — consistent.",
+      "test_description": "Send a real query string to the live embedding API endpoint configured for the application. Assert that the returned vector has exactly the expected dimension (e.g., 1536 for text-embedding-ada-002) matching the vector database index configuration. Run against the real configured embedding service to catch model misconfiguration, API key routing errors, or model version changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.62,
+        "Agentic": 0.11,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the application's search module and the vector database — if the search call doesn't enforce ordering or misreads the returned order, a mock that pre-returns sorted results hides it. A real (local) vector DB is needed. REAL-INFRA: Cosine similarity ordering is deterministic math; a local in-process vector DB (FAISS, embedded Qdrant, or similar) can fully reproduce the ordering behavior without real network. MOCK-HIDE: Mocking the DB to return pre-sorted results makes the test trivially pass regardless of whether the application actually requests ordered results. LLM-DEP: Cosine similarity is pure math — no AI non-determinism. INTEGRATION-BRAKE: (a) No real OS/network needed — local in-process DB suffices. (b) No AI/ML quality dependency. (c) No multi-step agentic chain. COMMIT-TO-REASONING: Evidence points to Integration; output is Integration — consistent.",
+      "test_description": "Pre-populate an in-process vector database (e.g., FAISS or embedded Qdrant) with vectors of known cosine similarities to a test query vector. Issue a similarity search for the test query. Assert that the returned results list is sorted in strictly descending order by the cosine similarity score field. Include at least 5 vectors with known, distinct similarity values to catch partial-ordering bugs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly tests whether the LLM produces contextually aware reordering — this is a quality/reasoning property of the real LLM, not a deterministic function. MOCK-HIDE: A stubbed LLM returning a fixed permutation trivially passes regardless of whether the real LLM understands nuanced intent at all. MOCK-MISS: The failure (LLM fails to reorder when it should) only manifests with a real LLM call; no amount of module wiring tests this. MULTI-STEP: A single LLM re-ranking call, not a multi-step chain — Workflow is disqualified. REJECTION-GATE: Workflow disqualified because behavior describes a single re-ranking step, not 'multiple agentic steps in sequence.' System disqualified because the failure mode is LLM reasoning quality, not infrastructure behavior. COMMIT-TO-REASONING: Evidence points clearly to Agentic; output is Agentic — consistent.",
+      "test_description": "Construct a test set of queries with known nuanced intent (e.g., 'lightweight running shoes for wide feet' where semantic similarity ranks a generic running shoe first but contextual relevance should prefer a wide-fit model). Feed raw similarity-ranked results to the real LLM re-ranker. Assert that the re-ranked output is not identical to the input order for at least a meaningful fraction of the test cases. Log both orders to diagnose regressions when LLM behavior changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.08,
+        "Agentic": 0.82,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the vector search module and the result-filtering/threshold logic — a bug could be that the threshold is never applied, or that low-score results leak through. Testing the filtering function alone (Unit) misses wiring bugs where the score from the DB is not correctly forwarded to the filter. REAL-INFRA: A local in-process vector DB pre-loaded with known vectors can reproduce the 'no close matches' scenario deterministically by using a test query vector known to be far from all stored vectors. No real network needed. MOCK-HIDE: Mocking the vector DB to return low-score results tests the filter logic, but hides cases where the score field name/format from the real DB differs from what the filter expects. LLM-DEP: Cosine similarity thresholding is deterministic math. INTEGRATION-BRAKE: (a) No real OS/network. (b) No AI quality dependency — threshold comparison is deterministic. (c) No multi-step agentic chain. COMMIT-TO-REASONING: Evidence points to Integration; output is Integration — consistent.",
+      "test_description": "Pre-populate an in-process vector DB with vectors representing a known product catalog. Construct a test query vector that is mathematically distant from all stored vectors (cosine similarity below the configured threshold for all entries). Issue the full search pipeline (embedding lookup → similarity search → threshold filter). Assert that the returned result list is empty. Also assert that no results with similarity below the threshold appear in any intermediate state returned to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.64,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The pipeline chains multiple real AI/ML calls in sequence: (1) real embedding API call, (2) real vector DB query, (3) real LLM re-ranking call, (4) HTTP response. This is a full multi-step agentic pipeline. REAL-INFRA: Latency is measured wall-clock time across real network calls — an in-process stub returns in microseconds and hides all real timing. MOCK-HIDE: Mocking any step eliminates its real latency contribution, making the 2-second budget meaningless. LLM-DEP: Both the embedding model and the LLM re-ranker contribute variable latency; real calls are required to measure median behavior. REJECTION-GATE: System disqualified because the SLA depends on coordinated latency of multiple AI/ML model calls (embedding + LLM), not just real HTTP in isolation. Agentic disqualified because the behavior spans multiple sequential AI calls, not a single model call. COMMIT-TO-REASONING: Evidence points to Workflow; output is Workflow — consistent.",
+      "test_description": "Send N representative queries (N ≥ 30 for statistical stability) through the full production pipeline: real HTTP to the embedding API, real vector DB query, real LLM re-ranking, full HTTP response returned. Record wall-clock latency for each request. Assert that the p50 (median) latency across all N requests is below 2000ms. Also capture p95 to provide early warning of tail latency creep. Run in an environment with network conditions representative of production.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.1,
+        "Agentic": 0.17,
+        "Workflow": 0.7
+      }
+    }
+  ]
+}

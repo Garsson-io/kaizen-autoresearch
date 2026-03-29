@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cron parser rejects invalid expressions with descriptive error messages",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely inside one parsing function — whether it correctly validates month/day bounds and syntax. No module handoff is involved. REAL-INFRA: Pure string parsing; no OS, network, or subprocess needed. MOCK-HIDE: Nothing to mock. LLM-DEP: None. MULTI-STEP: Single function boundary. EVIDENCE-LEVEL: Unit. OUTPUT-LEVEL: Unit. No override. INTEGRATION-BRAKE: All three upgrade conditions are absent.",
+      "test_description": "Parameterize over a set of invalid cron strings (month=13, day=32, too few fields, non-numeric tokens) and assert that the parser raises the expected error type with a message that names the offending field. Include at least one valid expression to confirm the parser accepts it without error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.93,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Next-run-time calculator returns correct timestamps for standard and edge-case cron expressions",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is purely algorithmic — given a parsed schedule and a start datetime, does the calculator produce the right next N timestamps? 'Last day of month' and 'nearest weekday' are calendar math, not module-boundary handoffs. REAL-INFRA: No OS, network, or subprocess; this is in-process date arithmetic. MOCK-HIDE: Nothing to mock that would hide a real failure. LLM-DEP: None. MULTI-STEP: Single computation step. EVIDENCE-LEVEL: Unit. OUTPUT-LEVEL: Unit. No override. INTEGRATION-BRAKE: All three upgrade conditions absent.",
+      "test_description": "For each edge case (last-day-of-month alias, nearest-weekday modifier, standard five-field expression), supply a fixed start datetime and assert the calculator returns the expected list of next-run timestamps. Use a deterministic clock (frozen datetime) to eliminate test flakiness.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Overlap detector identifies schedules that fire within the configured minimum gap and reports conflicting windows",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure emerges at the boundary between the next-run-time calculator and the overlap-detection logic. The detector must consume run-time sequences produced by the calculator; if their data contract is wrong (wrong timezone, wrong type, off-by-one on the gap boundary), a Unit test of the detector alone — fed hand-crafted timestamps — would not catch it. REAL-INFRA: No OS/network; in-process module wiring is sufficient. MOCK-HIDE: Stubbing the calculator output would always pass, hiding real boundary errors. LLM-DEP: None. MULTI-STEP: None. EVIDENCE-LEVEL: Integration. OUTPUT-LEVEL: Integration. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No AI/ML. (c) No agentic chaining. Stays Integration.",
+      "test_description": "Wire the real parser, calculator, and overlap detector together. Supply two cron expressions whose computed run times fall within the configured gap and two that do not. Assert the detector reports exactly the expected conflict windows (including the offending timestamps) for the overlapping pair, and reports no conflicts for the non-overlapping pair. Also test the boundary condition where two runs are exactly at the minimum gap.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.84,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct run times across DST spring-forward and fall-back transitions",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the scheduler's run-time computation and the timezone library (pytz/zoneinfo). Whether the scheduler correctly handles the spring-forward gap (2:30 AM doesn't exist) and fall-back ambiguity (2:30 AM occurs twice) depends on how the scheduler and the timezone module interact — not on the scheduler's own logic in isolation. REAL-INFRA: Timezone libraries (pytz bundles its own data; zoneinfo reads from the OS tzdb) work correctly in-process without real OS-level calls as a failure boundary. A real subprocess or network call is not needed to reproduce the wrong fold/is_dst decision. MOCK-HIDE: Mocking the timezone library would eliminate the exact failure this test needs to catch. LLM-DEP: None. MULTI-STEP: None. EVIDENCE-LEVEL: Integration. OUTPUT-LEVEL: Integration. REJECTION-GATE: System was considered; demoted because the DST failure mode (wrong datetime arithmetic) is fully reproducible with in-process timezone library calls — no real OS subprocess or network call is required. INTEGRATION-BRAKE: (a) No real OS/network/subprocess needed. (b) No AI/ML. (c) No agentic chaining.",
+      "test_description": "Using a real timezone library (not a stub), create a cron expression for '30 2 * * *' in a US/Eastern schedule. Compute next run times straddling the spring-forward transition (clocks jump from 2:00 AM to 3:00 AM) and assert the scheduler skips the non-existent 2:30 slot and produces the next valid time. Repeat for fall-back: assert the scheduler produces exactly one run for the ambiguous 2:30 AM fold (not two), and that it applies a consistent is_dst policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.78,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Missed-run policy engine correctly skips or backfills jobs whose scheduled time has already passed",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure sits at the boundary between the run-time calculator (which determines what runs were missed), the clock/time-comparison component (which determines how much time has passed), and the policy engine (which applies skip/backfill rules). A Unit test of the policy logic alone, fed a hand-crafted list of missed runs, would not catch bugs in how the calculator identifies missed windows or how the engine ingests them. REAL-INFRA: No real OS clock or network is needed — current time can be injected via a frozen clock without hiding the real failure mode. MOCK-HIDE: Stubbing the calculator output would bypass the module handoff where missed-run detection bugs live. LLM-DEP: None. MULTI-STEP: None. EVIDENCE-LEVEL: Integration. OUTPUT-LEVEL: Integration. INTEGRATION-BRAKE: (a) Frozen in-process clock suffices — no real subprocess or network. (b) No AI/ML. (c) No agentic chaining.",
+      "test_description": "Wire the real run-time calculator and missed-run policy engine together with an injectable clock. Set the clock to a time that is past two scheduled run windows. Assert that a job configured with 'skip' policy reports those runs as skipped and returns only the next future run time. Assert that a job configured with 'backfill' policy returns all missed run times plus the next future one. Also test the boundary: clock is exactly at the scheduled time (not past it), asserting no run is considered missed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.85,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

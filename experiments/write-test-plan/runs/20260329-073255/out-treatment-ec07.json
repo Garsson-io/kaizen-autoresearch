@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a silent data-composition bug — one source's output is collected but never merged into the payload forwarded to the summary step. That bug lives at the boundary between the three collector modules and the aggregation/handoff layer, not inside any single function. A unit test on the aggregator alone can't catch a wiring bug in the orchestration logic that calls it. REAL-INFRA: No real HTTP is needed; stub endpoints that return canned payloads are enough to reproduce the failure (missing or dropped data in the forwarded payload). REJECTION of System: the failure doesn't depend on real HTTP behavior — any HTTP stub returning the right payload shape will expose a wiring bug. LLM-DEP: N/A — this behavior is specifically about what is *passed to* the summary step, not what it produces.",
+      "test_description": "Wire all three data-source modules to stub HTTP handlers that return distinct, recognizable payloads. Run the data-collection and aggregation layer end-to-end. Capture the argument object/dict actually passed to the summary-generation function (via a spy or by inspecting the call). Assert that all three sources' canonical fields are present in that argument with the values returned by their respective stubs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.13,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — an unhandled exception propagating up from one collector and aborting the whole pipeline — is a cross-module concern: the orchestration layer must catch the error from the failing collector and allow the remaining collectors and report-assembly modules to continue. A unit test on a single collector's error handler can't catch a missing try/except in the orchestration layer, nor can it verify the report-assembly module substitutes the placeholder correctly. REAL-INFRA: A stub that raises a connection error (or returns HTTP 503) is sufficient; real network unavailability is not required to reproduce the abort-vs-graceful-degrade failure. REJECTION of System: no OS primitive, real subprocess, or real network condition is needed — an in-process exception from a stub is indistinguishable from a real network error at the failure boundary under test.",
+      "test_description": "Configure one of the three data-source stubs to raise a connection error (or return a 503). Run the full data-collection and report-assembly pipeline in-process. Assert that (a) no exception propagates to the caller, (b) the assembled report contains a `data unavailable` marker in the section corresponding to the failing source, and (c) the sections for the two healthy sources contain their expected data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.6,
+        "System": 0.16,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Correctness here is entirely defined by what the LLM produces — specifically whether key numeric values, statuses, and facts from the input appear faithfully in the generated narrative rather than being hallucinated, omitted, or distorted. A deterministic stub always returns the same canned text regardless of input, so it will always pass even when the real model fails to include a critical value. The failure (model omits or contradicts an input fact) is invisible without a real model call. MOCK-HIDE: Any deterministic stub hides the actual failure mode. REJECTION of Workflow: only one agentic step is involved (the summary-generation call); no multi-step LLM sequence is required to expose this failure.",
+      "test_description": "Construct a structured input payload containing at least three distinct key values (e.g., a deployment count, a P1 incident count, an uptime percentage). Call the real summary-generation function with that payload. Parse the returned narrative and assert that each key value appears verbatim or in a clearly derived form (e.g., '99.9%' or 'ninety-nine point nine percent'). Run several times to sample non-determinism; flag the behavior as failing if any run omits or contradicts a key value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.04,
+        "Agentic": 0.76,
+        "Workflow": 0.13
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly spans the full pipeline — three real HTTP data-source calls, a real LLM narrative-generation step, and real SMTP/email delivery to a real inbox — and correctness requires all steps to succeed in sequence. A failure at any handoff (malformed payload to LLM, LLM output not embedded in email body, email truncated or mis-addressed) is only observable by reading the delivered message in a real inbox. REAL-INFRA: 'Reaches the configured recipient's inbox correctly' cannot be verified with an in-process email stub; the stub verifies that send() was called, not that the email actually arrived, was parseable, contained the full report body, and was routed to the right address. LLM-DEP: The report must include the generated narrative; a canned stub for the LLM would pass even if the pipeline drops the narrative before embedding it in the email. REJECTION of System: the pipeline contains a real non-deterministic LLM step whose output is load-bearing; System does not account for that.",
+      "test_description": "Using a real test mailbox (e.g., a disposable SMTP sandbox account), configure the script with real credentials for all three data sources (or staging equivalents) and the test mailbox as recipient. Execute the full scheduled script. Poll the test mailbox for up to 2 minutes. Assert that exactly one email arrives, that the subject matches the expected pattern, that the body contains the narrative section (non-empty, at least N characters), and that data from all three sources is referenced somewhere in the body.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.13,
+        "Agentic": 0.1,
+        "Workflow": 0.75
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior involves two distinct runs of the script ('this run' and 'next scheduled run'). Verifying that state persisted to a real file on disk on run 1 is correctly discovered and acted upon on run 2 requires executing the script as a real subprocess at least twice; in-process calls within a single test share process memory and cannot reproduce file-discovery or startup-path bugs that only appear when the process is freshly initialized. MULTI-STEP (non-agentic): The retry sequence spans two separate process invocations; the failure mode — saved file not found, retry path not reached, or file content corrupted — only appears when the full subprocess lifecycle is exercised. REJECTION of Integration: an in-process call shares global state with the test harness, masking initialization-path bugs in the retry logic that only fire when the process starts cold and discovers a pending file. REJECTION of Workflow: no LLM call is necessary to expose this failure; a deterministic stub for the report body is sufficient because the failure is in the persistence/retry plumbing, not in generation quality.",
+      "test_description": "Invoke the script as a subprocess with the SMTP endpoint pointed at an address that actively refuses connections. Assert that the subprocess exits cleanly (exit code 0) and that a report file exists in the configured fallback directory. Then invoke the script a second time as a fresh subprocess, this time with a functional stub SMTP server. Assert that the stub SMTP server receives exactly one delivery attempt whose body matches the content of the previously saved file, and that the fallback file is removed or marked delivered afterward.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.2,
+        "System": 0.62,
+        "Agentic": 0.08,
+        "Workflow": 0.06
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Request with mismatched signature is rejected with 401; body not forwarded.",
+      "minimum_level": "Unit",
+      "justification": "The failure is entirely within a single handler function: compute HMAC of raw body, compare with header, return 401 and skip enqueue. In Node.js this can be exercised with a mock req/res and a spy on the queue—no real HTTP server or module handoff is needed. The 'not forwarded' assertion is captured by verifying the queue spy was never called.",
+      "test_description": "Call the handler function directly with a mock req (body + wrong X-Signature-256 header, correct secret in config) and mock res. Assert res.status was called with 401, and the queue enqueue spy was never invoked. Also test the inverse (correct signature) passes through.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is written to the persistent queue before HTTP 200 is returned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS applies: the ordering guarantee only matters at the boundary between the async queue write and the HTTP response path. A unit test with a synchronous mock queue trivially passes regardless of actual ordering. You need the real async queue module (or a real async test double that resolves on its own tick) wired to the handler to observe that res.send() is not called until after enqueue() resolves.",
+      "test_description": "Wire the handler with the real (or locally running) persistent queue. Instrument queue.enqueue to record its completion timestamp and override res.send to record when the response is sent. Send a valid signed request via supertest and assert that the enqueue completion timestamp precedes the response send timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream processing to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure only surfaces when the downstream processor is a real async unit that can be observed to still be running after the response is sent. A unit test where the downstream is a synchronous mock cannot distinguish fire-and-forget from blocking await. You need the handler wired with a controllable async downstream (e.g., a promise held open) to verify the response arrives before downstream completes.",
+      "test_description": "Register a downstream processor that holds a deferred promise open for 2 seconds. Send a valid request via supertest, record the response time, then let the deferred resolve. Assert the response was received before the deferred resolved, confirming the handler did not await downstream.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock time even under concurrent load with slow downstream.",
+      "minimum_level": "Integration",
+      "justification": "REAL-INFRA check: the 3-second wall-clock constraint under concurrency requires real async scheduling, but Node.js in-process HTTP (supertest with a real listen port) provides genuine concurrent connection handling without needing an external server process. A slow downstream can be simulated with a long-lived deferred. The timer assertion must use real wall-clock time, making this Integration rather than Unit, but no OS subprocess or external network is strictly required.",
+      "test_description": "Start the handler app on a real in-process port. Configure downstream to delay 10 seconds. Fire 5 concurrent requests (Promise.all over 5 supertest calls) with valid signatures. Assert that all responses complete in under 3 seconds wall-clock (Date.now delta), regardless of the still-pending downstream tasks.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.45,
+        "System": 0.45,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: deduplication requires coordination between the ID-seen store and the queue write path. If both are mocked independently, you cannot catch a race condition or a missing check. The idempotency failure only appears when the real dedup store (in-memory map, Redis, or DB) is wired to the handler so that a second request with the same event ID is checked against actual stored state.",
+      "test_description": "Send two valid signed requests with identical event IDs through the handler (with a real or local dedup store and queue). Assert that queue.enqueue was called exactly once across both requests, and the second request returns 200 (acknowledged) without re-enqueuing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the handler must correctly translate a 'queue full' error from the queue module into a 503 + Retry-After response. While the queue itself can be stubbed to throw a capacity error, the interaction between the queue module's error contract and the handler's error-handling branch is a module boundary. A pure unit test with a trivially rejecting mock is sufficient only if the error type/contract is stable; using the real queue (or a realistic stub with matching error shape) ensures the error contract is honored.",
+      "test_description": "Configure the queue to be at capacity (or stub enqueue to throw the queue-full error with the real error shape). Send a valid signed request via supertest. Assert response status is 503 and the Retry-After header is present with a positive integer value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue enforces its configured capacity limit and rejects events that exceed it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this behavior tests the queue implementation itself, not the handler. The queue is 'persistent,' meaning it relies on a backing store (file, embedded DB, or similar). The capacity enforcement involves the queue's internal size-tracking against its actual stored state. A unit test of a size counter variable would miss bugs where the count diverges from backing-store reality. The real queue module must be exercised with its persistence layer to verify the rejection.",
+      "test_description": "Instantiate the persistent queue with capacity=3 against a local backing store. Enqueue 3 events successfully. Attempt a 4th enqueue and assert it throws (or returns) a capacity-exceeded error. Optionally verify the backing store still contains exactly 3 items.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

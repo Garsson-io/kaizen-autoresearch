@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Speech-to-text output preserves speaker labels so the summary can attribute statements to specific attendees.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the hand-off between the STT response parser and the LLM prompt builder. A bug that strips or ignores speaker-label fields in the STT payload before constructing the LLM prompt cannot be caught by testing either module in isolation — it requires wiring both together. Down-test: if label extraction lived in a single pure function with a predictable contract, Unit would suffice; but the attribution goal spans at least STT parsing and prompt assembly. Up-test: no real OS/network or LLM non-determinism is needed — a crafted STT response with speaker labels fed into the real (or lightly wired) pipeline modules is enough to observe whether labels reach the prompt. Integration survives both checks.",
+      "test_description": "Inject a mock STT client that returns a deterministic diarized transcript (e.g., [{\"speaker\": \"Alice\", \"text\": \"...\"}, {\"speaker\": \"Bob\", \"text\": \"...\"}]). Wire it through the real STT-response parser and LLM prompt-builder. Capture the prompt string passed to the (mocked) LLM client and assert that each speaker label appears in the prompt text. This catches any pipeline stage that silently drops speaker metadata.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.5,
+        "System": 0.08,
+        "Agentic": 0.08,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "Completeness of action-item extraction depends entirely on what the real LLM produces. A mocked LLM response can be hand-crafted to always include every action item, making any test trivially pass regardless of whether the prompt design, model, or temperature setting would actually cause omissions at runtime. Correctness here is 'does this model, with this prompt, reliably identify and attribute task assignments?' — a quality claim that only a real model call can falsify. Running 100 times with different transcripts could yield different extraction results, confirming LLM-DEP applies.",
+      "test_description": "Construct a realistic multi-speaker transcript containing three named attendees each explicitly assigned at least one task. Feed it through the real summarization module using the real LLM API. Assert that the returned structured summary's action_items list contains at least one item attributed to each attendee by name. Run the test with a fixed-seed or low-temperature setting if the API supports it to reduce non-determinism, and mark the test as flaky-tolerant for CI.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.72,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "The routing of a statement to 'decisions' versus 'narrative' is a classification act performed by the LLM. A mocked LLM response pre-populated with decisions in the right section says nothing about whether the real model will classify correctly. The failure mode — a decision misclassified as narrative — is only observable when a real model scores the content. LLM-DEP applies: the same prompt plus the same transcript could produce different section placements across runs with a non-deterministic model.",
+      "test_description": "Craft a transcript that contains two unambiguous decision phrases (e.g., 'We have decided to migrate to the new platform' and 'The team agreed to discontinue feature X') alongside filler discussion. Run the real summarization module against the real LLM. Assert that both decision phrases (or their key nouns/verbs) appear in the decisions field of the structured output and are absent from the narrative field. Use a low-temperature setting to reduce variance.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.03,
+        "Agentic": 0.75,
+        "Workflow": 0.13
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior mandates multiple sequential LLM calls — one summarization per segment — followed by a coherence-preserving merge that itself likely involves another LLM call. MULTI-STEP applies: the merge's 'coherence' is an LLM quality claim (Agentic minimum) produced only after prior segment summaries exist (requiring the prior steps to have completed). No single LLM call is sufficient; the multi-step sequential dependency makes this Workflow. An Integration test with all LLM calls mocked would verify splitting wiring but cannot detect a merge that loses cross-segment continuity or duplicates action items.",
+      "test_description": "Provide a synthetic audio file (or a mocked audio loader) that the segmentation logic deterministically splits into three segments. Run the full segmentation → per-segment transcription (mocked STT) → per-segment LLM summarization (real LLM) → merge (real LLM) pipeline. Assert: (a) the merged output contains action items and decisions from all three segments, (b) no duplicate action items appear, and (c) the output is a single structured document rather than a list of per-segment outputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.1,
+        "System": 0.05,
+        "Agentic": 0.18,
+        "Workflow": 0.6
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "Every qualifying condition for Workflow is met: real audio upload involves OS/network (System), transcription hits a real speech-to-text API (System), summarization calls a real LLM (Agentic), and the full sequence is a multi-step agentic pipeline (Workflow). No in-process fake can reproduce the failure modes of a malformed upload, an STT API quota error mid-stream, or an LLM that returns malformed JSON on a long context. The behavior explicitly requires a 'real meeting recording', ruling out mocks at any stage.",
+      "test_description": "Using a pre-recorded audio fixture (e.g., a 10-minute WAV of a scripted meeting), invoke the full service pipeline end-to-end: upload the file, trigger transcription via the real STT API, pass the transcript to the real LLM summarizer, and receive the structured output. Assert that the response is a valid structured document with non-empty decisions, action_items, and attendees fields, and that the pipeline completes without raising an exception or requiring a manual retry. Run in a dedicated integration environment with real API credentials.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

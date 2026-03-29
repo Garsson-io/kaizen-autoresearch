@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Transitive dependency resolution requires at least a manifest parser and a lockfile/dependency-graph resolver module working together — the failure (missing transitive deps) only surfaces when these modules hand off data between them. REAL-INFRA: A fixture manifest + lockfile on a fake filesystem is sufficient; no real subprocess is needed unless the design shells out to npm/pip for resolution. If a subprocess is used, System would be required, but lockfile parsing is the common design and does not require real OS process execution. REJECTION-GATE for System: the behavior says 'reads a project's dependency manifest', implying static analysis of files, not live subprocess resolution — no concrete evidence that real subprocess behavior is the failure boundary.",
+      "test_description": "Given a fixture package.json (or requirements.txt) paired with a realistic lockfile (package-lock.json / poetry.lock) containing both direct and transitive dependencies, invoke the dependency extractor with these files. Assert that the returned dependency list contains every transitive package and version present in the lockfile, not just the top-level entries in the manifest.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.3,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — querying by package name only and ignoring version ranges — only manifests when the query-builder module and the HTTP client module are wired together and the response is then filtered/interpreted. A Unit test on the query-builder in isolation cannot confirm that the version constraint actually reaches the API call and that the response is filtered correctly. REAL-INFRA: A stubbed HTTP client (recording the outgoing request parameters) is sufficient to verify that version ranges are encoded in the query and that results outside the stated range are excluded. REJECTION-GATE for System: the real API's behavior on version-range parameters is not the failure boundary — a stub returning a plausible payload with both in-range and out-of-range CVEs can expose the bug.",
+      "test_description": "Wire the query-builder and HTTP client modules together with a stubbed HTTP server. Configure the stub to return a payload containing CVEs for the correct version range and CVEs for a different version range of the same package. Invoke the vulnerability check for a dependency with a pinned version. Assert (a) the outgoing request includes version range parameters, and (b) only CVEs whose affected range overlaps the manifest version are present in the result.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.58,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely inside a single comparator/sort function. No module boundary is crossed — this is a pure ordering algorithm over a list of CVE objects. REAL-INFRA: No I/O, no subprocess, no network. LLM-DEP: none. REJECTION-GATE for Integration: there is no inter-module data handoff whose failure mode explains a wrong sort order; the bug is fully reproducible by calling the sort function with a list of fixture CVE objects.",
+      "test_description": "Construct a list of CVE fixture objects covering all four severity levels, including ties at the same severity level with differing CVSS scores. Call the sort function directly. Assert that the output order is: all Critical entries first (descending CVSS within Critical), then High (descending CVSS), then Medium (descending CVSS), then Low (descending CVSS).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure — corrupting or omitting other dependency entries during a version bump — is a pure string/AST transformation bug in a single manifest-writer function. No module boundary handoff is required to expose it. REAL-INFRA: The function can be tested with an in-memory string input → string output comparison; no real filesystem I/O is necessary. REJECTION-GATE for Integration: the behavior does not describe a failure that arises from two modules exchanging state; it is purely about the correctness of a transformation applied to a manifest document.",
+      "test_description": "Pass a multi-entry manifest string (JSON or plaintext) with several dependencies to the manifest-modifier function, specifying one target dependency and a new version. Assert that the returned manifest content differs from the input in exactly one location (the target dependency's version field), and that every other dependency name and version is byte-for-byte identical to the original.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly concerns the real repository and the resulting PR. The failure modes include: API authentication, correct construction of the git diff against the real branch head, PR creation API response handling, and the diff containing exactly one changed line. An in-process HTTP mock cannot verify that the diff is computed correctly from the real repo state, that the real API accepts the request, or that the real branch's HEAD is correctly referenced. REJECTION-GATE for Integration: 'on the real repository' is concrete disqualifying evidence for any level below System — a mock git/GitHub client hides real diff-construction and API interaction failures.",
+      "test_description": "In a real (or sandboxed test) repository with a known dependency manifest checked in, run the full PR-creation pipeline against the real VCS API (or a locally hosted git server). After execution, fetch the created PR via the API and assert: (a) exactly one file is changed, (b) the diff modifies exactly one dependency entry, and (c) no other manifest entries are altered.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.1,
+        "System": 0.83,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Semver comparison is a pure function — it takes two version strings and returns a classification. The failure lives entirely within this one function's logic. REAL-INFRA: None. LLM-DEP: None. REJECTION-GATE for Integration: there is no module handoff whose failure mode explains misclassifying a major bump; the bug is fully exercised by calling the semver comparator with version pairs.",
+      "test_description": "Parametrize a unit test with version pairs covering: major bump (e.g., 1.2.3 → 2.0.0), minor bump (1.2.3 → 1.3.0), patch bump (1.2.3 → 1.2.4), and pre-release edge cases. For each pair, call the breaking-change classifier and assert that only major bumps return the breaking-change result.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — PR creation proceeding despite a detected breaking change, or the flag being absent from the output — only appears when the breaking-change detector, the PR-creation gate, and the report-formatter modules are wired together. A Unit test on any one module in isolation cannot reveal that the gate condition is not actually checked before calling the PR creator. REAL-INFRA: No real VCS API call is needed; a spy/stub on the PR-creation module is sufficient to confirm it is never invoked. REJECTION-GATE for System: the failure does not depend on real git or API behavior — it is a control-flow bug detectable with in-process module wiring and a stubbed PR client.",
+      "test_description": "Wire the scanner pipeline (breaking-change detector + PR-creation gate + output formatter) together. Inject a stubbed PR client that records whether it was called. Trigger the pipeline with a dependency upgrade that constitutes a major version bump. Assert: (a) the stubbed PR client's create method was never called, and (b) the scanner output object contains a review flag identifying the dependency as a breaking change requiring manual review.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.7,
+        "System": 0.17,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

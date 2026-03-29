@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely in the backoff-calculation algorithm — wrong exponent, off-by-one on attempt count, or failure to clamp at the ceiling. None of those bugs require module interaction; they live in a single function. REAL-INFRA: Actual sleeping/timers are irrelevant; only the computed delay values are under test. A pure function call with controlled inputs catches every failure here. MOCK-HIDE: No dependency needs mocking — just call the calculator with attempt index 0, 1, 2, …, N and assert the output sequence. INTEGRATION-BRAKE: (a) No OS/network. (b) No ML. (c) No agentic chain. REJECTION-GATE: Integration would require a module-boundary hand-off; the behavior text describes a calculation rule with no mention of cross-module state.",
+      "test_description": "Instantiate the backoff calculator (or call the delay-computation function) directly with a base delay and a configured max. Drive it through attempt indices 0..N+1 and assert: each successive value equals the previous value doubled until the cap is reached, and all values at or beyond the cap equal exactly the configured maximum. No I/O, no stubs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: 'Identifies a rate-limit response' means parsing a response object (e.g., status 429, Retry-After header). 'Computes the appropriate wait time' is arithmetic on that parsed value. Both are deterministic transformations of a data structure — no module-boundary handoff is needed for the bug to surface. REAL-INFRA: A fabricated response object (plain struct/dict literal) is sufficient; no real HTTP stack is involved in the classification decision. MOCK-HIDE: No dependency requires mocking; pass in a constructed response value and assert the returned wait duration. INTEGRATION-BRAKE: (a) No. (b) No. (c) No. REJECTION-GATE: The behavior names parsing + calculation logic, not a cross-module state transition. Integration would only be warranted if identification and computation were in separate modules that must hand off state — the behavior text does not imply that.",
+      "test_description": "Call the response-classifier / wait-time-calculator directly with synthetic response objects: a 429 with a Retry-After header, a 429 without (falling back to backoff), and a 200. Assert: 200 is not flagged as rate-limited; 429 is flagged; the computed wait equals the Retry-After value when present and the exponential-backoff value when absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure modes here — mutated request on retry, swallowed response body, wrong promise resolution — only surface when the retry orchestrator is wired to the HTTP adapter and the result-propagation path. A unit test of any single module cannot observe whether the reconstituted request is byte-identical or whether the caller's awaited value is the retry's response rather than the original attempt's. REAL-INFRA: A stub HTTP client that records incoming requests and returns a scripted sequence (429 then 200) is sufficient. No real network is needed because the bug is in the in-process wiring, not in transport behavior. MOCK-HIDE: If the HTTP client were fully mocked at the unit level, there would be no way to assert that the request sent on retry matched the original. INTEGRATION-BRAKE: (a) In-process stub catches the wiring failure — no real OS/network needed. (b) No ML. (c) No agentic chain. REJECTION-GATE: System is not required because a stub HTTP client faithfully reproduces the request-capture and response-injection needed to observe the failure.",
+      "test_description": "Wire the `call()` client with a stub HTTP adapter. Program the stub to return 429 on the first invocation and 200 with a known body on the second. Invoke `call()` once. Assert: the stub was called exactly twice; both calls received structurally identical request parameters (URL, method, headers, body); the resolved value equals the stub's 200 response body.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — returning a plain Error or rejecting with an untyped value — only manifests when the retry counter reaches the configured max and the error-construction path is executed. That path spans the retry orchestrator, the counter check, and the error-wrapping module. A unit test of just the error constructor cannot catch a bug where the orchestrator never reaches the branch or passes the wrong value. REAL-INFRA: A stub that always returns 429 is sufficient; no real HTTP. MOCK-HIDE: Mocking the retry module away at unit level would never exercise the counter-to-error handoff. INTEGRATION-BRAKE: (a) No. (b) No. (c) No. REJECTION-GATE: There is no indication that error type correctness depends on real transport or ML output.",
+      "test_description": "Configure the client with maxRetries=2 and wire it to a stub that always returns 429. Await `call()`. Assert: the promise rejects; the rejection value is an instance of `QuotaExhaustedError`; it is not a subclass or alias of the generic Error in a way that loses type information; the stub was called exactly 3 times (1 initial + 2 retries).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.76,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: An infinite-loop bug only becomes observable when all three subsystems — the HTTP call site, the backoff scheduler, and the quota tracker — are wired together and run. No single module tested in isolation can exhibit the infinite-loop failure mode. REAL-INFRA: The loop-termination property depends on in-process state transitions, not on OS/network behavior. A stub that always returns 429 is sufficient to drive the full chain. Use a fake timer (e.g., vi.useFakeTimers or fake clock) to make the test fast without hiding the termination logic. MOCK-HIDE: If any of the three named subsystems were mocked away, the test could pass without verifying that they hand off control correctly. INTEGRATION-BRAKE: (a) Fake clock replaces real sleep — no OS needed. (b) No ML. (c) No agentic steps. REJECTION-GATE: System would be required only if real timer/OS behavior were needed; a fake clock reproduces the relevant failure surface.",
+      "test_description": "Configure the client with maxRetries=3 and a fake clock. Wire a stub that always returns 429. Wrap `call()` in a Promise.race with a short absolute deadline. Advance the fake clock through all backoff intervals. Assert: the race resolves via `call()` (not the deadline), the rejection is `QuotaExhaustedError`, and the stub was called exactly 4 times with no further invocations after resolution.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.85,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — each caller creating its own independent quota tracker instead of sharing one — is invisible unless the quota module is wired to multiple concurrent callers and the shared-state invariant can be observed. A unit test of the quota tracker alone cannot reveal that the wiring code instantiates it multiple times. REAL-INFRA: TypeScript/Node.js async concurrency is event-loop-based and fully in-process. A stub HTTP adapter that counts total cross-caller invocations against a shared counter reproduces the exact failure surface. No OS threads or real network are involved. MOCK-HIDE: If the quota tracker were mocked per-caller, the test would never detect the singleton-vs-per-instance bug. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No ML. (c) No agentic chain. REJECTION-GATE: System is not required because the shared-state bug is an in-process instantiation error, not a network or OS concurrency issue.",
+      "test_description": "Create a single shared client instance. Wire it with a stub that returns 429 for the first K calls (across all callers) and 200 thereafter. Concurrently invoke `call()` three times. Assert: the shared quota tracker's consumed-count reflects the total across all three callers (not three independent counts of the same value); once the shared limit is reached, all pending callers observe the QuotaExhaustedError rather than some receiving stale independent counts.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO ordering can only be observed when the queue module is wired to the dispatcher and both are driven with multiple concurrent submissions. A unit test of the queue data structure alone cannot catch a bug where the dispatcher reads from the wrong end, or where the async scheduler reorders tasks at the dispatch boundary. REAL-INFRA: A stub HTTP adapter that records the order of incoming calls is sufficient; real HTTP adds no relevant failure surface here. MOCK-HIDE: Mocking the dispatcher would bypass the ordering guarantee at the exact boundary where mis-ordering would occur. INTEGRATION-BRAKE: (a) No OS/network. (b) No ML. (c) No agentic steps. REJECTION-GATE: Unit is insufficient because the ordering invariant is a property of the queue-dispatcher handoff, not of either module's internal logic alone.",
+      "test_description": "Hold the stub HTTP adapter in a 'paused' state (simulating rate-limit backoff). Submit three `call()` requests with distinct identifiers in order A, B, C. Release the stub. Assert: the stub received requests in the order A, B, C; the resolved values propagate back to the correct original callers in the same order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

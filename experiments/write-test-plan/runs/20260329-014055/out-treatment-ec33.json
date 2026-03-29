@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "The bug appeared because the summary writer never consulted the findings store — a missing cross-module call, not a logic error inside one function. Reproducing it requires both the summary-storage module and the findings-store module to be wired together: seed FAIL findings in the store, then invoke the summary-storage path with a PASS verdict and verify rejection. Mocking the findings store away would hide the exact failure mode. No real LLM, OS, or external network is needed; in-process module wiring is sufficient.",
+      "test_description": "Pre-populate the findings store for round R1 with one dimension carrying a FAIL verdict. Call the summary-storage function with verdict=PASS for the same round. Assert that the call is rejected (raises a validation error or returns a failure status). Then store all dimensions as PASS and assert the summary is accepted, confirming the constraint is enforced precisely.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "The failure is architectural: the gate consumed summary text as its truth source instead of stored findings, so the specific failure only surfaces when both the findings store (holding FAIL) and the gate (reading from somewhere) are wired together with contradictory data. A unit test that passes crafted arguments to a single gate function does not verify which source the gate actually reads in context. The gate must be wired to the real findings store, not a mock, for the test to distinguish 'reads summary text' from 'reads findings store'. No real LLM or OS call is required.",
+      "test_description": "Seed the findings store with a FAIL verdict for dimension D1. Separately construct a summary-text string claiming PASS for all dimensions. Invoke the stop-gate against round R1 with that summary text available. Assert the gate returns FAIL, proving it sourced its verdict from the findings store rather than the summary string.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.67,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "Two modules must cooperate: the override-flag guard (which blocks or permits the call) and the audit/warning recorder (which emits the record). The flag check alone could be Unit, but the requirement to emit an auditable warning record means the override handler must be wired to the audit-logging subsystem. Testing only one side would miss a failure in the other. No real I/O, LLM, or OS subprocess is needed; in-process wiring of the two modules is sufficient.",
+      "test_description": "Call the manual-summary-override path without the override flag set; assert the call is rejected. Then call it again with the flag present; assert the call succeeds. After the second call, query the audit log and assert exactly one warning record exists that references the round ID and identifies it as a manual override.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is that the loop's state machine does not track 'has a new review-agent invocation occurred since the last fix commit?'. Reproducing it requires the loop module to be wired to its state tracker (which records fix events and review-round events) and a stub review agent. The control-flow constraint — block finalization unless the review-agent was called after the fix — is deterministic given the right state, so no real LLM is needed; a stub that records whether it was called is sufficient to prove the loop enforces the re-execution requirement.",
+      "test_description": "Drive the loop to a state where Phase 4 has recorded a fix commit but no subsequent review-agent call has been made. Attempt to finalize the round with verdict PASS. Assert the loop blocks finalization. Then invoke the stub review-agent (marking a fresh round), and assert finalization now succeeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.18,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary spans the round-counter module, the findings store (queried to detect unresolved MUST-FIX items), and the outcome emitter. None of these is a single function: the flow must read state from the store, check the counter, and write the escalation outcome. Mocking any of those would hide the cross-module wiring gap. No real LLM or OS behavior is required; in-process wiring with a local in-memory store is sufficient to reproduce the failure.",
+      "test_description": "Configure the loop with a max-rounds limit of 3. Plant a MUST-FIX finding in the findings store that is never resolved. Drive the loop through all 3 rounds using a stub review agent that always returns the same FAIL result. Assert that after the third round, the returned outcome is ESCALATION (not PASS or FAIL) and that no additional rounds are attempted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

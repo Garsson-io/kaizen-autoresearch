@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Review input is scoped to changed lines only, not full file content",
+      "minimum_level": "Unit",
+      "justification": "The failure mode is purely algorithmic: the diff-parsing function either extracts only `+`/`-` lines (and their hunk positions) or it leaks unchanged context lines or full-file content. This is one function's parsing logic with no I/O, no cross-module handoff required to expose the bug, and no LLM dependency. A mock diff string is sufficient.",
+      "test_description": "Feed a synthetic GitHub diff patch string — containing one or more hunks with added lines, removed lines, and unchanged context lines — into the function that extracts the reviewable input. Assert that the returned content includes only the changed lines (additions/deletions) and their hunk-relative positions, and contains none of the unchanged context lines or any line from outside the diff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct diff positions",
+      "minimum_level": "Integration",
+      "justification": "The position calculation (counting lines from hunk headers to produce GitHub diff-position integers) is local logic, but the real failure boundary is whether the position value flows correctly from the diff parser through to the API client payload. A bug might live in the handoff — e.g., the parser emits 1-indexed positions but the comment builder treats them as 0-indexed, or the wrong hunk offset accumulates across multiple hunks. That inter-module data handoff makes Unit insufficient; the modules must be wired together. No real HTTP or LLM call is needed — mock the GitHub API endpoint and inspect the posted payload.",
+      "test_description": "Wire the diff-parsing module, the findings-to-position mapper, and the GitHub API client together using a stubbed HTTP layer. Provide a multi-hunk diff with known structure and a set of pre-computed findings referencing specific file+line combinations. Assert that the position field in each captured API request matches the expected diff-line offset calculated manually from the hunk headers — covering both single-hunk and multi-hunk cases where offset accumulation could go wrong.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.52,
+        "System": 0.13,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Agent identifies at least one real defect in a PR containing a known introduced bug",
+      "minimum_level": "Agentic",
+      "justification": "Correctness of this behavior depends entirely on what the real LLM produces. A mocked LLM always returns a canned response and will trivially pass; the failure mode — the model missing the bug — only manifests with a real model call. Detection quality (recall of a specific defect) varies across runs and model versions. This is the definition of LLM-DEP: running the test 100 times with the real model could yield different outcomes.",
+      "test_description": "Construct a diff that introduces a known, deliberate bug (e.g., an off-by-one index error or a missing None check before attribute access). Pass this diff to the agent's analysis step using the real LLM. Assert that at least one returned finding references the file and approximate line range of the introduced bug, or uses a category term that correctly describes the defect class. Run with a fixed seed or temperature=0 where the API supports it to reduce variance, but do not mock the model.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.82,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding in the top-level summary has a matching inline comment — no orphaned summary entries",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is a consistency invariant broken at the handoff between two modules: the inline-comment posting module and the summary-generation module must operate on the same finding set. A bug could cause the summary to be generated from an earlier, unfiltered list while posted inline comments come from a filtered one (e.g., after skipping comments that failed to post). That divergence is invisible in either module tested alone; both modules must be wired together with a shared findings list to expose it. No real LLM or network call is needed — inject a fixed, deterministic findings list.",
+      "test_description": "Inject a fixed list of N findings (using real model instances, not dicts) into the integrated pipeline that runs the inline-comment poster and the summary-comment generator with a stubbed GitHub API. Capture all API calls. Assert that (a) exactly N inline comment requests were made, one per finding, and (b) the summary comment body references exactly those N finding identifiers — no finding appears in the summary whose corresponding inline comment was not among the captured requests. Include a scenario where one inline post is configured to fail, and assert the summary omits that entry.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full sequence — diff read, inline comments, summary comment — completes on a real PR without manual intervention",
+      "minimum_level": "Workflow",
+      "justification": "This behavior explicitly requires multiple agentic steps in sequence (GitHub diff retrieval → real LLM analysis → inline comment posting → summary comment posting) against a real pull request. Each step depends on the previous step's real output. Mocking any of these collapses the test to a lower level; real GitHub API calls are needed to verify auth, rate limits, and API format; a real LLM call is needed for the analysis step; and the sequential dependency across steps makes this Workflow rather than just Agentic.",
+      "test_description": "Create or designate a real test GitHub pull request with known content and at least one deliberately introduced defect. Run the full automation end-to-end against that PR with the real LLM and real GitHub credentials. After completion, query the GitHub API to assert that (a) at least one inline review comment exists on the PR at a position within the changed lines, (b) a top-level PR comment exists containing a summary, and (c) the automation process exited cleanly with no unhandled exception or manual prompt. Tear down by deleting the test comments after the assertion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.14,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

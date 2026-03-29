@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the request-construction logic of a single module — does the code that builds the API payload include all taxonomy labels? This is not a module-boundary handoff failure; it is a single function's output correctness. REAL-INFRA: No OS or network needed. MOCK-HIDE: Mocking the API client and asserting on the captured call arguments is exactly how this failure surface is exposed — the mock does not hide it, it reveals it. LLM-DEP: None. REJECTION-GATE: Integration was considered but rejected because no cross-module handoff is required; the payload construction logic lives in one place and its output is fully observable by inspecting call arguments on a mock.",
+      "test_description": "Instantiate the classification module with a known taxonomy list. Mock the external API client. Call `classify(document)`. Assert that the mock was called with a payload (prompt or parameters) that contains every label from the taxonomy, and that no labels are absent or truncated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the response-normalisation logic of one module — a simple membership check followed by a fallback. REAL-INFRA: No. MOCK-HIDE: Configuring the API mock to return an out-of-taxonomy string (e.g., 'politics') directly exercises the exact guard code; the mock cannot make this test pass incorrectly. LLM-DEP: None — we supply the invalid label ourselves via the mock. REJECTION-GATE: Integration was considered but rejected because there is no second module involved in producing or consuming the bad label; the guard and the caller are both inside the same boundary.",
+      "test_description": "Mock the external API client to return a label string that is not present in the taxonomy (e.g., 'politics'). Call `classify(document)`. Assert the return value is exactly the string `\"unknown\"`, confirming the module never forwards the raw unexpected value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.01,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode of this behavior is non-determinism — repeated calls returning different labels. A mock will always return the same value regardless of what the real model would do, so a mocked test cannot fail on this behavior even when the behavior is broken. MOCK-HIDE: Yes — mocking hides both possible root causes: (a) missing caching that would otherwise expose LLM temperature variance, and (b) a non-zero temperature setting causing genuine label flips. LLM-DEP: Correctness depends on what a real LLM produces across multiple invocations. Running this 10 times against a live model with non-zero temperature or without caching can and does yield different labels — that is exactly the failure this behavior guards against. REAL-INFRA: No OS behavior needed beyond the API call. REJECTION-GATE: Integration was considered (if the module caches results), but the behavior says nothing about caching; any caching would itself be an implementation detail whose correctness requires real API calls to validate the cache-miss path.",
+      "test_description": "Using the real external classification API, call `classify(document)` for the same document string at least 5 times in succession. Assert that every returned label is identical. If the module is supposed to enforce determinism via temperature=0 or caching, also verify that the API is called with temperature=0 (or only called once if caching is implemented).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.07,
+        "Agentic": 0.72,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the token-counting/tokeniser library and the enforcement logic: the tokeniser must correctly count tokens for real-world text, and the module must enforce the limit before or after the call. Testing the enforcement logic alone (Unit) would not catch a mismatch between the local token estimate and what the API actually bills. REAL-INFRA: No OS or live HTTP required — a local tokeniser (e.g., tiktoken) is a library dependency, not a network call. MOCK-HIDE: Mocking the tokeniser would trivially pass; the real failure surfaces when the tokeniser and enforcement logic disagree on a document's length. LLM-DEP: Token counting is deterministic given a fixed prompt template and document; the output token count could vary if measured from a live response, but the controllable input-side budget is deterministic. REJECTION-GATE: Agentic was considered for output-token variance, but the behavior targets a 'per-call budget' — a pre-send constraint — making it deterministic enough to test at Integration without a live LLM.",
+      "test_description": "Wire the classification module with its real tokeniser dependency (e.g., tiktoken) and a configured token budget. Call `classify(document)` on a representative document. Capture the constructed API request payload and count the tokens in it using the same tokeniser. Assert the token count is at or below the configured budget. Also test a document that exceeds the budget and assert the module raises a budget-exceeded exception rather than sending an over-budget request.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.52,
+        "System": 0.14,
+        "Agentic": 0.11,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The entire failure is within the retry-handling logic of the classification module: does it catch the rate-limit signal and re-issue the request, or does it propagate the error? This is one module's control flow, not a multi-module handoff. REAL-INFRA: No. MOCK-HIDE: Configuring the API mock to raise a rate-limit error on the first call and succeed on the second directly exercises the retry path; the mock reveals the failure rather than concealing it. LLM-DEP: None — we control both the error and the success response via mocks. REJECTION-GATE: Integration was considered in case the retry logic lives in a separate middleware or decorator, but the behavior is about whether the module (as a unit) surfaces an error or returns a result — testable regardless of where the retry wiring lives by observing the module's return value.",
+      "test_description": "Configure the API mock to raise a rate-limit exception on the first call and return a valid taxonomy label on the second. Call `classify(document)`. Assert the return value is the valid label (not an exception or error sentinel). Additionally assert the mock was called exactly twice, confirming a retry occurred. Optionally verify that a sleep/wait was invoked between attempts using a mock on `time.sleep`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.21,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

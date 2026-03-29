@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Review input is scoped to changed lines only, not full file content.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the diff-parsing/scoping logic itself — a function that receives a raw diff and returns only the changed hunks. This is one algorithm boundary, no module handoff needed. REAL-INFRA: No OS or network. MOCK-HIDE: Testing the scoping function directly with a crafted multi-hunk diff (including unchanged context lines) catches the real failure. LLM-DEP: No LLM involved in scoping. INTEGRATION-CHECK (down-test): Calling the scoping function with a synthetic patch reproduces the failure entirely in-process.",
+      "test_description": "Feed a synthetic unified diff containing both changed hunks and surrounding unchanged context lines into the diff-scoping function. Assert that only lines flagged as additions or deletions are included in the returned review input, and no unchanged context lines appear in the output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct diff positions on the pull request.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the diff-position mapper and the API payload builder — a single function operating on a pre-parsed diff cannot surface this. The mapper must consume the parsed hunk offsets and emit the position integer that the GitHub Review Comments API expects; this handoff is where off-by-one errors appear. REAL-INFRA: No real network needed — the API call can be intercepted with a mock client. MOCK-HIDE: Mocking position calculation would hide real bugs; mocking only the HTTP transport still lets the wired modules produce a testable payload. INTEGRATION-CHECK (down-test): Cannot reproduce with one function alone; (up-test): no real GitHub API is required to verify the emitted position values.",
+      "test_description": "Wire the diff parser and comment-payload builder together with a stub HTTP client. Supply a multi-file diff where each file has multiple hunks and mixed context/changed lines. After running the comment-posting module, assert that each captured API request carries the exact position integer (per GitHub's diff-position counting rules) that corresponds to the targeted changed line — verified by replaying the diff hunk offsets independently.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.62,
+        "System": 0.16,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a PR containing a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Correctness depends entirely on what the real LLM produces. A deterministic stub that returns a fixed list of findings will always pass, hiding the actual failure mode — the model failing to recognize the bug. MOCK-HIDE: Any mock of the LLM trivially satisfies this behavior. Running the test 100 times with the real model can produce different outcomes (the model may or may not surface the bug). REAL-INFRA: No real PR or GitHub API is required — the diff can be supplied as a fixture. MULTI-STEP: A single LLM call for defect identification is sufficient; no multi-step chain needed.",
+      "test_description": "Construct a synthetic diff fixture that introduces a well-known, unambiguous bug (e.g., an off-by-one in a loop bound or an unchecked None dereference). Pass only the changed lines to the real LLM review call. Assert that the returned findings list contains at least one entry whose location overlaps the introduced bug line and whose description references the class of defect. Run multiple times and treat a consistent miss as a failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.86,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding in the top-level summary has a matching inline comment posted — no orphan summary findings.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the handoff between the findings collector, the inline-comment poster, and the summary generator. If findings are deduped or filtered at any stage, the mismatch only appears when these modules are wired together. REAL-INFRA: No OS or real network required. MOCK-HIDE: The LLM can be replaced with a deterministic stub that emits a fixed finding list; the structural invariant (every finding in summary has a posted inline comment) is verifiable without a real model. LLM-DEP: Correctness of the coordination logic does not depend on LLM non-determinism. INTEGRATION-CHECK: The failure requires the findings list to flow through both the inline-comment builder and the summary builder; calling either alone cannot surface the mismatch.",
+      "test_description": "Wire the full orchestration pipeline (findings aggregator → inline-comment poster → summary generator) with a stub LLM that returns a fixed multi-finding response and a stub HTTP client that records posted comments. After a run, collect the finding IDs embedded in posted inline comments and the finding IDs referenced in the summary comment. Assert that the two sets are equal — every summary finding has a corresponding inline comment and no inline-only findings are missing from the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.68,
+        "System": 0.09,
+        "Agentic": 0.06,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — diff read, inline comments, summary comment — completes end-to-end on a real PR without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: Requires real HTTP to the GitHub API (auth, rate limits, diff wire format, comment threading) and a live pull request that in-process fakes cannot replicate. LLM-DEP: The review step calls the real LLM whose output drives downstream posting steps. MULTI-STEP: Multiple distinct agentic steps execute in sequence — (1) fetch diff via GitHub API, (2) LLM analysis producing findings, (3) post inline comments via API, (4) post summary comment via API. A failure in any step's output changes whether subsequent steps can proceed. Both real infrastructure AND multiple real AI steps are required, satisfying Workflow.",
+      "test_description": "Point the agent at a real GitHub test-repository pull request that contains a pre-seeded, known bug. Run the full pipeline without any stubs. Assert: (a) the pipeline exits without error, (b) at least one inline review comment appears on the PR via the GitHub API, (c) a top-level PR comment exists containing a summary, and (d) every finding mentioned in the summary has a corresponding inline comment thread — all verified by re-querying the GitHub API after the run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.72
+      }
+    }
+  ]
+}

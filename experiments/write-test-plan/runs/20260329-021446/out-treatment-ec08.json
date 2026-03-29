@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The doubling-with-cap algorithm is pure local computation — no I/O, no module handoff. The failure mode (wrong delay sequence or cap ignored) lives entirely inside one function. REAL-INFRA: No OS/network needed; delays can be read from return values without sleeping. REJECTION-GATE: Integration would require the retry loop to be wired with an HTTP client, but the backoff schedule can be wrong even before any HTTP call is made — so Integration would over-test for this specific behavior.",
+      "test_description": "Instantiate the backoff calculator with a configured base interval and max cap. Drive it through a series of consecutive failure counts (0, 1, 2, 3, …) and assert that each computed delay is exactly double the previous until it equals the configured max, then stays there on subsequent calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Two concerns live in a single local boundary — response classification (is this a 429?) and wait-time derivation (read Retry-After header or fall back to computed backoff). Both are deterministic given a fake response object; no live module handoff is required. REAL-INFRA: A stub response struct/object with the right status code and headers is sufficient. REJECTION-GATE: Integration would be needed only if the failure mode requires the HTTP transport and the retry scheduler to hand state across a module boundary — but the behavior is about interpreting a response, not about end-to-end request flow.",
+      "test_description": "Construct a fake HTTP response with status 429 and a Retry-After header. Pass it directly to the rate-limit handler function. Assert it is classified as a rate-limit response and that the returned wait duration matches the header value. Then repeat with a 429 lacking the header and assert the fallback backoff interval is returned instead.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.21,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is at a module boundary: the retry orchestrator must (a) capture the original request, (b) invoke the wait mechanism, (c) hand the same request back to the HTTP transport, and (d) surface the new response to the caller. A unit test of any single piece cannot detect a bug where the request is mutated between retries or the retry loop discards the successful response. REAL-INFRA: An in-process fake HTTP transport (returning 429 then 200) is sufficient — real network is not needed to catch this class of bug. REJECTION-GATE: System level is not required because real HTTP timeout/latency behavior is not part of this behavior.",
+      "test_description": "Wire the client with a fake HTTP transport configured to return a 429 on the first call and a 200 with a known body on the second. Invoke `call()` once. Assert that the transport recorded exactly two calls with identical request parameters (method, URL, headers, body) and that the return value from `call()` matches the successful second response body — not the 429.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The typed error is the output of the full retry loop running to exhaustion. A unit test of error construction alone cannot catch a bug where the loop exits via a wrong code path and wraps the error in a generic type. The failure boundary is between the retry counter and the error-emission logic. REAL-INFRA: A fake transport always returning 429 is sufficient. REJECTION-GATE: System level not required — the error type is determined by in-process logic, not OS or real network behavior.",
+      "test_description": "Wire the client with a fake transport that always returns 429. Configure `maxRetries = 3`. Await `call()` and assert it rejects with an instance of `QuotaExhaustedError` (not `Error` or any other type). Also assert the transport was called exactly 4 times (1 initial + 3 retries).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Does not loop indefinitely' is a property of the interaction between the quota tracker, the retry counter, and the HTTP transport — not any one of them individually. A unit test of the retry counter cannot catch a bug where quota tracking resets the counter, causing infinite retries. REAL-INFRA: A fake transport + real in-process quota tracker wired together is sufficient. An in-process integration test with a hard call-count limit on the fake transport catches the indefinite-loop bug. REJECTION-GATE: Workflow not needed — no agentic steps; System not needed — indefinite looping is detectable in-process.",
+      "test_description": "Wire the client with a fake transport limited to a fixed call ceiling (e.g., 10 calls max; assertion fails if exceeded) that always returns 429, with quota tracking enabled. Set `maxRetries = 3`. Assert that `call()` terminates and throws `QuotaExhaustedError` after exactly 4 transport invocations, confirming the chain does not loop past the limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.82,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The shared-bucket property only manifests when multiple concurrent callers interact through the same quota object. A unit test of a single caller cannot reveal a bug where each caller holds its own private quota state. The failure boundary is the shared reference to the quota bucket across concurrent execution contexts. REAL-INFRA: In-process async concurrency (Promise.all / async tasks) with a fake HTTP transport is sufficient to expose race conditions or incorrect scoping of the quota instance. REJECTION-GATE: System level would be needed if the quota were enforced server-side or via a shared external store, but the behavior specifies same-process sharing, making in-process integration adequate.",
+      "test_description": "Construct a single client instance backed by a fake transport that counts calls and returns 429 when a shared counter exceeds a quota threshold. Fire N concurrent `call()` invocations with `Promise.all`. Assert that all callers see the quota exhaustion (i.e., the threshold is shared, not per-caller), and that the total transport call count reflects a single shared budget rather than N independent budgets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.76,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO dispatch order is an emergent property of the queue interacting with the async concurrency model and the HTTP transport. A unit test of the queue data structure alone cannot catch a bug where the async scheduler re-orders callbacks during dispatch. The failure boundary is between the queue and the transport invocation layer. REAL-INFRA: A fake transport that records the order of received requests is sufficient — real HTTP is not needed to detect ordering violations. REJECTION-GATE: System level not required; in-process concurrency can expose this class of ordering bug.",
+      "test_description": "Submit N requests sequentially to a client instance backed by a fake transport that blocks briefly before responding. Record the order in which the transport receives each request (by a unique tag on each request). Assert that the transport's received order matches the original submission order, confirming FIFO dispatch even when multiple requests are queued simultaneously.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.77,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

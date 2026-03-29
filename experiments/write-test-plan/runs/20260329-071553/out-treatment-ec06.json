@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Recursive directory watching is an OS-level capability with platform-specific behavior. On Linux, `fs.watch` does not natively propagate subdirectory events without a recursive flag or a library like chokidar. An in-process fake filesystem (e.g., memfs) does not replicate the OS event-propagation chain through directory inodes. The failure mode — the daemon silently ignores files in subdirectories — only appears when real OS inotify/FSEvents/ReadDirectoryChangesW events are generated. MOCK-MISS: Even if you stub the watcher interface, you'd be testing your own fake, not the actual recursive-watch configuration and its interaction with OS-event routing. REJECTION-GATE: No behavior text suggests the event routing is behind a mockable adapter; the failure is in watcher configuration against a real OS.",
+      "test_description": "Start the daemon against a real temporary root directory. Create a nested subdirectory tree (e.g., root/a/b/). Drop a file into root/a/b/file.txt using real filesystem writes. Assert the daemon's processing log records the file and the output directory contains the transformed result. Repeat with a file at root level to confirm both depths work.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.83,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely algorithmic — a map/set keyed on file path with a TTL or debounce window. This logic lives in one function or object and does not require module handoffs to fail. REAL-INFRA: The time window can be exercised with Jest fake timers, advancing the clock to just inside and just outside the configured window. No real OS, filesystem, or I/O is needed; the failure (second event within window not deduplicated, or a legitimately new event being suppressed) is reproducible with a synthetic event source. LLM-DEP: None. INTEGRATION-BRAKE: (a) No real OS/network needed — fake timers and a stub event emitter suffice. (b) No AI/ML output. (c) No multi-step agentic chain. REJECTION-GATE: The behavior explicitly names 'configurable time window,' which is a deterministic timer-based invariant fully controllable in-process.",
+      "test_description": "Instantiate the deduplication module in isolation. Using Jest fake timers, fire an event for path '/input/foo.txt', then fire a second event for the same path before the window expires; assert the processing callback is invoked exactly once. Advance fake time past the window and fire a third event; assert the callback is invoked again (a new window). Also verify with a different path inside the same window that both paths are processed independently.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.27,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The OS emits bursts of events (e.g., inotify on Linux can emit IN_CREATE + IN_CLOSE_WRITE + IN_MODIFY in quick succession for a single `cp` or `mv`). The exact count, ordering, and inter-event timing are OS- and tool-dependent and differ across Linux, macOS, and Windows. An in-process fake that simply fires two synthetic events tests the debounce logic in isolation, but it cannot reproduce the actual burst pattern that real writes generate — different patterns may slip through the dedup window in ways synthetic events don't reveal. MOCK-MISS: Behavior 2 already covers the dedup algorithm; this behavior's distinct value is verifying the algorithm holds under real OS event multiplicity. REJECTION-GATE: No behavior text indicates the event source is behind a stable, mockable adapter whose interface is already validated elsewhere; the failure boundary is between the OS event subsystem and the daemon's handler.",
+      "test_description": "Start the daemon against a real temporary directory. Write a file using a tool that is known to produce multiple OS events (e.g., `cp` on Linux). Capture all invocations of the transformation pipeline (e.g., via a spy on the processing function). Assert the transformation is invoked exactly once for that file path. Repeat with `echo 'data' > file` and via a streaming write to confirm the invariant holds across write strategies.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.12,
+        "System": 0.76,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: When a watched directory is removed, the OS invalidates the underlying watch handle (inotify watch descriptor, FSEvents stream, etc.). Re-establishing a watch on the recreated directory requires the daemon to detect the deletion, poll or listen for recreation, and register a new OS watch handle. None of this lifecycle — handle invalidation, recreation detection, re-registration — is reproducible with an in-process fake or stub; it is entirely governed by OS primitives. MOCK-MISS: The failure (daemon silently misses files after the directory is recreated) only surfaces when real OS watch handles are destroyed and reconstructed. REJECTION-GATE: There is no adapter boundary described in the behavior; the daemon is expected to survive real directory deletion and recreation, which is an inherently OS-level state transition.",
+      "test_description": "Start the daemon pointing at a real temporary watched directory. Remove the entire directory with `fs.rmdirSync` / `rm -rf`. Verify the daemon does not crash. Recreate the directory. Drop a new file into it. Assert the transformation pipeline is invoked for the new file and the output appears in the output directory, confirming the watch was re-established without restarting the process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.93,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Creation timestamp' means the value returned by `fs.stat().birthtimeMs` or `ctimeMs` from the OS. The accuracy and granularity of these values depend on the real filesystem (ext4, APFS, NTFS each differ). The ordering comparison logic itself is unit-testable, but the failure mode described — files with simultaneous arrival events being reordered by their OS-stamped creation time — requires the daemon's event handler to read real `stat` results and sort them correctly. A synthetic in-process test would either hardcode timestamps (testing only the comparator, already trivial) or require real files to exercise the stat-read → sort → dispatch pipeline. MOCK-MISS: The integration of stat I/O with the processing queue is where ordering bugs hide; mocking stat away collapses to a comparator unit test that cannot catch 'the daemon reads ctime instead of birthtime on Linux where birthtime may be zero.'",
+      "test_description": "Create several real files in the watched directory with known, distinct creation times (use sequential writes with small delays or backdated timestamps via `utimes`). Trigger simultaneous arrival events. Spy on the transformation pipeline entry point and record invocation order. Assert files are processed in ascending creation-timestamp order. Include a case where two files have identical timestamps to verify stable tie-breaking.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.18,
+        "System": 0.72,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Detecting write completion requires real OS-level mechanisms: polling `fs.stat` for size/mtime stability, attempting an exclusive file open, or watching for a CLOSE_WRITE inotify event. All of these interact with real OS file-lock state and real buffered-write behavior. An in-process fake cannot reproduce the race between an arrival event and an in-progress write because fake filesystems do not model partial-write visibility or OS-level file locks. The failure (processing a truncated or partially written file) only manifests when a real process holds the file open for writing while the daemon attempts to read it. MOCK-MISS: The write-completion polling loop and the file state it observes are inseparable from real OS I/O semantics. REJECTION-GATE: No part of the behavior text suggests the write-completion signal is abstracted behind a stable mockable interface.",
+      "test_description": "In a test process, open a file in the watched directory for writing but do not close it (simulate a slow writer using a stream with a deliberate delay). Assert the daemon has not yet invoked the transformation pipeline for that file. After a delay that exceeds the polling interval, close the file handle to complete the write. Assert the transformation pipeline is now invoked exactly once and receives the complete file content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.86,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

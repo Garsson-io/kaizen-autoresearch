@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "System",
+      "justification": "MOCK-HIDE: mocking the STT API to return pre-labeled output trivially passes, hiding whether the real API is configured to perform speaker diarization at all. The dominant failure mode is that the real STT service either does not return diarization data, or returns it in a format the code silently drops. An in-process fake cannot reproduce this because it would always supply labels exactly as written. Integration rejected: a module-boundary test with a mocked STT client only verifies that the code preserves labels it is handed—not that it ever receives them from the real service. Agentic/Workflow rejected: the behavior is scoped to the STT output layer, not LLM extraction quality, so non-deterministic LLM behavior is not the relevant failure boundary here.",
+      "test_description": "Submit a real multi-speaker audio recording to the STT API via the live service client; assert that the returned transcript object contains speaker-labeled segments (e.g., Speaker_0, Speaker_1 identifiers) and that none of those labels are stripped or collapsed before the transcript is handed to the summarizer.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.16,
+        "System": 0.58,
+        "Agentic": 0.16,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: correctness depends entirely on whether the real LLM correctly identifies every task assignment in the transcript and maps it to the right attendee. This is extraction and attribution quality—a claim about what the model produces, not about code logic. MOCK-HIDE: a mocked LLM returning a canned summary always passes regardless of transcript content, hiding any failure in model comprehension or prompt design. Integration rejected: wiring the summarizer module to a fake LLM proves only that the code routes output correctly, not that the model finds all task assignments. Workflow rejected: only one agentic step (summarization) is the failure boundary; no multi-step sequencing is required.",
+      "test_description": "Feed a controlled, real transcript containing clearly assigned tasks for N distinct named attendees (e.g., 'Alice, please draft the contract by Friday; Bob, schedule the follow-up') to the real LLM summarizer and assert that the action_items list in the returned summary contains exactly N entries, each attributed to the correct attendee name.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.78,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: the failure mode is that the model either does not recognize a statement as a decision or routes it to a narrative field instead of the decisions field. This is a classification quality claim that only a real LLM call can validate. MOCK-HIDE: a mocked LLM with a hardcoded response always places content in the right field, hiding any model misclassification. Integration rejected: in-process module wiring tests verify that the code reads from summary.decisions correctly, not that the real model populates it correctly. Workflow rejected: a single summarization call is the relevant failure boundary; multi-step sequencing is not required to surface this defect.",
+      "test_description": "Send a real transcript containing N explicit decision statements (e.g., 'We agreed to proceed with vendor X', 'The team decided to postpone the launch') to the live LLM summarizer and assert that each statement—or its semantic equivalent—appears in the decisions field of the structured output and is absent from any narrative or notes fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.79,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: this behavior requires multiple real agentic steps in sequence—at minimum one STT call per audio segment plus a final LLM merge call. The claimed outcome ('single coherent summary') is a quality assertion about the merge step's output, which only a real LLM can satisfy non-trivially. Integration rejected: mocking STT and LLM verifies split-and-stitch code logic but cannot confirm that the merged summary is coherent or that the real STT+LLM chain produces compatible outputs across segment boundaries. Agentic rejected: a single-step agentic test does not exercise the sequential segment processing and merge path, which is where the structural failure (duplicate sections, broken attribution chains, incoherent narrative across boundary) would manifest. System rejected: the failure boundary is the multi-step AI pipeline, not OS/network primitives.",
+      "test_description": "Submit a real audio file exceeding 60 minutes to the service; assert that the service internally produces at least 2 STT segment transcripts, invokes the LLM at least twice (once per segment or once for each segment plus one merge), and returns a single JSON summary document that contains no duplicate section keys, no empty sections, and at least one coherent action item or decision sourced from content in the second segment.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.06,
+        "Agentic": 0.17,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA + MULTI-STEP: this behavior explicitly names every stage of the pipeline (upload, transcribe, summarize, deliver) with a real recording, requiring real HTTP upload, a real STT API call, a real LLM call, and a real structured-output delivery. Any of these stages can fail independently, and the claim 'without manual intervention' means all must succeed in sequence. Integration rejected: in-process module wiring with mocked I/O cannot expose real API authentication failures, network timeouts, payload-size limits, or model refusals on real audio content. System rejected: the pipeline includes a real LLM summarization step whose output correctness depends on model behavior, elevating the requirement beyond System. Agentic rejected: the multi-step sequential nature (transcribe → summarize → deliver) satisfies the Workflow criterion directly.",
+      "test_description": "Upload a real, representative meeting recording (5–10 minutes) to the service's upload endpoint using a real HTTP client; poll or await the pipeline completion callback; assert that the final HTTP response contains a valid structured JSON summary with non-empty action_items, decisions, and attendee_attributions fields, and that no human confirmation step was required at any stage.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.06,
+        "Agentic": 0.08,
+        "Workflow": 0.83
+      }
+    }
+  ]
+}

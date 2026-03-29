@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to most recent 10 messages when full history exceeds context window",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The trimming algorithm operates on a plain list of messages — there is no module boundary involved; the failure appears entirely within a single function's logic. REAL-INFRA: No OS, network, subprocess, or filesystem required; the function takes a list and returns a list. MOCK-HIDE: Nothing to mock — pure algorithmic logic. LLM-DEP: No LLM output needed to verify that `history[-10:]` (or equivalent) is returned. MULTI-STEP: No. A unit test with a fabricated list of 15 messages is sufficient to catch an off-by-one, wrong-end-of-list, or no-trimming bug.",
+      "test_description": "Construct a history of 15 messages. Call the trim function directly. Assert the returned list has exactly 10 messages and that those 10 are the last (most recent) 10 from the original list. Also verify that a history of 9 messages is returned unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The failure mode is LLM output quality — a stub that always returns a canned answer would always pass, permanently hiding the case where the real model drifts off-topic or gives a boilerplate reply. Running this 100 times with a live model can produce different relevance outcomes; a stub cannot reproduce that variance. MOCK-HIDE: Any mocked LLM trivially passes because the test author controls what it returns. REJECTION-GATE: Nothing in the behavior text disqualifies Agentic — there is no deterministic routing or parsing step here; the failure lives in whether the model's generation is on-topic, which only a real model can reveal.",
+      "test_description": "Submit a specific, non-generic customer question (e.g., 'How do I reset my two-factor authentication?') along with a realistic conversation history to the live chatbot pipeline. Call the real LLM endpoint. Assert that the returned response contains topic-relevant content (e.g., references to authentication or account security) and does not consist solely of generic filler phrases. Run several times to capture non-determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior tests 'correctly identifies' — i.e., classification accuracy of the tone-checker. In a modern chatbot system, tone classification is itself an LLM call (the problem describes a 'tone-checking step' that 're-prompts the LLM'). A stub tone-checker trivially returns whatever value the test author pre-programs, so it cannot catch misclassifications from the real model. Running with a real LLM may yield inconsistent classifications across runs. MOCK-HIDE: Stubbing the tone-checker means the test never exercises whether the real model actually recognizes formal register. REJECTION-GATE: The behavior text does not describe a deterministic rule-based classifier (no mention of keyword lists or regex); absent disqualifying evidence, Agentic is retained.",
+      "test_description": "Construct a response using high-formality markers (honorifics, passive voice, complex sentence structure, deferential phrasing). Pass it through the real tone-check step with customer_tier=casual using a live LLM call. Assert that the tone-check flags the response as too formal and returns a regeneration trigger. Repeat with a clearly casual response and assert no regeneration is triggered.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Full exchange (user message, generated response, any regenerations) is persisted to database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the service layer and the persistence layer — wrong field mapping, missing regeneration records, or timestamp truncation only surface when both modules are wired together. A unit test of the service in isolation cannot catch a persistence bug. REAL-INFRA: An in-process fake/in-memory database is sufficient; the failure mode (missing records, wrong field values, incorrect timestamps) does not require a real remote DB or OS-level I/O. INTEGRATION-BRAKE: (a) No real OS/network required — in-memory DB catches schema and field-mapping bugs. (b) LLM output can be fully stubbed; what matters is that the service correctly writes whatever it received. (c) No chained agentic steps.",
+      "test_description": "Wire the chatbot service to an in-memory database. Stub the LLM to return a known initial response and a known regenerated response (simulating a tone-check retry). Invoke the full pipeline. Query the in-memory DB and assert: one exchange record exists; it contains the user message, the final response, and the regenerated draft; timestamps are present, non-null, and monotonically ordered (user message ≤ first generation ≤ regeneration).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.8,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a routing/state bug at the boundary between the tone-check module and the response-dispatch module — the wrong object propagates to the caller. This only surfaces when both modules are wired together. REAL-INFRA: The replacement logic is deterministic; we can fully control the scenario by stubbing the LLM (first call returns formal text, second returns acceptable text) and stubbing or configuring the tone-checker to flag the first. No real LLM needed to catch a state-management bug. MOCK-HIDE: Stubbing the LLM here does NOT hide the failure — the failure is that the service routes the wrong response object to the customer, and a stub gives full control to produce the triggering scenario. INTEGRATION-BRAKE: (a) No real OS/network. (b) Correctness of replacement is deterministic — we are not testing LLM quality, only which object propagates. (c) No chained agentic steps.",
+      "test_description": "Configure a stub LLM: first invocation returns a formally-worded response; second invocation returns a casual-appropriate response. Configure the tone-checker (or use a real one with a crafted formal input) to flag the first response as too formal. Invoke the pipeline end-to-end. Assert that (1) the value returned to the caller equals the second (regenerated) response, not the first; and (2) the first rejected draft does not appear anywhere in the object returned to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0.13,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

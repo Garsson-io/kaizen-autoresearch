@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is about LLM output quality — whether the model actually grounds its reply in the thread content. A mock LLM would return whatever hardcoded text you provide, always passing. LLM-DEP: Correctness is inherently non-deterministic and depends on real model output; running 100 times with a mocked LLM always passes, running 100 times with a real LLM may surface the failure. INTEGRATION-CHECK does not apply since unit or integration wiring is not the bottleneck — the failure lives inside the LLM generation step itself.",
+      "test_description": "Submit a real, multi-turn email thread containing named entities, dates, and specific requests to the live LLM reply generator. Assert that the returned draft contains references to at least N of those specific entities/points (e.g., by checking for key phrases present in the thread). Run with several structurally different threads to confirm grounding is not coincidental.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.82,
+        "Workflow": 0.09
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is whether the consistency checker correctly identifies semantic contradictions between draft claims and KB entries. LLM-DEP: Modern factual-consistency checks in LLM pipelines use an LLM (or ML model) as the judge; whether a claim 'contradicts' a KB entry is a semantic judgment, not a deterministic string comparison. A mocked checker would return whatever label you hardcode, hiding real failures. INTEGRATION-CHECK: Down-test possible only if the checker is purely algorithmic — but if the judge is a model, Integration is too low. The detection quality itself is the failure boundary.",
+      "test_description": "Construct a fixed draft containing at least one claim that clearly contradicts a KB entry (e.g., draft says 'Product X supports feature Y', KB says 'Product X does not support feature Y'). Run the live consistency checker against this (draft, KB) pair and assert a contradiction flag is raised for that specific claim. Also include a non-contradicting claim and assert it is NOT flagged, to confirm the checker discriminates rather than flagging everything.",
+      "plan_consistent": true,
+      "plan_consistent_note": "If the checker is implemented as purely deterministic NLP (no LLM call), Integration would suffice — verify by inspecting the implementation.",
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.02,
+        "Agentic": 0.67,
+        "Workflow": 0.09
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The core question is whether the LLM, when given an empty retrieval result, produces a disclaimer versus inventing facts. This is prompt-compliance behavior under a specific context; a mocked LLM would always return whatever you script, hiding failures where the real model ignores the disclaimer instruction. MOCK-MISS: The failure does not live at a module boundary — it lives inside the LLM's response to the empty-context prompt. INTEGRATION-CHECK: Wiring the KB retrieval to return empty is necessary setup, but the real failure mode only surfaces with a live model call.",
+      "test_description": "Configure the KB retrieval stub to return an empty result set for the test query. Invoke the full draft-generation step with a real LLM call using this empty retrieval context. Assert that the returned draft contains a disclaimer phrase (e.g., 'I don't have enough information' or similar) and does NOT contain specific factual assertions about the subject matter. Run several times to guard against non-determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.77,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the approval-state module and the send module — does the orchestrator correctly check approval status before dispatching? This is not about one function's logic in isolation; the bug would appear only if the approval gate is bypassed or the send module is called before approval state is consulted. REAL-INFRA: No real OS/network/subprocess needed; an in-process fake mailer/send stub is sufficient. LLM-DEP: No — the gate is deterministic control flow, not model output. INTEGRATION-CHECK: Down-test: you can call the orchestrator with an unapproved draft and a spy on the send adapter to confirm no dispatch. Up-test: real network or LLM not needed. Integration survives: cross-module wiring is the failure boundary, and in-process wiring is sufficient.",
+      "test_description": "Wire the approval state module, workflow orchestrator, and a spy/stub send adapter together in-process. Initialize a draft in 'pending approval' state. Invoke the orchestrator's send-or-wait decision point. Assert the send adapter is never called. Then explicitly mark the draft as approved and re-invoke; assert the send adapter is called exactly once. Use a real approval state store (in-memory or local) to catch any state-read/write mismatches.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly requires multiple sequential agentic steps: (1) parse/read thread, (2) LLM draft generation, (3) LLM/model-based consistency check, (4) approval gating. Each step's output feeds the next, and failures may only appear at handoff points between agentic steps (e.g., draft with wrong format breaks the consistency checker's extraction). LLM-DEP: At least two distinct LLM calls are in the critical path. Workflow is the minimum level because the failure modes of interest are emergent from the sequential composition, not reproducible by testing any single step in isolation.",
+      "test_description": "Feed a realistic email thread (multi-turn, containing specific facts and questions) into the live pipeline. Verify: (a) a draft is produced that references thread content, (b) the consistency check runs and returns a result (flagged or clean), (c) no send occurs before approval is granted, (d) after simulated user approval, the pipeline completes without error. Use real LLM calls for both generation and consistency steps. Assert pipeline stage transitions via observable state or event log, not just final output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.04,
+        "Agentic": 0.08,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is purely in the scoring model's threshold-lookup and scoring arithmetic — no cross-module handoff is required. The function takes a transaction and a rules config and produces a number; that logic is entirely self-contained. REAL-INFRA: No OS or network needed. LLM-DEP: Fully deterministic rule-based logic — running 100 times always gives the same answer. A unit test with crafted transaction inputs and a mock config object is sufficient to catch wrong score computation.",
+      "test_description": "Instantiate the scoring model with a config containing merchant-specific amount thresholds (e.g., groceries: $200, electronics: $500). Call score_transaction() with a crafted transaction whose amount exceeds the electronics threshold. Assert the returned numeric risk score matches the expected value derived from the configured rule. Repeat with a transaction below the threshold and assert a lower score is returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model correctly identifies a fraudulent pattern (rapid small purchases across geographies) even when no single scoring rule threshold is exceeded.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The risk model is explicitly an AI/ML prediction model that 'analyzes transaction context … to predict whether the transaction is fraudulent.' The behavior asks whether it classifies correctly — i.e., classification quality, not wiring. Mocking the risk model would trivially pass and hide model regressions. Running the real model on the crafted pattern 100 times could produce different fraud probabilities depending on model state, thresholds, or updates. MOCK-HIDE: Any stub that returns a fixed probability proves nothing about the model's actual ability to detect this pattern. The real model must be called to verify the behavior.",
+      "test_description": "Submit a sequence of real transactions to the live risk model: multiple small-amount purchases within a short window from geographically distant merchants, each individually below all scoring-rule thresholds. Assert that the risk model returns a fraud probability above the configured hold threshold. Run with a control sequence (same amounts, same geography) and assert the fraud probability is below threshold, confirming the model responds to the pattern rather than individual features.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in the scoring model correctly counts transactions within the configured time window per user.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the counting/filtering algorithm — is the time window boundary inclusive or exclusive, are transactions outside the window excluded, is the per-user filter applied correctly? These are algorithmic errors reproducible by calling the velocity-check function with a crafted list of timestamped transactions. REAL-INFRA: No OS or network needed. LLM-DEP: Fully deterministic. INTEGRATION-CHECK Down-test: the function can accept a pre-fetched transaction list as a parameter; the failure (wrong count) manifests when calling it with crafted inputs — no database wiring required to expose the bug.",
+      "test_description": "Call the velocity_check() function directly with a crafted list of transactions for a single user: some within the configured window, some just outside. Assert the returned count matches only the in-window transactions. Test edge cases: a transaction exactly at the window boundary, transactions interleaved from different users (assert counts are per-user). Vary the configured window duration and verify the count changes accordingly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.27,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged only by the risk model (not the scoring model) is still held for review — the two models act as an OR gate.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the combining/decision logic: does hold = scoring_flagged OR risk_flagged (correct) or hold = scoring_flagged AND risk_flagged (wrong)? This is a single boolean expression in one function. No cross-module data flow is needed to reproduce it — the combining function can be called with explicit flag arguments. REAL-INFRA: None. LLM-DEP: None. INTEGRATION-CHECK Down-test: calling decide_hold(scoring_flagged=False, risk_flagged=True) and asserting the result is True fully exercises and exposes the bug.",
+      "test_description": "Call the transaction hold-decision function with scoring_flagged=False and risk_flagged=True. Assert the returned decision is 'hold'. Also test the symmetric case: scoring_flagged=True, risk_flagged=False → 'hold'. Test scoring_flagged=False, risk_flagged=False → 'pass'. Confirm AND semantics would fail at least the (False, True) or (True, False) cases, making these the canonical regression guards.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, preserving which model flagged the transaction and why.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is not in any single function's output shape — it's that the orchestration pipeline might drop or fail to pass one model's output to the aggregation layer. A Unit test of the aggregator with hand-crafted inputs only proves the aggregator can format the data; it does not verify the pipeline actually delivers both models' outputs to it. INTEGRATION-CHECK: Down-test fails — calling aggregate_outputs(scoring_output, risk_output) with crafted args would always pass even if the pipeline discards risk_output before reaching the aggregator. Up-test: no real AI model or OS behavior needed; in-process wiring of both model modules through the orchestrator is sufficient to reproduce the failure. Integration survives both checks.",
+      "test_description": "Wire the scoring model module and risk model module together through the real orchestrator (using lightweight fakes or stubs for each model that return fixed, distinguishable values). Submit a single crafted transaction. Assert the combined output object contains: (a) a 'risk_score' field with the value returned by the scoring model stub, (b) a 'fraud_probability' field with the value returned by the risk model stub, and (c) a 'flagged_by' field (or equivalent) that identifies which model(s) triggered the hold. Verify neither field is None or missing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.71,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

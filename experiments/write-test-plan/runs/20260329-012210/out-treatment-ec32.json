@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-32",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A static prompt-template lint check rejects phase-specific instruction leakage copied from SKILL.md.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a single function or regex rule scanning a template string for forbidden patterns — no module handoff is involved. REAL-INFRA: No OS, network, or subprocess needed; the template text can be loaded as a string fixture. LLM-DEP: No model call; correctness is deterministic. The check either matches the forbidden pattern or it doesn't.",
+      "test_description": "Load the prompt template as a string fixture. Apply the lint rule (regex or AST pattern) that detects phase-instruction syntax copied from SKILL.md (e.g., 'Phase N:', 'Instruction:', bullet lists of directives). Assert the rule raises a violation on a template that contains such leakage and passes cleanly on a clean template.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The fully assembled prompt produced by the real test harness (after interpolation/fixtures) still contains no phase-instruction leakage.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is specifically at the boundary between fixture loading and prompt assembly — a unit test that mocks fixture loading would not catch leakage introduced during interpolation or template composition. Multiple local modules (fixture loader, interpolator, template renderer) must be wired together. REAL-INFRA: No network or subprocess needed. LLM-DEP: No model call; the check is on the assembled string.",
+      "test_description": "Instantiate the real test harness with actual skill fixture files. Run the full prompt assembly pipeline (fixture loading → variable interpolation → template rendering). Capture the final assembled prompt string. Assert it contains no patterns matching SKILL.md phase-instruction syntax. Also assert the prompt does reference skill-derived content (to confirm context was loaded).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0.015,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The test invocation loads skill context from the plugin/skill files and validates behavior from that context rather than from hard-coded prompt rules.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Verifying the wiring from skill files to the harness is Integration, but 'validates behavior from that context' requires observing real model output to confirm the behavior is driven by skill context rather than prompt-echoed instructions. LLM-DEP: Whether the model exhibits the skill-specified behavior when context is loaded from files (and not explicitly instructed) is inherently non-deterministic — the answer depends on what the real model produces. MOCK-HIDE: A mocked LLM would always return a canned response, masking whether skill context is actually driving behavior.",
+      "test_description": "Load skill context exclusively from the real plugin/skill files (no hard-coded instructions in the prompt). Send a plain user-style prompt to the real LLM with that skill context injected. Assert the model output exhibits the skill-specified behavior. Also run the same user prompt with skill context stripped and assert the behavior is absent or degraded, confirming causation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the relevant SKILL.md section is removed or degraded, the behavioral test fails with the same user-style prompt.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The test's pass/fail depends on whether the real model exhibits the correct behavior when the skill section is intact versus degraded. A deterministic mock would always return the same output regardless of skill context, making this test trivially pass either way and hiding real failures. MOCK-HIDE: Any mocked model collapses the regression signal. The failure boundary is model behavior, not code logic. MULTI-STEP: Single model call suffices — no multi-step pipeline.",
+      "test_description": "Programmatically remove or stub out the target SKILL.md section. Run the behavioral test with a plain user-style prompt (no explicit phase instructions in prompt). Assert the test fails or the model output does not exhibit the expected behavior. Restore the section and assert the same test now passes. This confirms the skill content — not prompt wording — is what drives the behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.04,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Raw model output is captured to a diagnostic artifact before any JSON parsing or extraction logic runs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is pipeline ordering — the artifact writer must fire before the parser. A unit test on the capture function alone cannot detect if the pipeline wires them in the wrong order. Multiple modules must be wired: output stage → artifact writer → parser. REAL-INFRA: Filesystem write can be exercised locally; no real network needed. LLM-DEP: A synthetic model response string is sufficient — correctness of ordering does not depend on what a real LLM returns.",
+      "test_description": "Inject a synthetic raw model response string into the pipeline. Run the full output-processing pipeline (capture → serialize artifact → parse JSON). Assert the artifact file is written and contains the unmodified raw string. Introduce a deliberate parse error in the synthetic response and assert the artifact is still written even when parsing raises an exception, proving capture precedes parsing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.08,
+        "Agentic": 0.015,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Assertions verify structured behavior (field placement or schema shape), not mere keyword presence that could come from prompt echoing.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A static lint check on assertion code (Unit) can confirm assertions use schema validators rather than string contains, but it cannot prove that a keyword-only assertion would actually pass on a prompt-echoed response. To catch the real failure you need the assertion framework wired to a synthetic response that contains the expected keywords in the wrong structure. LLM-DEP: A synthetic (deterministic) response is sufficient — you do not need a real LLM to craft a response with correct keywords but wrong schema shape.",
+      "test_description": "Construct a synthetic model response that contains all expected keywords but places them outside the required schema structure (e.g., keywords in a free-text field instead of the expected structured field). Run this response through the test assertion framework. Assert that schema-shape assertions fail on this response (proving they are not fooled by keyword presence). Also run a correctly structured response and assert assertions pass.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.12,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

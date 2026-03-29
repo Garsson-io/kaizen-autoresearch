@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is that the LLM ignores email context and returns a generic reply. A mock LLM trivially passes by returning any hardcoded contextual-looking string. REAL-INFRA: No OS/subprocess. LLM-DEP: Whether the reply 'references specific points' is entirely determined by what the real LLM generates — running this 100 times with a real model could yield varying quality of context-grounding. A deterministic fake hides this failure completely. MULTI-STEP: Single generation step, no multi-agent chain. REJECTION-GATE: Integration rejected — module wiring is not the failure boundary here; the failure lives in LLM output quality. System rejected — no external command or OS primitive is involved.",
+      "test_description": "Send a real email thread with 3–4 distinct named topics/entities to the generation component backed by a real LLM. Assert the returned draft contains at least N references (subject, named entities, or quoted phrases) drawn from the input thread rather than generic filler text. Run multiple times and assert the contextual grounding rate meets a threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.84,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is that the checker accepts a contradicting claim as consistent. REAL-INFRA: No OS/subprocess. LLM-DEP: Semantic contradiction detection (e.g., 'Product X costs $50' vs KB entry '$80') requires semantic understanding that a deterministic string-matcher cannot reliably provide in the general case. In the context of an LLM-based assistant, the consistency checker is almost certainly an LLM or embedding-based classifier — mocking it with a hardcoded pass/fail hides whether real semantic contradiction is detected. REJECTION-GATE: Integration rejected — an in-process fake checker would always pass, not exercising the actual contradiction detection logic. System rejected — no external OS command or real network call defines the failure boundary.",
+      "test_description": "Inject a draft containing a claim that directly contradicts a KB entry (e.g., wrong pricing, wrong date, wrong policy) plus a claim that is factually consistent. Run through the real consistency checker backed by a real LLM/model. Assert the contradicting claim is flagged and the consistent claim is not.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.65,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is that the LLM hallucinates confident facts when given an empty KB context. A mock LLM is hardcoded to return a disclaimer, so the failure is invisible. REAL-INFRA: No OS/subprocess. LLM-DEP: Whether a real LLM adds a disclaimer vs confidently fabricates facts when grounding context is empty is entirely non-deterministic and model-dependent — this is the canonical Agentic failure mode. No deterministic test double can reproduce it. REJECTION-GATE: Unit rejected — prompt construction can be unit-tested, but it cannot verify the LLM respects the empty-KB signal. Integration rejected — same reason; module wiring is not the failure boundary.",
+      "test_description": "Invoke the draft generation step with a real LLM and a query where the KB lookup deliberately returns zero results. Assert the output draft contains a disclaimer phrase (e.g., 'I don't have verified information', 'please verify') and does not contain confident specific factual claims about the topic. Run several times to confirm stability.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.84,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that the send function is called before an approval event is received. This is a control-flow/state-machine bug at the boundary between the approval module and the send module — it only manifests when both are wired together. Unit testing the approval module in isolation cannot catch this (the send call is external). REAL-INFRA: Actual email delivery is not required to catch this failure — an in-process fake email sender (recording whether send() was called) fully exercises the failure boundary. LLM-DEP: No LLM output determines whether the gate holds. REJECTION-GATE: System rejected — real SMTP is not needed; a fake sender records calls faithfully. Agentic rejected — the correctness of this gate is deterministic and does not depend on LLM output variance.",
+      "test_description": "Wire the approval controller and the send module together with a fake email sender that records calls. Simulate a draft being produced without firing an approval event. Assert the fake sender was never called. Then fire the approval event and assert the fake sender is called exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.74,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly requires all four agentic steps in order: (1) read/parse thread, (2) LLM draft generation, (3) LLM-based factual consistency check, (4) approval presentation. Each LLM step can produce output that alters what the next step receives — failures at step boundaries (e.g., draft format the checker cannot parse, approval UI receiving malformed data) only surface when real agentic steps are chained. REAL-INFRA: Steps 2 and 3 each depend on real LLM calls. REJECTION-GATE: Agentic rejected — a single-LLM-call test cannot catch inter-step handoff failures (e.g., the consistency checker receiving a malformed draft from the generator). Integration rejected — in-process fakes for both LLM steps hide real output-format variance that breaks downstream steps.",
+      "test_description": "Feed a real multi-turn email thread into the full pipeline using real LLM calls for generation and consistency checking. Assert: (a) a draft is produced that references the thread, (b) the consistency check runs and returns a structured result, (c) the approval gate is in pending state (not yet sent), (d) after simulating user approval the pipeline completes and the fake sender records exactly one send call.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

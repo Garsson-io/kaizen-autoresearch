@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a pure arithmetic error in the backoff calculation — no module boundary is crossed. The doubling-and-cap logic lives entirely within one function. REAL-INFRA: No OS/network/subprocess involved. MOCK-HIDE: No external dependency to mock; the input is just a retry count and config values. LLM-DEP: No. MULTI-STEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Unit, OUTPUT-LEVEL = Unit, no override.",
+      "test_description": "Instantiate the backoff calculator with a base delay and a max delay. Call it with retry counts 0, 1, 2, 3 and assert the returned wait time doubles each time until it is capped at the configured maximum. No HTTP client or network stub is needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: 'Identifies a rate-limit response' means parsing an HTTP status code or header field from a response object and branching. The response object can be constructed inline; no module hand-off is required. The wait-time computation is the same calculation covered in B1. REAL-INFRA: A plain stub response object (e.g., `{ status: 429, headers: { 'Retry-After': '5' } }`) fully reproduces the failure — no real HTTP needed. MOCK-HIDE: There is nothing to mock; the response is a value, not a collaborator. LLM-DEP: No. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Unit, OUTPUT-LEVEL = Unit, no override.",
+      "test_description": "Pass a synthetic response object with a 429 status and a Retry-After header to the retry-decision function. Assert it returns `{ shouldRetry: true, waitMs: <expected> }`. Also pass a 200 and assert `shouldRetry: false`. No network or HTTP client is wired.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.19,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is not in the wait-time math but in the orchestration: does the retry driver actually invoke the HTTP transport again with the same request, and does it thread the result back to the caller? That failure lives at the boundary between the retry orchestration layer and the HTTP client module. REAL-INFRA: The HTTP client can be a stub returning failure-then-success — real network is not required. MOCK-HIDE: A stub that records calls and returns a success on the second invocation correctly surfaces the real failure (retry not issued, or result lost). INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Wire the retry client with a stub HTTP adapter whose call sequence is [429, 200]. Call `client.call(request)`. Assert the adapter was called exactly twice with the identical request payload, and that the resolved value equals the 200 response body. Stub out the timer so the wait does not block the test.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.74,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the error-type emitted after the retry counter is exhausted — this requires the retry counter state and the error-construction code to be wired together. A unit test of the counter alone or the error constructor alone cannot catch a mismatch in how they are connected. REAL-INFRA: A stub HTTP adapter always returning 429 reproduces exhaustion without real networking. MOCK-HIDE: Mocking the adapter correctly surfaces whether the right error type bubbles out. INTEGRATION-BRAKE: (a) No real OS/network. (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Configure maxRetries = 3. Wire a stub HTTP adapter that always returns 429. Await `client.call(request)` and assert the rejection is an instance of `QuotaExhaustedError` (not `Error` or any other subclass). Assert the adapter was called exactly 4 times (initial + 3 retries). Timer is stubbed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.16,
+        "Integration": 0.75,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Does not loop indefinitely' is an emergent property of the quota tracker, the retry counter, the backoff scheduler, and the HTTP client all being wired together. No single unit has this property in isolation. REAL-INFRA: A stub HTTP adapter always returning 429 is sufficient — no real network is needed. MOCK-HIDE: Running real async code against the stub will expose an infinite loop; mocking the entire retry driver would not. INTEGRATION-BRAKE: (a) No real OS/network (async in-process is sufficient). (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Configure maxRetries = 3 and a finite backoff max. Wire a stub always-429 adapter and a fake timer that resolves delays synchronously. Await `client.call(request)` inside a Promise.race with a tight timeout. Assert it resolves (with QuotaExhaustedError) before the timeout, and the adapter call count equals maxRetries + 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.73,
+        "System": 0.18,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that two independently constructed client instances (or call sites) each maintain their own quota counter and therefore the shared limit is exceeded undetected. This only manifests when at least two concurrent callers share one module-level or injected quota object. REAL-INFRA: In-process async concurrency (Promise.all) with a stub HTTP adapter reproduces this. The failure is about shared object reference, not real OS scheduling. MOCK-HIDE: A stub adapter records call counts across concurrent invocations correctly. INTEGRATION-BRAKE: (a) No real network needed. (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Create two async callers both sharing the same QuotaBucket instance. Configure the bucket with capacity = 2. Issue three concurrent calls via Promise.all. Assert the bucket's consumed count equals 3 (not 2+1 duplicated), and that the third call blocks or returns QuotaExhaustedError depending on policy — proving the bucket is not per-caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.67,
+        "System": 0.22,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO ordering is a property of the queue-to-dispatcher handoff, not of any single function. A unit test of the queue's internal order cannot catch a bug where the dispatcher drains it in the wrong order. REAL-INFRA: A stub HTTP adapter that records the order of received requests is sufficient — no real network is needed. MOCK-HIDE: The stub's call log correctly exposes out-of-order dispatch. INTEGRATION-BRAKE: (a) No real OS/network. (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Enqueue three requests tagged 'A', 'B', 'C' simultaneously while the dispatcher is paused (capacity = 0). Release the dispatcher. Assert the stub HTTP adapter received requests in the exact order A → B → C by inspecting the adapter's recorded call sequence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.17,
+        "Integration": 0.72,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

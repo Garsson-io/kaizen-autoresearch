@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that one source's data is silently dropped before reaching the summary step — this is a module-boundary failure between the three source adapters and the aggregator that hands off to the summary generator. A single-function Unit test of the aggregator in isolation cannot catch a wiring bug where a source call is never made or its result is discarded. REAL-INFRA: The three external endpoints can be replaced with in-process stubs (e.g., mock HTTP clients or callable fakes); no real HTTP, OS, or subprocess is needed to catch a missing-source bug. LLM-DEP: The behavior is about what is *passed in*, not what the LLM does with it, so no LLM dependency. REJECTION-GATE: System was rejected because in-process fakes faithfully reproduce the aggregation failure without real network calls.",
+      "test_description": "Wire together the three source-adapter modules and the aggregation layer using stub implementations for each source (returning known fixture payloads). Invoke the full data-collection pipeline and capture the payload delivered to the summary-generation entry point. Assert that the captured payload contains a non-empty, identifiable contribution from each of the three sources.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between a source adapter (which raises an exception or returns an error) and the orchestration layer (which must catch it, substitute a 'data unavailable' placeholder, and continue). This is a module-boundary concern, not purely internal logic. REAL-INFRA: Unavailability can be faithfully simulated by having the stub adapter raise a connection-style exception; no real network or OS is required to reproduce the failure — the bug is in exception handling and partial-result assembly. MOCK-HIDE: A mock that raises an exception is the correct simulation here; it does not hide the failure. REJECTION-GATE: System was rejected because the exact failure (abort-vs-continue) is determined entirely by in-process exception handling, not by real network behavior.",
+      "test_description": "Configure the integration harness so that exactly one of the three source adapters raises an exception (simulating unavailability) while the other two return valid fixture data. Invoke the full data-collection-through-report-assembly pipeline. Assert that the pipeline does not raise, that the final report object contains a 'data unavailable' marker for the failing source's section, and that the other two sections contain the expected fixture data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly requires that the generated *narrative* accurately reflects key values — 'narrative' denotes free-text generation, which in a modern engineering report script is LLM-produced. Accuracy of a language-model output cannot be verified by inspecting deterministic code paths: the model may hallucinate, omit, or misstate values, and this failure only surfaces when the real model runs. Running the same input 100 times could produce different fidelity levels. No in-process fake or deterministic stub can reproduce this failure class. MOCK-HIDE: Replacing the LLM with a stub that echoes its inputs always passes — it hides the exact failure class the behavior is testing. REJECTION-GATE: Integration was rejected because the accuracy failure is not a module-wiring failure; it is a model-output-quality failure that only a real LLM call can surface.",
+      "test_description": "Supply a fixed, known input payload (containing specific numeric metrics, issue counts, and deployment names) to the real summary-generation endpoint (live LLM call). Parse the returned narrative and assert that each key value from the input (specific numbers, identifiers) appears in the output text. Run multiple times to establish that faithful representation is consistent, not coincidental.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: 'Reaches the configured recipient's inbox' cannot be verified with an in-process email stub — the failure mode (malformed MIME, authentication rejection, spam filtering, wrong recipient) only manifests with a real SMTP/sending service and a real receivable inbox. This sets a floor of System. LLM-DEP: The pipeline includes narrative summary generation, which (per behavior 3) is LLM-produced; the end-to-end correctness of the report content therefore depends on real LLM output. MULTI-STEP: The pipeline chains (1) real external data collection, (2) real LLM summary generation, and (3) real email delivery — three distinct steps where at least one is agentic and each can fail independently. This constitutes a multi-agentic-step sequence. REJECTION-GATE: Agentic alone was rejected because real email delivery infrastructure (SMTP, inbox receipt) is also required, not just LLM non-determinism.",
+      "test_description": "Execute the complete scheduled script end-to-end in a staging environment: real (or staging-equivalent) data source endpoints, real LLM call for narrative generation, and a real test email inbox (e.g., Mailpit or a dedicated test address). After the script completes, poll the inbox via IMAP/API and assert that exactly one new email arrived for the configured recipient, that it contains the report subject, and that its body includes recognizable data values from the source fixtures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.17,
+        "Agentic": 0.1,
+        "Workflow": 0.68
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Two distinct OS-level behaviors are under test: (1) writing a file to a real filesystem path, and (2) a subsequent invocation of the script (simulating 'the next scheduled run') successfully reading that file and re-attempting delivery. An in-process mock of file I/O cannot verify that the persistence format survives a process restart, that the correct path is used, or that a second process invocation correctly discovers and re-queues the file. The retry-on-next-run scenario requires spawning the script as a real subprocess (or at minimum a fresh process context) to confirm the saved state persists across process boundaries. MOCK-HIDE: Mocking both the filesystem and the scheduler would always pass; the real failure modes (wrong file path, missing read logic, process-restart state loss) only surface with real filesystem access and real subprocess invocation. REJECTION-GATE: Integration was rejected because the 'next scheduled run' retry requirement spans a process boundary — in-process module wiring cannot reproduce the failure of state not surviving a restart.",
+      "test_description": "Configure the script so the SMTP target is a TCP address that refuses connections. Run the script as a real subprocess pointing to a real temp directory. Assert that the subprocess exits successfully (non-error) and that a report file exists at the expected path with valid content. Then run the script a second time as a fresh subprocess with a now-reachable (stub SMTP) server. Assert that the second run reads the saved file, attempts delivery, and removes or marks the saved file as delivered.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.14,
+        "System": 0.68,
+        "Agentic": 0.09,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

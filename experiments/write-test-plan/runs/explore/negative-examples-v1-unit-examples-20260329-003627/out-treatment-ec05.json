@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "Failure is a pure sorting/parsing algorithm issue: extract numeric prefixes from filenames (e.g., '005-init.sql' → 5) and sort them. No module boundary interaction. No DB state needed. Does not depend on OS or network. Can be tested by calling the sort function with a list of filenames and verifying output order.",
+      "test_description": "Call the migration file discovery and sorting logic with a directory containing files with mixed numeric prefixes ('005-init.sql', '001-create.sql', '003-fix.sql'). Verify the returned ordered list matches [001, 003, 005]. Test edge cases: single-digit vs. multi-digit prefixes, non-sequential numbers, files with no prefix or invalid format.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at the DB module boundary: the runner must (1) read the `_migrations` table to know what's applied, (2) compare it to files on disk, (3) skip already-applied migrations. Mocking the DB read hides the critical failure: 'code forgot to read `_migrations` at all', leading to duplicate execution. Only a real DB can expose whether the runner actually queries the table and correctly skips recorded migrations. MOCK-MISS: does not apply because this is a module handoff failure (runner ↔ DB).",
+      "test_description": "Set up a test PostgreSQL database. Apply a migration file ('001-init.sql') using the runner. Query the `_migrations` table and verify one entry exists. Run the migration runner again against the same database and directory. Verify: (a) `_migrations` still contains exactly one entry for migration 001, (b) no duplicate rows were inserted, (c) the database state reflects the migration was applied only once (inspect table contents created by the migration).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.92,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Failure is at the transaction boundary: migrations must be wrapped in transactions, error-caught, and rolled back on failure. Mocking the DB execution hides the real failure: 'no transaction wrapper' or 'explicit rollback code missing'. Only a real DB with real transaction semantics can expose whether a failed migration's partial changes are actually rolled back and not left dangling. MOCK-HIDE: mocking the DB prevents any real changes from happening, so rollback is invisible.",
+      "test_description": "Set up a test PostgreSQL database. Define migration '001-ok.sql' that creates a table. Define migration '002-fail.sql' that inserts a row, then attempts a duplicate-key or constraint violation. Run the migration runner. Verify: (a) migration 001 was applied (table exists in the database), (b) migration 002 failed and its entry is not in `_migrations`, (c) any partial state from migration 002 is rolled back (no inserted rows), (d) no migrations after 002 were attempted (if there were any).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.94,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "Failure is at the OS/concurrency boundary: two separate processes must race to acquire locks on the same database resource, and synchronization (via DB-level locking, advisory locks, or similar) must prevent duplicate execution. Mocking the DB completely avoids concurrency — a single-threaded mock DB cannot simulate race conditions, deadlocks, or lost updates. Only real multi-process execution against a real PostgreSQL server (with connection pooling and lock contention) can expose synchronization failures. REAL-INFRA and MOCK-HIDE both point to System.",
+      "test_description": "Set up a test PostgreSQL database with several migration files ('001-init.sql', '002-users.sql', etc.). Start two concurrent Node processes running the migration runner simultaneously against the same database and migration directory. Both processes should start within milliseconds of each other. Verify: (a) both processes complete without deadlock, connection errors, or timeout, (b) the `_migrations` table contains exactly one entry per migration file (no duplicates), (c) each migration's side effects appear exactly once in the database (no doubled rows or duplicate schemas), (d) the final database state is identical regardless of which process applied which migration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.96,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "Failure is at the DB initialization boundary: the `_migrations` table must exist before migrations execute (otherwise migrations cannot be recorded or checked for duplicates). Mocking the table creation hides the real failure: 'table creation was never called' or 'table has wrong schema'. Only a real test database can expose whether the table actually exists with correct columns, and in what sequence initialization vs. migration execution occurred. REAL-INFRA: DB is required. MOCK-HIDE: mocking the CREATE TABLE call does not verify the table actually exists.",
+      "test_description": "Set up a test PostgreSQL database that is empty (no `_migrations` table). Run the migration runner for the first time against a directory with migration files. Verify: (a) the runner completes successfully, (b) the `_migrations` table exists in the database after the run, (c) the table has the expected schema (columns for migration name, applied_at timestamp, checksum, etc.), (d) all applied migrations are recorded in the table, (e) the table was created before any user migrations ran (evidenced by all migrations being successfully recorded, or by inspecting initialization logs).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.96,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

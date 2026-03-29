@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is entirely within one key-generation function — deterministic mapping from input parameters to a string/hash. The failure (collision or non-determinism) is a property of the algorithm itself, not a module handoff. REAL-INFRA: No OS, network, subprocess, or filesystem involved. MOCK-HIDE: No external dependency to mock; inputs and outputs are pure values. LLM-DEP: No AI/ML. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit. No override.",
+      "test_description": "Instantiate the key-generation function in isolation. Assert that calling it twice with the same structured query parameter object produces identical strings. Assert that calling it with two structurally distinct parameter objects (differing in field value, field name, or field presence) produces different strings. Cover edge cases: empty parameter set, parameters with null values, parameters that differ only in ordering if ordering is significant.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: TTL computation is a lookup-and-return function: given a data category identifier, return the configured duration. The failure (wrong TTL) lives entirely inside that function's logic or its config-reading branch, not at a module boundary. REAL-INFRA: Configuration can be passed as an in-process object; no external I/O needed. MOCK-HIDE: No dependency whose real behavior differs from a stub. LLM-DEP: No. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit. No override.",
+      "test_description": "Construct a freshness-rule config object directly (e.g., {'user_profiles': 300, 'product_catalog': 3600}). Call the TTL-computation function with each category name and assert the returned duration matches the configured value exactly. Also assert that an unknown/unconfigured category either raises a defined error or returns a documented default, exercising both the happy path and the boundary case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure here is not in a single function's logic but in the handoff between the memory-monitoring component and the strategy-selection component. If memory pressure is read by one module and strategy selection is performed by another, a bug could exist precisely in that boundary (e.g., the monitor reports a value but the cache manager reads a stale copy, or the threshold comparison is off-by-one after unit conversion). Wiring these modules together is required to expose it. REAL-INFRA: The memory monitor can be injected with a stub that returns a controlled value — no real OS memory introspection needed. MOCK-HIDE: Stubbing the memory monitor is safe here because the failure mode is in the conditional logic downstream of the reading, not in OS memory reporting itself. LLM-DEP: No. MULTI-STEP: No. INTEGRATION-BRAKE: (a) Real OS not required — stub monitor suffices. (b) No AI/ML. (c) No chained agentic steps. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration. No override.",
+      "test_description": "Wire the memory monitor, threshold configuration, and strategy selector together in a test harness. Inject a memory-monitor stub. Set threshold to, say, 80%. Drive the stub to report 79% → assert active strategy is LRU. Drive it to report 81% → assert active strategy switches to LFU. Also test the boundary value exactly at threshold and confirm that returning below threshold reverts to LRU if the spec requires it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.55,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure manifests at the boundary between the write path and the cache invalidation path. If either component is tested in isolation, the connection itself — the trigger that fires invalidation after a write — is never exercised. This is inherently a multi-module wiring failure. REAL-INFRA: The invalidation trigger is described as application-level ('a write … invalidates'). An in-process fake database that records writes and fires the same hooks as the real adapter is sufficient to expose the wiring failure; the specific PostgreSQL wire protocol or server behavior is not the failure mode. If invalidation relied on DB-side triggers or LISTEN/NOTIFY, System would be required, but the description implies application-controlled invalidation. MOCK-HIDE: Mocking the entire DB write and asserting invalidate() was called would hide bugs in key-matching logic (i.e., wrong rows matched to wrong keys). The fake DB must actually record which rows were written so the key-matching logic runs for real. LLM-DEP: No. MULTI-STEP: No. INTEGRATION-BRAKE: (a) In-process fake DB suffices — no real PostgreSQL process needed given application-level invalidation. (b) No AI/ML. (c) No agentic steps. REJECTION-GATE for System: the behavior text says 'A write … invalidates' without mentioning DB triggers, CDC, or LISTEN/NOTIFY — nothing in the description requires real PostgreSQL server behavior. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration. No override.",
+      "test_description": "Wire the repository write layer, the cache store, and the invalidation coordinator together using an in-process fake DB and an in-memory cache. Pre-populate the cache with several entries keyed to specific rows. Issue a write that affects a known subset of rows. Assert that exactly the matching cache entries are gone and unrelated entries remain. Test both single-row and multi-row writes to verify bulk invalidation correctness.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.52,
+        "System": 0.35,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: LRU and LFU eviction are self-contained algorithms over an ordered or frequency-tracked data structure. The failure (wrong entry evicted) is a bug in that data structure's ordering or selection logic, not in any module handoff. REAL-INFRA: No external I/O. The cache is an in-process object. MOCK-HIDE: No dependency to mock. LLM-DEP: No. MULTI-STEP: No. EVIDENCE-LEVEL=Unit, OUTPUT-LEVEL=Unit. No override.",
+      "test_description": "Instantiate each eviction policy in isolation with a small capacity (e.g., 3 entries). For LRU: insert 3 entries, access entry A to make it most-recent, then insert a 4th entry and assert the least-recently-used entry (not A) was evicted. For LFU: insert 3 entries, access one entry multiple times to raise its frequency, fill the cache, and assert the lowest-frequency entry is evicted on overflow. Cover tie-breaking behavior as well if the spec defines it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.015,
+        "Agentic": 0.005,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

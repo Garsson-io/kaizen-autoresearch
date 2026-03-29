@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the segmentation algorithm — a string-splitting or shell-parsing function that incorrectly lumps newline-separated statements together. No module boundary is crossed. REAL-INFRA: No I/O, OS, or subprocess required; the function takes a string and returns a list. MOCK-HIDE: Nothing to mock. LLM-DEP: No AI/ML involved. Rejection of Integration: there is no handoff between modules to test here — a single parsing function is the complete failure site.",
+      "test_description": "Call the segmentation function with a multi-line input string such as `'VAR=value\\ngh pr create --title foo'` and assert that the result is two distinct segments (`['VAR=value', 'gh pr create --title foo']`), not one monolithic string.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the trigger-detection/classification logic applied to an already-segmented (or raw) command block. This is a pure matching/recognition algorithm operating on a string. REAL-INFRA: No I/O needed; the classifier consumes a string and returns a classification. MOCK-HIDE: Mocking the segmentation output with a simple list stub would not hide the detection failure — the stub is the input, and we are testing whether the detector finds the trigger. LLM-DEP: No AI/ML. Rejection of Integration: segmentation and detection may be two functions, but the test input can be provided directly to the detector; no state propagation between modules is under test here.",
+      "test_description": "Pass the full multi-line string `'VAR1=foo\\nVAR2=bar\\ngh pr create --title \"My PR\" --body \"desc\"'` directly to the PR-trigger detection function and assert it returns a PR-create trigger classification (not `not_a_trigger`).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is the negative-case boundary of the same detection algorithm tested in behavior 2 — the failure is a false-positive classification inside a single function. REAL-INFRA: Same string-in / classification-out shape; no I/O. MOCK-HIDE: Nothing meaningful to mock. LLM-DEP: No AI/ML. Rejection of Integration: identical reasoning to behavior 2; the module boundary is irrelevant because the input can be injected directly into the classifier.",
+      "test_description": "Pass `'VAR1=foo\\nVAR2=bar\\ngh issue create --title \"My Issue\"'` to the PR-trigger detection function and assert it returns `not_a_trigger` (or equivalent non-PR-create classification), confirming the detector does not fire on `gh issue create`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior spans two concerns: (a) extracting the PR identifier from the command and (b) writing it to a state file. The failure mode the incident exposed is that the whole block was misclassified and no file was written — confirming the bug only manifests when detection and persistence are wired together end-to-end. Testing detection alone (Unit) does not verify that the identifier is correctly extracted and handed to the persistence layer. REAL-INFRA: Persistence requires a real filesystem write (a tmpdir is sufficient; no OS-level events or subprocesses are needed), placing this at Integration. MOCK-HIDE: Mocking the file-write would trivially pass without proving the identifier is correctly reconstructed and serialized. LLM-DEP: No AI/ML. Rejection of System: a real tmpdir is sufficient; no subprocess, network, or special OS primitives are required.",
+      "test_description": "Invoke the PostToolUse hook's detection + persistence pipeline with a multi-line PR-create command string (variable assignments + `gh pr create ...`) against a real temporary directory. Assert that the expected state file is created in that directory and that its contents include the correct PR identifier extracted from the command.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.75,
+        "System": 0.16,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a format mismatch between what the PostToolUse hook writes and what the pre-tool enforcement hook reads — a module-boundary contract. This only surfaces when both modules are exercised against the same state file. REAL-INFRA: Both hooks operating on a shared tmpdir is sufficient; no subprocess invocation or real network is required if the hooks expose importable read/write/enforce functions. MOCK-HIDE: Mocking the file read in the enforcement hook would hide any serialization or schema incompatibility between the two hooks. LLM-DEP: No AI/ML. Rejection of System: if both hooks are importable Python modules, an in-process tmpdir roundtrip catches the format contract failure without spawning subprocesses. Rejection of Unit: the bug exists at the boundary between two distinct hook modules — a single module test cannot catch a write-format / read-format mismatch.",
+      "test_description": "Using a shared temporary directory: (1) invoke the PostToolUse hook's state-write path with a detected PR-create trigger to produce the gate state file; (2) invoke the pre-tool enforcement hook's read-and-enforce path pointing at the same directory; assert that the enforcement hook correctly identifies the gate as active and would block tool use, confirming the written format is parseable and actionable by the enforcer.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.58,
+        "System": 0.32,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

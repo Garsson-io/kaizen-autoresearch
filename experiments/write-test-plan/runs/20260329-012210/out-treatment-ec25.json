@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "The failure lives entirely inside the scoring model's rule-application logic: look up the threshold for the merchant category, compare the transaction amount, produce a numeric score. No cross-module handoff is required to trigger the bug — a wrong comparison operator or off-by-one in a single function is sufficient. No external I/O, no ML model, no subprocess.",
+      "test_description": "Instantiate the scoring model with a config that sets a $500 threshold for 'electronics' and a $200 threshold for 'groceries'. Call score_transaction() with a transaction of amount=$600, category='electronics' and assert the returned score equals the expected high-risk value. Repeat with amount=$499 to assert the score stays below the flag threshold. No DB, no network, no mocks beyond injecting the config object.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model correctly identifies a fraudulent pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Agentic",
+      "justification": "The risk model 'predicts whether the transaction is fraudulent' using merchant category, purchase history, and device fingerprint — it is an ML/AI classifier, not a deterministic rule engine. The behavior claims the model should correctly classify a specific fraud pattern. Correctness depends on what the real model produces; a mock would be trivially satisfiable and would hide any failure in the model's actual learned behavior. Running the same input 100 times against a real model may yield different probability values. MOCK-HIDE: mocking the risk model always passes this test, defeating its purpose.",
+      "test_description": "Send a sequence of real transactions — e.g., five purchases under $20 each, spread across three different geographic locations within 10 minutes, all from the same user — to the live risk model inference endpoint. Assert that the returned fraud_probability exceeds a defined threshold (e.g., 0.7). Accept a small flakiness budget (≥9/10 runs must pass) to account for model non-determinism. Do not mock the risk model; mock only downstream persistence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in the scoring model correctly counts transactions within the configured time window per user.",
+      "minimum_level": "Integration",
+      "justification": "The velocity check must retrieve a user's recent transaction history from a store (DB or cache) and count events within a rolling time window. The failure mode that matters is at the boundary between the scoring model and the transaction store: wrong query parameters (wrong user ID scoping, wrong time range filter, off-by-one on window boundaries). A unit test that passes in a pre-built list would not catch a broken query predicate. No real network or ML needed — a local test DB or in-memory store is sufficient.",
+      "test_description": "Seed an in-memory or local test DB with 5 transactions for user_A: 3 within the last 60 seconds and 2 older than 120 seconds. Configure the velocity check with a 60-second window and a threshold of 3. Call the scoring model's velocity check against user_A and assert it reports count=3 and does not exceed threshold. Then add a 4th recent transaction and assert the count becomes 4 and the threshold is exceeded. Verify user_B's transactions do not bleed into user_A's count.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not the scoring model is still held for review (OR gate, not AND).",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the orchestration layer that combines the two models' outputs: an AND instead of OR condition silently drops valid flags. While the boolean combination itself is simple logic, the bug only manifests when both model outputs are wired into the review-decision path. A unit test on an isolated combiner function is possible, but the real risk is that the combination is embedded in the orchestration code that calls both models — mocking either model output at Unit level may not exercise the actual code path. Integration with stubbed model adapters (returning deterministic outputs) is the right floor.",
+      "test_description": "Wire the scoring model adapter (stubbed to return score=10, flagged=False) and risk model adapter (stubbed to return fraud_probability=0.92, flagged=True) into the real transaction evaluation orchestrator. Submit a single transaction and assert the orchestrator's output has review_required=True. Then swap: stub scoring flagged=True and risk flagged=False, assert review_required=True. Then both False, assert review_required=False. Stubs return deterministic structs; no real ML call needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Combined output includes both the numeric risk score and the risk model's fraud probability, enabling reviewers to see which model flagged the transaction and why.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the output assembly step of the orchestrator: one or both values is dropped, renamed, or not forwarded. This is a module-boundary bug — the scoring model produces a score, the risk model produces a probability, and the orchestrator must merge them into a single response. A unit test on the merger function alone is possible, but the actual regression risk is that the orchestrator forgets to call one model or omits one field when building the combined response. Integration with stubbed model adapters catches that. No real ML or network needed.",
+      "test_description": "Stub the scoring model to return {risk_score: 42, flagged: False} and the risk model adapter to return {fraud_probability: 0.85, flagged: True}. Run a transaction through the real orchestrator. Assert the combined response contains risk_score=42, fraud_probability=0.85, and a flagged_by field (or equivalent) that identifies the risk model as the source. Verify neither field is None, missing, or shadowed by the other.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.06,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

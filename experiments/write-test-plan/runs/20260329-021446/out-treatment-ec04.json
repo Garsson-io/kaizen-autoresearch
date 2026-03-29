@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces when the module wires together its label list and the outgoing API call — if the label injection step is skipped or misconfigured, a unit test on the builder alone won't catch it unless the full call path is exercised. REAL-INFRA: An in-process HTTP mock (e.g., httpretty, responses, or a captured request object) can intercept what is actually sent without needing a real network call. MOCK-HIDE: A mock that captures the outbound request payload will surface a missing label list, so mocking does not hide this failure. LLM-DEP: No — this is about request construction, not AI output quality. REJECTION-GATE: Considered Unit, but the behavior is about the request *sent* (i.e., after the module assembles and dispatches it), so isolating just the builder function would miss a wiring bug where labels are assembled correctly but not injected into the actual API payload.",
+      "test_description": "Wire the classification module with a mock HTTP client (e.g., using `responses` or `httpretty`). Call `classify(document)` and capture the intercepted request body. Assert that the body contains every label from the configured taxonomy (legal, technical, financial, other). Test with both default and a custom taxonomy config to ensure the label list is dynamic, not hardcoded.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.6,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The validation/filtering logic is local to the module, but it only activates in response to an API response value. The failure mode (unexpected label forwarded to caller) only appears in the response-handling path, not in a pure function that can be called without simulating an API response. REAL-INFRA: An in-process mock returning a fabricated unexpected label (e.g., `\"marketing\"`) fully exercises the failure — no real network needed. MOCK-HIDE: Mocking here is appropriate and will not hide the failure, because we are specifically injecting the bad value. LLM-DEP: No — correctness of this behavior is deterministic given a controlled response value. REJECTION-GATE: Considered Unit if there is an isolated `validate_label()` helper; however, the behavior claim is about what the *module* returns to the caller end-to-end, so a unit test on a helper alone would not prove the module integrates it correctly in its call chain.",
+      "test_description": "Stub the external API to return a response containing an out-of-taxonomy label (e.g., `\"marketing\"`). Call `classify(document)` and assert the return value is `\"unknown\"`. Also assert the module does NOT raise an exception. Add a parametrized case covering `None`, empty string, and a mixed-case variant of a valid label to confirm boundary handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: This behavior is a claim about the real AI model's consistency: that calling it multiple times with the same input yields the same label. A mock always returns whatever we program it to return, so a test using a mock will trivially pass regardless of whether the real model is actually deterministic. The only way to falsify this behavior is to call the real AI API multiple times and compare outputs. Real LLMs with temperature > 0 or non-deterministic sampling can return different labels on repeated calls — a failure that is invisible to any mock or stub. MOCK-HIDE: Yes — any mock or stub would always return the same programmed value, permanently hiding real non-determinism. REAL-INFRA: The failure boundary is the actual AI model's output variability, not network or OS behavior, so this is Agentic rather than System. MULTI-STEP: Only a single classification step is repeated, not multiple distinct agentic steps in sequence, so Workflow is not required. REJECTION-GATE: Considered Integration, but the specific failure mode (non-deterministic model output) is invisible to any in-process fake — an Integration test would always pass.",
+      "test_description": "Call the real external AI classification API at least 5 times with the same document string (use a short, unambiguous document to minimize edge cases). Assert all returned labels are identical. If the module exposes a `temperature` or `seed` parameter, document the expected configuration. Flag flakiness budget: if the test fails on any single run, investigate model config before treating as a bug.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.08,
+        "Agentic": 0.75,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (budget overrun) can occur due to a bug in the module's pre-send token counting or truncation logic, or in how it maps the budget config to the API request parameter (e.g., `max_tokens`). Both failure modes are in the module's own code, not in the AI model's behavior. REAL-INFRA: An in-process mock returning a fake usage payload (e.g., `{\"usage\": {\"total_tokens\": N}}`) is sufficient to test whether the module correctly enforces the budget ceiling and whether the request carries the right limit parameter. MOCK-HIDE: The mock does not hide this failure because the failure is in the module's budget enforcement logic, not in unpredictable AI output. LLM-DEP: Token count for a given input is deterministic given a fixed tokenizer; the model does not introduce variability here. REJECTION-GATE: Considered Agentic because real APIs use their own tokenizers that may differ from a local approximation; however, the behavior is about the module *enforcing* a budget (capping requests), not about measuring actual API-side token counts with accuracy — so Integration is sufficient to verify the enforcement mechanism.",
+      "test_description": "Configure the module with a small explicit token budget (e.g., 100 tokens). Stub the API to capture the outgoing request and return a fake response with `usage.total_tokens` equal to the budget limit. Assert (a) the request includes a `max_tokens` (or equivalent) parameter ≤ the configured budget, and (b) the module does not raise a budget-exceeded error for a document that fits. Also test with an oversized document and assert the module truncates or rejects it before sending.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.58,
+        "System": 0.14,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The retry-on-rate-limit behavior sits at the boundary between the module's retry logic and its HTTP response handling. The failure (propagating an error instead of retrying) only surfaces when the module processes a rate-limit response from the API — this is a module-boundary interaction, not a single function in isolation. REAL-INFRA: An in-process stub that returns HTTP 429 (with a `Retry-After` header) on the first call and HTTP 200 on the second fully reproduces the failure condition. No real network or OS behavior is needed — the retry/wait logic is all in-process. MOCK-HIDE: The mock does not hide this failure; it is specifically designed to inject the triggering condition (429 → 200). LLM-DEP: No — the retry trigger is an HTTP status code, not AI model output. REJECTION-GATE: Considered System to test real-network rate limiting behavior, but the behavior claim is about the module's response to the signal (wait + retry), not about the network conditions that produce it — an in-process fake 429 is the correct reproducing condition.",
+      "test_description": "Configure a stub API that returns HTTP 429 with a short `Retry-After: 1` header on the first call, then returns a valid taxonomy label on the second call. Mock `time.sleep` (or equivalent wait primitive) to avoid real delays and to assert it was called with the expected duration. Call `classify(document)` once and assert (a) the return value is a valid taxonomy label (not an error), (b) the HTTP stub was called exactly twice, and (c) the wait primitive was invoked between the two calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.74,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

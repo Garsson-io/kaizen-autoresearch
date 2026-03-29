@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The claim is that the AI vision model correctly identifies explicit content — correctness depends on what the real model produces. A mocked vision model that always returns 'explicit' trivially passes but proves nothing about detection quality. The failure mode is the model failing to classify the image correctly, not a pipeline wiring bug. MOCK-HIDE: Mocking the vision model hides whether the model actually detects explicit content. REJECTION-GATE: Integration is rejected because the behavior is not about module handoff logic — it is specifically about whether the AI model flags the content; without the real model, the test cannot fail meaningfully.",
+      "test_description": "Submit a set of known explicit images to the full moderation pipeline with a real AI vision model endpoint. Assert that each image results in status=HELD and is not enqueued for publishing. Use at least one image from each explicit subcategory in the test corpus.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly tests whether the real AI text model handles adversarial inputs (unicode lookalikes, letter substitution). A mock always returns a predetermined value and cannot fail on obfuscated inputs — it would pass trivially. The failure mode is the model being fooled by obfuscation, which only manifests with a real model. MOCK-HIDE: Any mock would hide the model's actual robustness to obfuscation. REJECTION-GATE: Integration is rejected because the failure boundary is inside the AI model's classification logic, not in the handoff between application modules.",
+      "test_description": "Submit a parametrized set of hate-speech strings with varied obfuscation (e.g., 'h4te', Cyrillic homoglyphs, zero-width joiners, leet-speak) to the text classification endpoint backed by the real AI text model. Assert every variant returns status=HELD. Include at least five obfuscation techniques as separate test cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.82,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is a routing/pipeline bug — the post passes both AI checks but is never published (e.g., wrong branch in decision logic, silent exception, double-hold). This is a module-handoff failure between the image classifier output, text classifier output, and the publish dispatcher. REAL-INFRA: No real OS/network/subprocess is needed; in-process fakes for both AI models returning 'clean' suffice to reproduce the routing failure. LLM-DEP: We are not testing model quality; we are testing what the pipeline does *given* clean results. Mocking both models to return 'pass' correctly exercises the decision logic. REJECTION-GATE: Agentic is rejected because the failure does not depend on what the real model produces — it depends on how the application handles the 'clean' signal.",
+      "test_description": "Wire the image classifier and text classifier as in-process stubs both configured to return 'clean'. Submit a benign text+image post. Assert the post transitions to status=PUBLISHED and is not present in the review queue or retry queue. Also assert no silent drop (i.e., the post record exists in the published store).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names three sequential steps (image check → text check → publish decision) and asserts end-to-end timing. This is a multi-agentic-step pipeline. REAL-INFRA: Real AI model latency is the dominant contributor to the 5-second budget; stubbing models with instant returns would always pass, hiding real latency failures. LLM-DEP: Both the vision and text model calls are real AI steps with variable latency. MOCK-HIDE: Replacing either model with a fast stub hides the actual timing risk. REJECTION-GATE: Agentic (single step) is rejected because the behavior explicitly covers all three sequential steps; System is rejected because AI model call latency — not OS/network primitives — is the primary risk, and that requires real model endpoints.",
+      "test_description": "Submit a post containing both an image and text to the full moderation pipeline backed by real AI vision and text model endpoints. Record wall-clock time from submission receipt to publish/hold decision. Assert total elapsed time is under 5000ms. Run under simulated peak load (e.g., 10 concurrent submissions) to surface queuing overhead. Repeat 20 times and assert p95 latency is under 5 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.03,
+        "System": 0.1,
+        "Agentic": 0.2,
+        "Workflow": 0.67
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the error-handling and retry-queuing logic when the AI model call fails. This is a module-boundary failure between the model client and the retry/queue subsystem. REAL-INFRA: We do not need a real unavailable service — an in-process stub that raises a connection/timeout exception faithfully simulates unavailability and will expose the same code path. The retry queue can be a real local queue or an in-memory fake. LLM-DEP: We specifically want the model to fail; model quality is irrelevant. REJECTION-GATE: System is rejected because the failure mode (wrong branch in error handler, missing enqueue call) appears with an in-process exception stub — real network unavailability adds nothing to the failure reproduction.",
+      "test_description": "Configure the AI vision model client stub to raise a service-unavailable exception on every call. Submit an image post. Assert the post is enqueued in the retry queue (not the publish queue, not auto-approved). Assert the post record has status=PENDING_RETRY and retry_count >= 1. Assert no published record is created.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: This behavior is specifically testing for non-determinism in the real AI vision model on borderline inputs. A mock is deterministic by construction and will trivially pass, hiding real model variance. The failure mode is the real model returning different classifications (flagged vs. clean) across runs for the same borderline image — that only manifests with a real model. MOCK-HIDE: Any deterministic stub completely masks the failure this behavior is designed to catch. REJECTION-GATE: Integration is rejected because the failure does not live at a module handoff boundary — it lives inside the AI model's scoring variability for low-confidence inputs. Workflow is rejected because this is a single repeated agentic step, not multiple distinct sequential steps.",
+      "test_description": "Identify a set of borderline images (pre-curated from a test corpus with confidence scores near the classification threshold). Submit each image 10 times to the real AI vision model endpoint within a 30-second window. Assert that all 10 decisions for each image are identical (all HELD or all PUBLISHED). Log confidence scores per run. Flag any image where the decision flips as a test failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

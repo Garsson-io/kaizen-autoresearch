@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Review input is scoped to changed lines, not the full content of each modified file.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the diff-parsing/filtering algorithm itself — does the code extract only the added/changed lines from a diff payload, or does it inadvertently pass the entire file content? This is a single function's logic, not a module-boundary interaction. REAL-INFRA: No OS, network, or subprocess is involved; a hard-coded diff fixture exercises the exact failure path. LLM-DEP: No — the scoping happens before any LLM call. COMMIT-TO-REASONING: Evidence points clearly to Unit; no override needed.",
+      "test_description": "Feed a synthetic unified diff (two files, one with a 3-line context block surrounding 2 added lines) to the diff-scoping function. Assert that the returned payload contains only the lines marked '+'/'-', not the surrounding unchanged context or lines from outside the hunks. Also assert that a file with zero changed lines produces an empty payload entry.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.28,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The position calculation involves parsing hunk headers and counting lines per GitHub's diff-position spec, which spans multiple modules. REAL-INFRA: 'Correct positions in the diff view on the pull request' is a claim about what GitHub renders. A mock HTTP client can verify that the position integer sent in the API payload is numerically correct, but it cannot verify that GitHub maps that integer to the intended visual line in the diff view — GitHub's hunk-parsing on ingestion is real server behavior. An in-process fake hides any mismatch between the local position calculation and GitHub's actual interpretation. REJECTION-GATE: There is no text in this behavior that disqualifies System; keeping it. INTEGRATION-BRAKE: (a) Real network to GitHub API is required to confirm diff-view rendering — yes → System. COMMIT-TO-REASONING: Evidence-level = System; output-level = System.",
+      "test_description": "Create a real test pull request on GitHub (or a controlled GitHub Enterprise instance) with a known synthetic diff. Run the position-mapping module against that PR's diff, post a review comment using the computed position, then fetch the review comment back via the GitHub API and assert that its `path`, `position`, and `line` fields match the intended source line. Repeat for a line in a second hunk to catch off-by-one errors in hunk-relative counting.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.3,
+        "System": 0.55,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Correctness depends entirely on what a real LLM produces when it reads the diff. A deterministic stub always returns a canned finding and trivially passes — it cannot reveal whether the model actually recognizes an off-by-one error, a missing null check, or an unsafe type cast in novel code. Running this test 100 times with a real model may still occasionally miss the bug, which is the risk being measured. MOCK-HIDE: Any mock that returns a hard-coded finding makes the test vacuous. COMMIT-TO-REASONING: Evidence-level = Agentic; output-level = Agentic.",
+      "test_description": "Prepare a fixture PR branch that introduces one explicit, well-defined bug (e.g., an off-by-one index access on a list). Run the real review agent against this PR using the production LLM. Assert that at least one posted inline comment references the file and approximate line range containing the introduced bug, and that the comment text includes a description consistent with the known defect type. Accept partial-match on line number (±2 lines) to tolerate diff-position rounding.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.06,
+        "Agentic": 0.72,
+        "Workflow": 0.17
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the finding-aggregation module and the comment-posting module — one module collects findings for the summary, another posts them as inline comments, and the bug is that they fall out of sync. This is a module-wiring failure, not a single function's logic. REAL-INFRA: A fake GitHub API client (recording which inline posts were made) and a stub LLM returning a deterministic list of N findings is sufficient to expose the mismatch; no real network is needed. LLM-DEP: We are testing code coordination, not LLM output quality — a stub with known findings fully exercises the failure path. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No real AI/ML needed. (c) Not multiple agentic steps. COMMIT-TO-REASONING: Evidence-level = Integration; output-level = Integration.",
+      "test_description": "Stub the LLM to return exactly 3 structured findings (each with file, line, and description). Wire the finding-aggregator and comment-poster modules together against a fake GitHub API client that records all calls. Invoke the full post-review workflow. Assert that the fake client received exactly 3 inline comment POST requests and that the summary comment body contains exactly the same 3 finding identifiers (e.g., matched by file+line tuple). Then run a second case where the stub returns 0 findings and assert neither inline comments nor summary findings are posted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.52,
+        "System": 0.12,
+        "Agentic": 0.18,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The sequence is: (1) real HTTP call to fetch the diff, (2) real LLM call to analyze it, (3) real HTTP calls to post each inline comment, (4) real HTTP call to post the summary. Each numbered step is agentic or infrastructure-dependent, and they must chain correctly — errors in state passing between steps (e.g., diff position lost between step 1 and step 3, or finding list truncated before step 4) only manifest in the full pipeline. REAL-INFRA: Real GitHub API and real PR are explicitly stated ('for a real pull request'). LLM-DEP: LLM is a live participant in step 2. COMMIT-TO-REASONING: Evidence-level = Workflow; output-level = Workflow.",
+      "test_description": "Create a dedicated test GitHub repository with a long-lived base branch and a test PR branch that introduces 2–3 known issues. Trigger the review automation against this PR with no human in the loop. After the run completes, use the GitHub API to fetch all review comments and the PR body. Assert: (a) at least one inline comment exists, (b) a top-level PR comment exists containing a summary section, (c) the run exited with code 0 and produced no unhandled exceptions in logs, and (d) the PR comment count did not increase on a second identical run (idempotency guard). Run in CI on a schedule or on PR events to the test repository.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.08,
+        "Agentic": 0.14,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

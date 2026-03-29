@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is that the OS watcher is not configured for recursive directory watching. The bug only manifests at the boundary between the watcher configuration and the OS event delivery mechanism (inotify/FSEvents/RDCW). REAL-INFRA: Real OS filesystem events must be delivered for a file created in a nested subdirectory — you must actually create the directory tree and write a file into it. MOCK-HIDE: Mocking the watcher's event emitter would bypass the OS entirely; the test would pass even if the daemon only watches the root. REJECTION-GATE: Integration is disqualified because the failure is not between internal modules — it is between the watcher's OS-level configuration (recursive flag or manual subtree tracking) and the OS event kernel, which requires real filesystem interaction.",
+      "test_description": "Start the daemon against a real temporary directory. Create a nested subdirectory tree (e.g., root/a/b/) and write a file into the deepest level. Assert that the output directory contains the transformed result for that file within a timeout. No mocking of the watcher or filesystem allowed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.88,
+        "Agentic": 0,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The deduplication logic is a self-contained algorithm — a data structure (e.g., a map of path → last-seen timestamp) that accepts a path and returns whether it is within the window. The failure lives entirely inside this function: wrong comparison, off-by-one in the window boundary, or incorrect eviction. This is not a module-boundary failure. REAL-INFRA: No OS, network, or subprocess needed — the clock can be injected or faked. MOCK-HIDE: Injecting a controllable clock and calling the deduplication function twice with the same path is sufficient to observe the real failure. REJECTION-GATE: Integration is disqualified because the behavior targets the deduplicate-or-not decision algorithm itself, not the handoff between the event receiver and the deduplication module.",
+      "test_description": "Instantiate the deduplication module with a short configured window and an injectable/fake clock. Call the deduplication check with a file path; assert it returns 'process'. Advance the fake clock within the window; call again with the same path and assert it returns 'discard'. Advance the clock past the window; call again and assert it returns 'process'. Verify edge cases at exact window boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior's failure mode lives at the boundary between the OS event listener and the deduplication/processing pipeline. Even if deduplication logic is unit-tested (behavior 2), the integration point — the event listener wiring the raw events into the deduplication gate — could independently fail (e.g., events bypass the gate, or the gate is called after the processing dispatch). REAL-INFRA: You do not need real OS events — you can inject synthetic duplicate events directly into the event handler to exercise the actual wiring. No subprocess or OS event kernel required. MOCK-HIDE: The event handler → deduplication → processing pipeline must be wired together for real; mocking any leg hides the handoff bug. REJECTION-GATE: System is disqualified because injecting multiple synthetic events into the real event handler exercises the integration failure mode without requiring OS event delivery.",
+      "test_description": "Wire the real event handler to the real deduplication module and a processing counter (no transformation pipeline needed). Fire the event handler three times in rapid succession with the same file path, simulating burst OS events. Assert the processing counter equals 1. Use a real in-process integration; no OS filesystem access required.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.22,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is at the OS level: when a watched directory is deleted, the OS closes the watch descriptor (inode is gone) and the daemon must detect this event, wait for or detect the recreation, and establish a new OS watch on the new inode. REAL-INFRA: This requires real OS directory deletion and creation — the OS must deliver a DELETE event and then the daemon must re-register the watch on the newly created inode. Simulating this without real OS calls is not possible. MOCK-HIDE: Mocking the filesystem watcher hides the exact behavior (e.g., whether FSEvents vs. inotify deliver directory-delete events identically, or whether the re-watch is registered before or after the new inode is stable). REJECTION-GATE: Integration is disqualified because the failure depends on OS kernel event delivery for directory deletion and the ability to re-attach a watch to the new inode — both of which require real OS calls.",
+      "test_description": "Start the daemon against a real temp directory. Atomically remove the entire watched directory (rm -rf). Immediately recreate it. Write a new file into the recreated directory. Assert the file is processed and the result appears in the output directory within a timeout, without restarting the daemon process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two modules: (a) the timestamp acquisition from real stat calls on real files, and (b) the sort-and-dispatch logic. If the sort comparator uses the wrong field, or if the stat call returns mtime instead of birthtime, the bug only appears when both modules are wired together with real file metadata. REAL-INFRA: Real files on a local filesystem are needed to obtain actual OS-assigned creation timestamps — but no subprocess, network, or external service is required. Local filesystem satisfies Integration. MOCK-HIDE: Mocking stat calls or injecting synthetic timestamps would verify the sort algorithm alone, not whether the daemon correctly retrieves and uses the OS-assigned creation time. REJECTION-GATE: System is disqualified because local file stat calls (birthtime retrieval) are classified as local filesystem I/O, which falls within Integration. No subprocess or network is involved.",
+      "test_description": "Create three real files on disk with deliberate sequential writes (and a short sleep between each to ensure distinct creation timestamps). Inject all three file-arrival events simultaneously into the event handler. Capture the order in which the processing function is called. Assert the processing order matches ascending creation timestamp order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.7,
+        "System": 0.21,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure depends on the OS-level mechanism the daemon uses to detect write completion — size stability polling, file lock detection, or waiting for a close/rename event. Each mechanism interacts differently with the OS. REAL-INFRA: A real file must be held open for writing (file descriptor kept open) while the arrival event is fired, then closed, and the daemon must observe the transition. This is intrinsically OS behavior — file locking semantics, close events, and lock detection vary by OS and require real I/O. MOCK-HIDE: Mocking the filesystem access would bypass the entire OS-level detection mechanism, making the test pass trivially regardless of whether the daemon's strategy actually works. REJECTION-GATE: Integration is disqualified because detecting 'file is still being written' relies on OS-level file locking or OS-delivered close/CLOSE_WRITE events — not merely local module wiring — which requires real OS I/O and kernel cooperation.",
+      "test_description": "Open a real temp file for writing but do not close it. Fire the daemon's file-arrival event handler for that path. Assert that processing has not started (processing counter remains 0) while the file descriptor remains open. Close the file descriptor. Assert the daemon subsequently picks up and processes the file within a timeout.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.12,
+        "System": 0.83,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

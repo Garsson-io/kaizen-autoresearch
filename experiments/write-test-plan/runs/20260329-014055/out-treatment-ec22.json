@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "The failure lives entirely inside the key-generation function's hashing/serialization logic. No module wiring, I/O, or external dependency is involved. A crafted set of parameter dicts — identical pairs and differing pairs — passed directly to the key-generator function is sufficient to catch any collision or non-determinism bug. INTEGRATION-CHECK down-test passes: single function call with crafted input fully reproduces the failure.",
+      "test_description": "Instantiate the key-generator with a fixed schema. Assert that calling it twice with the same parameter dict returns identical strings. Then assert that every pair of parameter dicts differing by at least one field produces distinct keys across a broad combinatorial set. Also assert key stability across process-equivalent re-calls (no randomness).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.04,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule.",
+      "minimum_level": "Unit",
+      "justification": "TTL computation is a pure mapping from (category, config) → duration. The entire behavior is a single function's logic: look up the category's rule in a config struct and return the corresponding TTL value. No cross-module wiring is needed. INTEGRATION-CHECK down-test passes: calling the TTL function with a constructed config and each category is sufficient to expose wrong durations, missing categories, or off-by-one unit bugs.",
+      "test_description": "Construct a freshness-rule config mapping each known category (e.g., user_profiles=5m, product_catalog=1h) to its TTL. Call the TTL-computation function for each category and assert the returned duration exactly matches the configured value. Also call with an unknown category and assert it either raises a well-typed error or returns a documented fallback — not a silently wrong value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU.",
+      "minimum_level": "Unit",
+      "justification": "The switching logic is a conditional: if reported_memory > threshold → LFU, else → LRU. The memory-usage value can be injected directly (via a parameter or a seam) without needing a real memory monitor module. INTEGRATION-CHECK down-test passes: calling the strategy-selector function with an injected memory reading at threshold-1, threshold, and threshold+1 fully exercises the branch. No cross-module wiring is load-bearing for this specific failure.",
+      "test_description": "Call the eviction-strategy selector with a memory reading just below the threshold and assert LRU is returned. Call it with a reading at exactly the threshold and assert the boundary behavior matches the spec (inclusive or exclusive). Call it with a reading just above the threshold and assert LFU is returned. Parameterize over several threshold values from the config to confirm the threshold itself is read correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode — write completes but cache entries survive — only appears when the write handler and the cache store are wired together. A unit test of either component in isolation cannot reveal a missing invalidation call or a key-matching bug in the handoff. INTEGRATION-CHECK: (a) the failure requires cross-module wiring — the write path must actually reach the cache invalidation path — so Unit is too low. (b) In-process wiring with a fake/in-memory DB and in-memory cache is sufficient to reproduce the failure without needing real PostgreSQL network I/O, unless the invalidation mechanism relies on PostgreSQL LISTEN/NOTIFY or server-side triggers, which would require System. The description does not specify DB-level triggers, so Integration is the minimum warranted level.",
+      "test_description": "Wire the write handler and the cache store together in-process using an in-memory or embedded store (e.g., a local PostgreSQL test container or SQLite-compatible shim). Pre-warm the cache with entries whose keys correspond to specific rows. Execute a write (insert/update/delete) on the affected rows through the write handler. Assert that all cache entries matching those rows are absent. Assert that cache entries for unrelated rows are still present. Test a batch write touching multiple rows to confirm all matching entries are invalidated, not just the first.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.58,
+        "System": 0.37,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "LRU and LFU are well-defined in-memory data structure algorithms. The correctness of which entry is evicted depends solely on the eviction data structure's internal state (recency order or frequency counter), not on any module boundary or I/O. A controlled sequence of cache operations on an in-process cache object is fully sufficient to drive the eviction and inspect the result. INTEGRATION-CHECK down-test passes: filling the cache in-process and asserting the evicted key covers the failure completely.",
+      "test_description": "For LRU: create a cache at capacity, access entries in a known order to establish recency, insert one new entry, and assert the least-recently-accessed entry was evicted and the others remain. For LFU: access entries a controlled number of times to establish frequency order, fill the cache, insert a new entry, and assert the least-frequently-accessed entry was evicted. Test tie-breaking behavior (e.g., equal frequency) against the spec. Run both policies with capacity=1 and capacity=N as edge cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.93,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

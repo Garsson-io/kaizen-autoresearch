@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the module and the API client — the bug is in request construction, not in a single isolated function. REAL-INFRA: A mock HTTP client can intercept the outgoing request and inspect its payload; no real network or subprocess is needed. MOCK-HIDE: Mocking the API client and asserting on the captured request body fully exposes this failure. LLM-DEP: We control and inspect the request — we never depend on what the LLM produces. REJECTION-GATE: Unit is rejected because the behavior describes what reaches the external boundary, not what a single function computes in isolation; wiring the module to a fake API client is the minimum fixture needed to observe the failure.",
+      "test_description": "Wire the classification module to a mock HTTP client. Call classify(document) with any document. Capture the outgoing request payload and assert that the body contains all four taxonomy label strings (legal, technical, financial, other). Run for a document that would plausibly trigger each label to confirm the label list is not filtered before sending.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns 'unknown' instead of forwarding the unexpected value.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the module's response-handling path — the bug only manifests when the module receives and processes an API response containing an off-taxonomy label. REAL-INFRA: A mock API client that returns a controlled invalid-label response is sufficient; no real network needed. MOCK-HIDE: The mock is configured to inject the exact failure condition (invalid label), so it exposes rather than hides the bug. LLM-DEP: The test controls the response value directly — LLM non-determinism is irrelevant. REJECTION-GATE: Unit is rejected because 'the module returns unknown' describes the observable output of the module's public interface, which requires routing a fake API response through the module's full response-handling code path.",
+      "test_description": "Wire the classification module to a mock API client configured to return the label 'gibberish_label'. Call classify(document). Assert the return value equals 'unknown'. Also assert that a valid label (e.g., 'legal') is passed through unchanged, to confirm the filter is selective.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.32,
+        "Integration": 0.55,
+        "System": 0.07,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The module 'delegates the classification decision to an external AI API'. Consistency across repeated calls means the real LLM must return the same label each time for identical input. Real LLMs may vary across calls due to temperature > 0, distributed inference floating-point non-determinism, model version changes, or prompt sensitivity. A mock that always returns a fixed label trivially passes while hiding the actual failure — the LLM being non-deterministic. MOCK-HIDE: Any mock would trivially pass this test; the failure only appears with the real model. REJECTION-GATE: Integration is rejected because a caching layer (if present) would only mask LLM non-determinism — it would not verify the LLM produces consistent answers. The stated behavior targets classification repeatability, which is only falsifiable by making real LLM calls. System is rejected because the failure is not about HTTP-level behavior but about the AI model's output distribution.",
+      "test_description": "Call classify(document) N times (e.g., N=5) against the real external AI API with the same document string. Collect all returned labels. Assert that all N results are identical. Use a document with an unambiguous classification signal to reduce noise while still exercising real LLM behavior. Run for at least two documents from different taxonomy categories.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.09,
+        "System": 0.06,
+        "Agentic": 0.8,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Token budget enforcement is implemented by the module before or during API request construction — truncating input, setting max_tokens, or both. The failure (exceeding budget) manifests in what the module sends to the API. REAL-INFRA: A mock HTTP client can capture the outgoing request and verify that max_tokens is set correctly and the prompt length does not exceed the budget. No real API call is needed to observe whether the module enforces the limit. MOCK-HIDE: The mock captures request parameters, which is exactly the evidence needed — it does not hide the failure. LLM-DEP: Token counting is deterministic given a fixed tokenizer and document; the LLM's output is not involved. REJECTION-GATE: System/Agentic is rejected because API-reported token usage is not required to catch the enforcement failure — the bug is in request construction, which is observable via the outgoing request. Unit is rejected because budget enforcement typically spans the module's tokenizer call, input-truncation logic, and API request assembly — multiple internal components.",
+      "test_description": "Configure the module with a budget of B tokens. Wire it to a mock HTTP client. Call classify(document) with a document whose naive tokenization exceeds B. Capture the outgoing request. Assert that the prompt token count (measured with the same tokenizer the module uses) is ≤ B and that max_tokens in the request body is ≤ B. Also call with a document below the budget and assert it is not truncated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.63,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the module's error-handling and retry logic — the interaction between the HTTP response handler and the retry/backoff subsystem. REAL-INFRA: A mock HTTP client can be programmed to return a 429 (or equivalent rate-limit signal) on the first call and a valid response on the second; no real network behavior is needed to verify retry logic. MOCK-HIDE: The mock controls the exact error condition and counts calls, directly exposing whether a retry occurred. LLM-DEP: The retry behavior is deterministic control flow, not model output. REJECTION-GATE: System is rejected because the failure mode — missing or broken retry logic — is exposed by an in-process mock returning a 429 followed by a success; real network rate-limiting is not required to observe the bug. The 'waits' aspect can be verified by mocking the sleep/delay function or by patching time, avoiding slow real-time delays.",
+      "test_description": "Wire the module to a mock HTTP client that returns a 429 rate-limit response on the first call and a valid label response ('legal') on the second. Patch the wait/sleep function to a no-op to keep the test fast. Call classify(document). Assert the mock HTTP client was called exactly twice. Assert the return value is 'legal' (not an error or exception). Also assert the module raises or propagates an error if the rate limit persists beyond the retry limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.74,
+        "System": 0.16,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

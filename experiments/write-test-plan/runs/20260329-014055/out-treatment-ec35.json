@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-35",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Valid JSON payloads containing markdown-heavy strings parse successfully and proceed through normal hook input handling.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the JSON parser's handling of specific input content (code fences, backticks, $vars). No cross-module wiring is needed — the bug would manifest in a single parse call. REAL-INFRA: No OS/network. LLM-DEP: No. MULTI-STEP: No. Calling the parser with crafted markdown-heavy JSON strings and asserting success is sufficient.",
+      "test_description": "Parameterize a direct call to the hook input parser with JSON strings containing code fences (```), backtick sequences, $variable references, and shell-like tokens. Assert each call returns a successfully parsed object with no error, verifying the parser does not misinterpret markdown syntax as JSON structure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Truly malformed JSON payloads produce a json_parse_failed trace record with enough context to diagnose the malformed section.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode appears at the boundary between the parser and the trace sink. The parser alone cannot demonstrate that a properly-structured trace record is emitted with diagnostic context — that requires the parser to hand off failure state to a trace recording module. INTEGRATION-CHECK Down-test: A single function call cannot verify both parse failure AND trace record emission with context unless both are collapsed into one function (unlikely given 'trace record' and 'trace sink' are named separately). INTEGRATION-CHECK Up-test: No real OS/subprocess/LLM needed; in-process module wiring is sufficient. Integration survives.",
+      "test_description": "Wire the hook input parser to a real (or real-filesystem-backed) trace sink in-process. Feed a structurally malformed JSON payload (e.g., unclosed brace, misplaced colon). Assert that a trace record with type=json_parse_failed is emitted, and that the record includes a field identifying the problematic input section (e.g., byte offset, excerpt, or error message substring).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.65,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The local error-policy path maps parse failure to a handled result (no throw) and marks telemetry intent.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior describes the error-policy function's own logic: given a parse failure as input, return a handled result without raising. This is a single module's control-flow decision — no cross-module handoff is required to observe the failure. INTEGRATION-CHECK Down-test: Crafting a parse-failure error value and passing it directly to the error-policy function is sufficient to verify no-throw and the telemetry-intent marking. Unit is correct.",
+      "test_description": "Construct a synthetic parse-failure error object (matching the type the parser would produce) and pass it directly to the error-policy handler function. Assert the function returns a handled result (not raises), that the returned value carries a telemetry-intent marker, and that no exception propagates. Run without any real parser or trace sink wired in.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "In real process execution, malformed stdin does not crash the hook process and still emits the expected trace signal before exit.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Real process execution' is explicit — the behavior's failure mode is the hook process crashing or failing to emit a signal before exit, which can only be observed by spawning the hook as a real subprocess, piping malformed bytes to its stdin, and inspecting its exit code and stdout/stderr/trace output. In-process module wiring cannot reproduce a process crash or verify pre-exit signal emission. System is the minimum.",
+      "test_description": "Spawn the hook binary (or script) as a subprocess with a stdin pipe. Write a structurally malformed JSON payload to stdin and close the pipe. Assert the process exits with a non-crash exit code (e.g., not SIGSEGV/SIGABRT, and ideally a defined error code), and that the expected trace signal (e.g., a specific line on stdout/stderr or a trace file entry) was emitted before the process terminated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "A real hook invocation path (stdin -> parser -> trace sink) produces the expected trace artifact when malformed input is supplied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans three module boundaries — stdin reading, the parser, and the trace sink — so a single unit call cannot expose it. REAL-INFRA: Unlike behavior 4, 'real hook invocation path' here describes the pipeline wiring, not necessarily a real subprocess; stdin can be simulated as an in-process stream, and the trace sink can write to a temp file or in-memory buffer. No subprocess or real OS behavior is strictly required to observe whether the artifact is produced. INTEGRATION-CHECK: In-process module wiring is sufficient; no LLM or real network is needed. Integration survives.",
+      "test_description": "Assemble the stdin reader, parser, and trace sink modules in-process using a StringIO/BytesIO as the stdin source. Feed malformed JSON bytes through the full chain. After the pipeline runs, inspect the trace sink's output buffer or temp file and assert that a trace artifact of the expected type and shape was written. No subprocess is spawned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.63,
+        "System": 0.28,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Regression tests distinguish malformed-JSON failures from valid-markdown payloads, preventing false attribution to markdown content itself.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is about misclassification of error cause — attributing a parse failure to markdown content when the real cause is structural malformation. This is observable by calling the parser twice with two different crafted inputs (markdown-valid JSON vs. structurally broken JSON) and comparing outcomes. No cross-module wiring changes the classification. INTEGRATION-CHECK Down-test: Two direct parser calls with different inputs suffice. Unit is correct.",
+      "test_description": "In a single parameterized test, feed the parser (a) a valid JSON payload that contains extensive markdown (code fences, backticks, $vars) and (b) a structurally malformed JSON payload with no markdown. Assert that case (a) parses successfully and case (b) returns a parse error. The test acts as a regression guard: if both cases ever produce the same outcome, a false markdown-attribution is possible.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.13,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

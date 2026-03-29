@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The doubling-with-cap algorithm is entirely local to the backoff computation function — no module handoff is required. The bug (wrong exponent, missing cap clamp) lives in one function's arithmetic. REAL-INFRA: None needed. MOCK-HIDE: Sleep/wait can be stubbed or the delay value inspected directly without hiding any real failure. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Instantiate the backoff calculator with a known base delay and maximum cap. Feed it a sequence of consecutive failure counts (1, 2, 3, 4, 5) and assert the returned delay values match the expected geometric series (base*2^(n-1)) clamped at the configured maximum. No HTTP calls needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Both sub-tasks — recognizing a 429 (or equivalent rate-limit signal) and computing the resulting wait — live inside the retry handler itself. No cross-module data hand-off is required; a stubbed response object is sufficient to exercise the decision branch. REAL-INFRA: None. MOCK-HIDE: A fake response carrying the right status code/headers exposes the real classification and computation logic. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Construct a fake HTTP response object with status 429 and a Retry-After header (e.g., 30 s). Pass it directly to the retry handler's response-inspection method. Assert (a) it is classified as a rate-limit response, and (b) the computed next-wait value equals the value derived from the header (or the backoff formula when the header is absent). Test both header-present and header-absent cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here spans two modules: the retry orchestrator must hold the original request, invoke the HTTP transport a second time with the same arguments, and then unwrap the transport's success response for the caller. A Unit test on the retry handler alone can't confirm the transport is actually re-invoked with the original payload. REAL-INFRA: A real network call is not required — a stub transport is sufficient — but the stub must be wired to the retry orchestrator (two modules in contact). MOCK-HIDE: If the transport is mocked per-call rather than shared, a mis-wiring (e.g., the retry re-creates the request incorrectly) would go undetected. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Create a stub HTTP transport that returns 429 on the first call and 200 with a known payload on the second. Wire it into the retry client via dependency injection. Call `client.call(request)`. Assert: (a) the stub was called exactly twice, (b) both calls received identical request parameters, and (c) the resolved value equals the payload from the second response. Also stub out the sleep/timer so the test is fast.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.11,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The bug here is the wrong error type being thrown (or a generic Error being rethrown) after the retry counter hits the limit. This is a control-flow decision internal to the retry handler — no cross-module handoff determines the error type. A stub transport that always returns 429 exercises the full counter exhaustion path within a single module boundary. REAL-INFRA: None. MOCK-HIDE: Stubbing the transport to always 429 does not hide the error-type bug; the test fails if the wrong type is thrown. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Configure the retry client with maxRetries=3 and a stub transport that always returns 429. Call `client.call(request)` and assert it rejects with an instance of `QuotaExhaustedError` (not a generic Error or a plain object). Also assert the stub was called exactly 4 times (initial + 3 retries) to confirm the counter was respected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.4,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The description explicitly names three interacting concerns — initial call, backoff retries, and quota tracking — that must all terminate together. An infinite loop would only appear when the retry orchestrator, the quota tracker, and the backoff state machine are all wired together; a test of any one module in isolation cannot expose a cycle caused by their combined interaction. REAL-INFRA: None needed. MOCK-HIDE: Testing the retry loop alone (without quota tracking wired in) could miss a bug where the quota tracker resets the retry counter, causing the loop to restart. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Wire the retry orchestrator, backoff calculator, and quota tracker together with a stub transport that always returns 429. Use a fake timer (e.g., sinon fake timers) so backoff waits complete instantly. Set a conservative test timeout (e.g., 2 s wall-clock). Call `client.call(request)` and assert: (a) the promise rejects with QuotaExhaustedError within the timeout, and (b) the stub was called exactly maxRetries+1 times — proving no extra loop occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.73,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests from multiple concurrent async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is per-caller isolation — each caller mistakenly gets its own quota instance. This bug is invisible if you test a single caller; you need at least two callers wired to the same quota bucket instance at the same time. REAL-INFRA: No real network needed, but the async concurrency machinery of the runtime must be active (Promise scheduling, microtask queue) to expose real race conditions. MOCK-HIDE: If the quota bucket is mocked separately per caller, the shared-state bug is completely hidden. Must use the real quota bucket shared by injection. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Instantiate one shared quota bucket (capacity=2) and inject it into two separate client instances. Issue three concurrent requests (Promise.all) using both clients against a stub transport that always succeeds. Assert the quota bucket's consumed-count equals 3 (not 2 or 1), confirming all requests decremented the same counter. Also verify that when the bucket is pre-filled to capacity, a third concurrent call receives a rate-limit error rather than proceeding.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO ordering is a property of the queue/dispatcher module interacting with the async scheduler and the transport. A unit test on the queue alone (checking internal state) cannot confirm that dispatch actually occurs in submission order when multiple Promises are competing. The ordering guarantee only becomes observable when requests flow through the queue, hit the dispatcher, and reach the transport. REAL-INFRA: No real network needed, but real async scheduling (microtask/macrotask ordering) must be active to expose ordering violations. MOCK-HIDE: If the transport is mocked with a single catch-all stub, call order is still recorded; this does not hide the bug. LLM-DEP: No. MULTI-STEP: No.",
+      "test_description": "Pause the stub transport (simulate it being busy) using a manually resolved Promise gate. Enqueue four requests with distinct identifiers in a known order. Release the gate and let all requests dispatch. Collect the order in which the stub transport received each call. Assert the dispatch order matches submission order exactly. Use fake timers to control async scheduling and avoid flakiness.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Out-of-stock products are excluded from recommendations regardless of relevance score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure — a filtered-out product appearing in results — lives entirely within a stock-status predicate applied to a product list. No module wiring needed. Down-test: call filter(products=[out_of_stock_product, in_stock_product]) and assert only the in-stock product survives. The function's logic is self-contained; no DB, network, or cross-module state is required to surface the bug.",
+      "test_description": "Create two Product objects, one with stock_status=OUT_OF_STOCK and one with stock_status=IN_STOCK (both with high relevance scores). Call the availability filter function directly. Assert the result list contains only the in-stock product.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The user preference filter excludes product categories the user has explicitly blocked.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure — a blocked-category product appearing in results — lives within a predicate that checks product.category against user.blocked_categories. No cross-module wiring is needed. Down-test: construct UserPreferences(blocked_categories=['Electronics']) and a list of products mixing Electronics and non-Electronics; call the preference filter function directly and assert Electronics products are absent.",
+      "test_description": "Construct a UserPreferences object with blocked_categories=['Electronics', 'Toys'] and a product list containing items from blocked and non-blocked categories. Call the preference_filter function directly. Assert no product in the result belongs to a blocked category, and all non-blocked products remain.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The recommendation algorithm ranks products matching the user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: If the scoring function is a deterministic function of (product_features, user_signals), the failure — wrong relative ranking — is reproducible by calling the scorer with crafted inputs. No DB or network needed. Down-test: user_browsing=[category_A], products=[prod_A (category_A), prod_B (unrelated category)]; call score/rank function directly and assert rank(prod_A) > rank(prod_B). INTEGRATION-CHECK passes because in-process crafted inputs suffice to expose the bug.",
+      "test_description": "Construct a UserSignals object with recent_browsing=['category_A'] and two Product objects (one in category_A, one in an unrelated category). Call the ranking/scoring function directly with these inputs. Assert the category_A product receives a higher score and appears first in the ranked output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.28,
+        "System": 0.04,
+        "Agentic": 0.1,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns the correct page of results with stable ordering — page 2 requested twice returns identical results when underlying data is unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Pagination correctness (correct slice, correct offset) and ordering stability are both properties of a pure function: paginate(ranked_list, page, page_size). No cross-module state or I/O is required to expose a bug here. Down-test: construct a ranked list of 20 products; call paginate(list, page=2, page_size=5) twice; assert both calls return the same 5 items in the same order.",
+      "test_description": "Create a deterministic list of 20 ranked Product objects. Call the pagination function with page=2, page_size=5 twice in succession without modifying the list. Assert both results are identical (same items, same order) and contain exactly the items at positions 5–9 of the input list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The recommendation algorithm surfaces at least one product from a category the user hasn't browsed before (serendipity requirement).",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Serendipity requires computing the set of categories not yet visited by the user AND selecting a product from that complement set from the catalog. This is a cross-module boundary: user-history data combined with catalog data feeding into the serendipity injection step. The failure — all recommendations fall within already-browsed categories — only appears when these two data sources are wired together. Down-test fails: no single function receives all needed information without module composition. INTEGRATION-CHECK: a real DB/network is not needed; in-process module wiring with local test data suffices.",
+      "test_description": "Seed a local in-memory user profile store with browsing history limited to category_A and category_B. Seed a local product catalog with products spanning category_A, category_B, and category_C. Call the recommendation pipeline (history lookup → ranking → serendipity injection). Assert that the returned recommendation list contains at least one product from category_C.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.08,
+        "Agentic": 0.08,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A new user with no purchase or browsing history receives popularity-based recommendations rather than an empty result set.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — empty results for a new user — only appears when the history-lookup module returns empty, and the downstream recommendation module fails to fall back to the popularity path. The bug lives at the handoff between these two modules. Down-test fails: testing the scoring function alone with empty inputs doesn't exercise the routing/fallback logic. INTEGRATION-CHECK: both conditions hold — (a) the failure requires cross-module state (history lookup → fallback routing), and (b) in-process wiring with a local stub history store is sufficient.",
+      "test_description": "Create a new user ID with no entries in the local history store and no entries in the local purchase store. Call the end-to-end recommendation function for that user. Assert the result is non-empty and that the products returned match the top-N products sorted by global popularity score from the local catalog.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records the correct product ID, position in the list, and timestamp for each recommendation the user clicks.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — wrong or missing fields in the recorded event — only appears when the click handler writes to the event store and we read it back. A unit test of the event constructor alone doesn't catch store-write or serialization bugs. INTEGRATION-CHECK: (a) the bug requires cross-module wiring (click handler → event store), and (b) a local in-process event store (in-memory DB or local file) is sufficient — no real network or external service needed.",
+      "test_description": "Seed a local in-memory click event store. Simulate a user click on product_id='P42' at list_position=3, capturing the timestamp before the call. Call the click_tracking handler. Read the stored event back from the local store. Assert event.product_id='P42', event.position=3, and event.timestamp is within an acceptable delta of the captured timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.74,
+        "System": 0.11,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Performance at scale depends on OS scheduling, real I/O throughput, memory allocation, and actual CPU time — none of which in-process mocks can reproduce faithfully. A unit or integration test with a small synthetic catalog cannot expose algorithmic complexity or I/O bottlenecks that only manifest at 100K-product scale. A real end-to-end timed request against a fully loaded system is required to catch this failure reliably.",
+      "test_description": "Load a local database with 100,000 product records matching the production schema. Start the recommendation service as a real subprocess. Issue a real HTTP GET /recommendations?user_id=U1 request using a test HTTP client. Measure wall-clock elapsed time from request send to response receipt. Assert elapsed_ms < 200. Run across multiple user profiles to reduce noise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.82,
+        "Agentic": 0.05,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased, the recommendation algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — a purchased product still ranking highly — only appears when the purchase event updates user state AND the subsequent recommendation call reads that updated state. Neither module in isolation can surface this bug. INTEGRATION-CHECK: (a) the failure is at a cross-module boundary (purchase recorder → user signal store → ranking function), and (b) in-process wiring with a local signal store is sufficient — no real network or AI model needed.",
+      "test_description": "Seed a local user signal store with purchase_history=[] for user U1. Call get_recommendations(user=U1) and record the rank of product P99. Call record_purchase(user=U1, product=P99). Call get_recommendations(user=U1) again. Assert that P99's rank in the second call is strictly lower than in the first call, or that P99 is absent from the results entirely.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Recommendation results are deterministic for the same user state — two consecutive calls with no intervening activity return the same ranked list.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: If the ranking algorithm is a pure function of its inputs (user signals, product features), nondeterminism is a property of that function and is exposed by calling it twice with identical arguments. No module wiring or external state is required. Down-test: call rank(products, user_signals) twice with the same inputs; assert the two outputs are equal. If serendipity introduces randomness, that function should also be tested in isolation with a fixed seed.",
+      "test_description": "Construct a fixed UserSignals object and a fixed list of Product objects. Call the recommendation ranking function twice with identical arguments, no state mutation between calls. Assert the two returned ranked lists are identical in order and content. If the serendipity step uses a random seed, also assert determinism when the seed is fixed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

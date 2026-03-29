@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Parsing logic for speaker labels is Unit, but the real failure mode is whether (a) the code correctly requests speaker diarization from the STT API and (b) the STT model correctly identifies and labels speakers for a given audio file. MOCK-HIDE: Mocking the STT to return pre-labeled output hides both failure modes — the code may never request diarization, or the real API may return labels in a different schema. REAL-INFRA: Requires a real STT API call. LLM-DEP: Speaker diarization is an AI/ML classification task; quality is non-deterministic across different audio inputs. REJECTION-GATE: System (real HTTP only) would catch schema mismatches but not diarization quality failures — the AI model may silently produce unlabeled or merged-speaker output for difficult audio, which only running against a real model reveals.",
+      "test_description": "Submit a real multi-speaker audio fixture (≥2 distinct speakers) to the live STT API with diarization enabled. Assert that the returned transcript object contains per-utterance speaker labels (e.g., SPEAKER_0, SPEAKER_1) and that at least two distinct speaker IDs appear. Verify the transcript is forwarded to the LLM summarization step with speaker labels intact in the prompt or payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.25,
+        "Agentic": 0.45,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not in wiring modules together — it is whether the LLM correctly identifies all task assignments and correctly maps each to the right attendee. This is an extraction and attribution quality problem. MOCK-HIDE: Mocking the LLM to return a pre-formed summary trivially passes; the real failure only appears when the real model under-extracts or misattributes tasks. LLM-DEP: Correctness depends entirely on LLM generation quality — different phrasings of the same task assignment may or may not be caught. Running 100 times against a real LLM will produce varying action-item sets. REJECTION-GATE: Integration is insufficient because even a perfectly wired pipeline will silently miss action items if the LLM prompt or model capability is inadequate; only a real model call reveals that gap.",
+      "test_description": "Construct a transcript fixture where each of N named attendees (e.g., 3) is explicitly assigned a task (e.g., 'Alice, please file the report by Friday'). Send the transcript to the real LLM summarization step. Assert that the returned structured summary's action_items list contains at least one item attributed to each of the N attendees, using exact or normalized name matching.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.78,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is LLM categorization — the model must distinguish 'we decided X' from background discussion and place it in the correct structured field. This is not a routing or wiring bug; it is a generation quality bug. MOCK-HIDE: Mocking the LLM response makes this test trivially pass regardless of whether the real model would categorize correctly. LLM-DEP: Whether a particular phrasing of a decision gets categorized as a decision vs. narrative is non-deterministic across models, prompts, and phrasings. REJECTION-GATE: System level (real HTTP, real API call) without caring about model behavior is not sufficient — the model could respond with HTTP 200 and a perfectly valid JSON structure that places all decisions in the narrative. Only inspecting real model output against a known-decisions fixture catches the real failure.",
+      "test_description": "Construct a transcript fixture containing 2–3 clearly phrased key decisions (e.g., 'We agreed to migrate to the new vendor by Q3'). Submit to the real LLM summarization endpoint. Assert that the structured summary's decisions field contains entries matching each known decision, and that the narrative/notes field does not contain those decision strings as the primary location.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.78,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: The splitting logic alone is Unit, but this behavior makes a claim about the full segmented pipeline — split → STT per segment → LLM summarize per segment → merge into coherent whole. The coherence of the merged summary cannot be verified without real agentic steps. MULTI-STEP: This is explicitly a sequence of real agentic steps: (1) real STT call for each segment (AI/ML diarization, non-deterministic), (2) real LLM summarization per segment, (3) real LLM or algorithmic merge. The coherence claim ('single coherent summary') is a quality assertion over the chained output. REJECTION-GATE: Agentic (one real model call) is not sufficient because the behavior requires multiple sequential agentic steps — a failure can arise in STT for segment 2, in summarizing segment 3, or in the merge step failing to reconcile overlapping context across segments. Only running the full chained sequence catches cross-segment boundary failures.",
+      "test_description": "Prepare a real audio fixture of 65–70 minutes duration (or a test double that triggers the segmentation code path). Submit it to the service. Assert that: (a) the service emits at least 2 STT calls against the real STT API, (b) each segment produces an intermediate summary from the real LLM, (c) the final merged output is a single structured summary object, and (d) action items and decisions from both the first and last segments appear in the final merged result.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.15,
+        "System": 0.08,
+        "Agentic": 0.22,
+        "Workflow": 0.5
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "REAL-INFRA: Requires real file upload, real STT API, real LLM, and real output delivery — all external infrastructure. MULTI-STEP: The behavior explicitly names four sequential steps, each potentially agentic (STT, LLM). A failure can occur at any step, and inter-step data handoff failures (e.g., malformed STT output crashing the LLM prompt builder) only appear when the full chain runs. MOCK-HIDE: Mocking any step hides the most common real-world failures: auth errors, response schema drift, timeout behavior, and end-to-end latency. REJECTION-GATE: Agentic (one real LLM call) is insufficient because the behavior covers the full chain including audio upload and delivery, both of which are System-level concerns on top of the Agentic LLM step. The combination of System infrastructure + multiple real AI model calls in sequence is definitionally Workflow.",
+      "test_description": "Submit a real 10–15 minute meeting recording via the service's upload endpoint. Poll or await completion. Assert that: (a) the response HTTP status is 200 with no error fields, (b) the structured output JSON contains non-empty action_items, decisions, and attendees fields, (c) at least one attendee name is present, and (d) no human-in-the-loop prompt or manual retry was required. Run against the live STT and LLM APIs with production-equivalent credentials.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.07,
+        "Agentic": 0.1,
+        "Workflow": 0.8
+      }
+    }
+  ]
+}

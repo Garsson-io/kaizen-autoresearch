@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not just 'validator returns false' — it's whether the pipeline correctly routes a rejected row to the DLQ and attaches the correct row number. That routing is a hand-off between the validation module and the DLQ writer. A Unit test on the validator alone cannot catch a bug where valid rejections are silently dropped or written with wrong row numbers. REAL-INFRA: A local in-memory or local-file DLQ is sufficient; no external service needed. MOCK-HIDE: Mocking the DLQ writer passes even if the router never calls it. LLM-DEP: No. REJECTION-GATE: Considered Unit — disqualified because 'appear in the dead-letter queue' explicitly tests cross-module routing, not just validator logic.",
+      "test_description": "Wire the validator and DLQ writer together against a local DLQ implementation. Feed a small CSV with at least two rows: one valid and one with a missing required field. Assert the valid row is not in the DLQ, the invalid row is present in the DLQ, and the DLQ entry carries the correct original row number (e.g., row 2).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.74,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode lives entirely inside the date-parsing and formatting logic of a single transformation function — no module boundary is crossed. A bug here (e.g., US format MM/DD/YYYY parsed as DD/MM/YYYY) is fully observable by calling the function directly with test inputs. REAL-INFRA: No I/O. MOCK-HIDE: Nothing to mock. LLM-DEP: Parsing is deterministic. REJECTION-GATE: No higher-level disqualification present — correctness of this transformation does not depend on any external state.",
+      "test_description": "Parametrize a unit test over at least three input format families (e.g., '2024-07-15', '07/15/2024', '15.07.2024') and several edge cases (end-of-month, leap day, year boundaries). Assert each input maps to the same canonical output string. Run entirely in-process with no I/O.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.91,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Correctness of the processing logic is irrelevant here; the failure mode is resource exhaustion or wall-clock timeout under realistic load. These are OS-level concerns. REAL-INFRA: Measuring resident memory requires OS process introspection (e.g., /proc, psutil, or resource.getrusage). Wall-clock time requires real elapsed time under real I/O load. Both are OS behaviors. MOCK-HIDE: Mocking any layer eliminates the very load the test is meant to apply — it would always pass. LLM-DEP: No. REJECTION-GATE: Considered Integration — disqualified because memory and timing measurements require real OS-level process monitoring, not just module wiring. A synthetic in-process test cannot faithfully reproduce memory pressure from 500k rows of actual CSV parsing.",
+      "test_description": "Generate a synthetic 500,000-row CSV file on disk. Run the full pipeline executable (or the pipeline entry-point function in a subprocess) against it, targeting a local or containerized PostgreSQL and a local DLQ. Use psutil or resource.getrusage to track peak RSS throughout. Assert peak memory stays below the configured limit and total elapsed time is under the configured timeout.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.87,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the pipeline's retry logic when it receives an error response from the S3 client — specifically whether it retries at all and whether the backoff intervals grow exponentially. This is a boundary between the S3 client adapter and the pipeline's retry/orchestration layer. REAL-INFRA: Real S3 is not required; the failure can be reproduced by injecting a fake S3 client that returns 503 on the first N calls. No real HTTP needed. MOCK-HIDE: The S3 client must be a real (or real-shaped) adapter that the pipeline actually routes through; a fully stubbed interface that never calls retry hooks would miss wiring bugs. LLM-DEP: No. REJECTION-GATE: Considered System (real HTTP to S3 or localstack) — disqualified because the retry logic is in the pipeline code itself, not in network-level behavior; a controlled fake returning 503 is sufficient to exercise all retry/backoff code paths.",
+      "test_description": "Create a fake S3 client that returns a 503 response for the first two calls, then succeeds. Freeze or spy on the sleep/delay calls the pipeline makes between retries. Assert the pipeline does not raise on the first 503, that it retries at least twice, and that each retry delay is at least double the previous one. Assert the batch ultimately completes successfully.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.72,
+        "System": 0.19,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the database either accepting a duplicate insert or failing in a way that causes the row to be missing — the deduplication mechanism (e.g., ON CONFLICT DO NOTHING, a unique constraint, or a checkpointing table) is enforced by the real database engine, not by application logic alone. REAL-INFRA: A local PostgreSQL instance (Docker or embedded) is sufficient; this fits the Integration definition of 'local DB'. No real network or subprocess is needed. MOCK-HIDE: Mocking the DB layer is completely unsuitable here — any mock would simply not insert duplicates by default, hiding whether the real schema has the right constraints or whether the pipeline's upsert logic is correct. LLM-DEP: No. REJECTION-GATE: Considered Unit — disqualified because uniqueness guarantees are enforced by the database engine, which cannot be replicated by in-process mocking.",
+      "test_description": "Spin up a local PostgreSQL instance (e.g., via Docker or pytest-postgresql). Run the pipeline against a small CSV (e.g., 10 rows), interrupt it after half the rows are committed, then run it again from the start with the same input. Query the target table and assert the total row count equals exactly the number of unique input rows with no duplicates. Also assert all rows are present (no data loss from the interruption).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

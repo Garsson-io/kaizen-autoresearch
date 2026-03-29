@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Recursive filesystem watching is implemented differently across OSes (inotify on Linux, FSEvents on macOS, ReadDirectoryChangesW on Windows) and depends on whether the watcher library is configured with the recursive flag and whether the underlying OS API propagates events for nested paths. MOCK-HIDE: Mocking the watcher would confirm the handler works but would never catch a misconfigured or non-recursive watcher. The failure mode — events for subdirectory files not being emitted — only manifests against a real filesystem and real watcher instantiation.",
+      "test_description": "Start the daemon against a temporary watched directory. Create a nested subdirectory (e.g., watched/sub/deep/) and write a file into it. Assert that the transformation pipeline receives and produces output for that file within the expected timeout, with no daemon restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.12,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The deduplication mechanism — tracking seen paths with timestamps and comparing against a configurable window — is a self-contained algorithm. The failure mode (duplicate requests not being suppressed) is entirely reproducible by calling the deduplication function with two identical path arguments spaced within the window. No module boundary crossing or real I/O is needed. INTEGRATION-CHECK Down-test: a crafted call with the same path twice within the window suffices to expose the bug.",
+      "test_description": "Instantiate the deduplication module with a configured window (e.g., 500 ms). Submit the same file path twice in quick succession. Assert the second submission is rejected/dropped. Also verify a submission for the same path after the window expires IS accepted, confirming window expiry logic.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.22,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is not in the debounce/coalescing algorithm in isolation — it is in the wiring between the raw event listener and the downstream processing pipeline. If the coalescing logic is bypassed or not applied before dispatch, multiple processing calls occur. This boundary between the event emitter and the pipeline must be exercised. INTEGRATION-CHECK Down-test: injecting multiple synthetic events for the same file path into the event handler — without a real OS watcher — is sufficient to reproduce the failure. REAL-INFRA/Up-test: real OS events are not required because the failure mode is the handler's coalescing logic, not OS-specific event semantics.",
+      "test_description": "Wire the real event handler to a controlled test event emitter (no real filesystem watcher). Fire three rapid-succession events for the same file path. Assert the processing pipeline mock receives exactly one invocation. Vary the inter-event delay around the debounce threshold to verify the boundary condition.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.23,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Directory deletion and inode replacement invalidate OS-level watch descriptors in ways that are entirely OS-specific (inotify returns IN_DELETE_SELF, FSEvents coalesces, etc.). Whether the watcher library re-establishes a watch on the newly created inode depends on OS behavior and library recovery logic. MOCK-HIDE: Any in-process simulation of directory deletion cannot reproduce the watch descriptor invalidation that causes the daemon to silently stop receiving events. The failure is only observable against a real filesystem with real OS events.",
+      "test_description": "Start the daemon against a real temporary directory. Programmatically delete the entire watched directory (os.rmdir/fs.rmdirSync). Re-create it. Write a file into the recreated directory. Assert the daemon processes the file without restart. Include a timeout assertion to catch the case where the daemon silently stops watching.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.87,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The ordering responsibility is a discrete sorting/scheduling step. The failure mode — files processed out of timestamp order — is fully reproducible by constructing a batch of file-event objects with controlled timestamp fields and passing them to the ordering function. No module wiring or I/O is required to expose a wrong comparator, missing sort, or off-by-one in timestamp parsing. INTEGRATION-CHECK Down-test: crafted event objects with explicit timestamps suffice. The broader pipeline wiring does not affect whether the sort is correct.",
+      "test_description": "Construct an array of synthetic file event objects with out-of-order creation timestamps (including edge cases: identical timestamps, epoch boundaries). Pass them to the scheduling/ordering function. Assert the returned processing sequence matches ascending timestamp order. Test tie-breaking behavior if specified.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.3,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Detecting an in-progress write requires OS-level mechanisms: polling for file size/mtime stability, checking for open file handles (lsof/fuser or platform APIs), or attempting an exclusive open. These behaviors are OS-specific and depend on whether the writing process holds an exclusive lock and how the OS exposes that state. MOCK-HIDE: Simulating 'file still being written' in-process (e.g., truncating a mock stat result) cannot reproduce the actual lock/handle state visible to the OS, so the daemon's real readiness check would never be exercised. Only a concurrent real writer process can expose whether the daemon's wait-for-completion logic works.",
+      "test_description": "Start the daemon. In a separate OS process (or by holding an open write file handle), begin writing to a file in the watched directory but do not close/flush it. Assert the daemon does NOT invoke the processing pipeline within a reasonable window. Then close the write handle and assert the daemon subsequently processes the file exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.15,
+        "System": 0.78,
+        "Agentic": 0,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

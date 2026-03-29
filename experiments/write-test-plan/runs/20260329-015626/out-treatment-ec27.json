@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "TSP heuristic produces route ≤ 1.5x optimal for up to 20 stops",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely inside the heuristic algorithm — a single function that takes a distance matrix or coordinate list and returns an ordered route. No module handoff is needed to expose the bug. REAL-INFRA: No I/O. MOCK-HIDE: No external dependency to mock; synthetic coordinate grids (e.g., grid layouts with known optimal) are sufficient and deterministic. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — the optimizer function can be invoked directly with pre-computed coordinates, so the geocoding or orchestration layer adds nothing to catching a heuristic quality failure.",
+      "test_description": "Instantiate the TSP heuristic function directly with a set of synthetic coordinate inputs (e.g., a 4×5 grid of 20 points whose optimal tour length is analytically known). Assert that the returned route length is ≤ 1.5× the known optimal. Also test with random permutations of the same points to confirm the bound holds regardless of input order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.13,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Delivery time window estimates are computed correctly from distance and configured average speed per road type",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is a pure arithmetic function: time = distance / speed, with speed looked up from a config map keyed by road type. Both inputs are caller-supplied; no module boundary handoff is needed to expose a wrong formula or wrong config lookup. REAL-INFRA: No. MOCK-HIDE: No external dependency; the road-type config is a plain dict and can be passed directly. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — the time-window computation does not need to be wired to a real geocoder or optimizer to reveal a formula error; the failure shows up when calling the estimator function in isolation with known inputs.",
+      "test_description": "Call the time-window estimator function directly with a set of (distance, road_type) pairs and a configuration map of average speeds. Assert the returned window matches the expected value (distance / speed). Parametrize over multiple road types (urban, highway, rural) and edge cases (zero distance, maximum configured speed) to catch off-by-one errors in unit conversion or wrong config key lookup.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The validator takes two scalar inputs (total_estimated_time, remaining_shift_hours) and either accepts the route or returns the excess. This is a single conditional and subtraction — no inter-module handoff needed. REAL-INFRA: No. MOCK-HIDE: No external dependency. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — the validator does not need to be wired to the time estimator or optimizer to reveal a wrong comparison or wrong excess computation; the failure is fully observable when calling the function directly with synthetic scalars.",
+      "test_description": "Call the shift-hours validator directly with (total_time, shift_hours) pairs covering: total_time < shift_hours (expect acceptance), total_time == shift_hours (boundary — expect acceptance), and total_time > shift_hours (expect rejection with correct excess = total_time - shift_hours). Assert the return type and value in each case. Also assert that a zero-remaining-shift edge case rejects any positive route time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address fails geocoding (API returns no results), the service skips that stop, optimizes remaining addresses, and reports which were skipped",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces at the handoff between the geocoding layer and the route-optimization orchestrator. Specifically: (a) the geocoding client returns 'no results' for one address, (b) the orchestration layer must intercept that failure without aborting the whole request, (c) it must forward only the successful coordinates to the optimizer, and (d) it must accumulate the failed address into a 'skipped' report. A Unit test of any single one of these sub-steps cannot confirm all four interact correctly. REAL-INFRA: The real geocoding HTTP API is not needed — the geocoding client can be replaced with a stub that returns 'no results' for a designated address. MOCK-HIDE: Mocking the geocoding client is safe here because the behavior under test is the orchestration logic, not the geocoding API itself. LLM-DEP: No. MULTI-STEP: No agentic steps. REJECTION-GATE: Unit was considered and rejected because no single function encapsulates all four sub-steps; the bug (e.g., aborting on first geocoding failure, or silently dropping the skipped report) only becomes observable when the modules are wired together.",
+      "test_description": "Wire together the geocoding client stub, the orchestration service, and the route optimizer using real module instances (no mocks of orchestration internals). Configure the geocoding stub to return valid coordinates for all addresses except one designated address, for which it returns an empty result. Invoke the full service entry point with a list of 4 addresses including the failing one. Assert: (1) the returned route contains exactly 3 stops (the successful addresses), (2) the skipped-addresses report contains exactly the one failing address, (3) the optimizer was invoked with only the 3 successful coordinate sets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses are consolidated into a single stop with combined delivery items, not visited twice",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The deduplication step — normalizing duplicate address strings, merging their delivery-item lists, and producing a deduplicated stop list — is a self-contained transformation applied before geocoding. The failure ('visited twice') would be observable directly on the output of that transformation function without invoking the geocoder or optimizer. REAL-INFRA: No. MOCK-HIDE: No external dependency; inputs are plain address+items structs. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered. It would only be required if deduplication were done post-geocoding (detecting same coordinates for slightly different address strings), which would require the geocoding client to be wired in. The behavior description says 'duplicate addresses' — implying string-level identity — so deduplication can and should be caught at the pure-function level. If an implementation chooses coordinate-level deduplication, the minimum level rises to Integration; under the stated behavior, Unit is sufficient and Integration is a contingent escalation.",
+      "test_description": "Call the address-deduplication function directly with a list of stops where two entries share an identical address string but carry different delivery items. Assert: (1) the returned stop list has one fewer entry than the input, (2) the consolidated stop's delivery-item list is the union of both input item lists, (3) a third unique address is unchanged. Also test with three identical addresses to confirm n-way consolidation, and with no duplicates to confirm the passthrough case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.33,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

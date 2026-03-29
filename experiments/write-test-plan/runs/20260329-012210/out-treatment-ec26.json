@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cron parser rejects invalid expressions with descriptive errors",
+      "minimum_level": "Unit",
+      "justification": "Pure parsing logic: string in, validated object or structured error out. No module handoffs, no I/O, no external dependencies. The failure mode is entirely inside the parser's validation logic — month=13, day=32, malformed field counts. Mocking nothing; the function is the unit under test.",
+      "test_description": "Parameterize across invalid inputs: month field > 12, day field > 31, out-of-range minute/hour values, wrong field count, non-numeric tokens in numeric fields, and empty string. For each, assert the parser raises the expected exception type and that the message contains the offending field or value. Also assert valid expressions do NOT raise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Next-run-time calculator returns correct timestamps for edge cases",
+      "minimum_level": "Unit",
+      "justification": "Calendar arithmetic is deterministic and self-contained. 'Last day of month' (L) and 'nearest weekday' (W) are algorithm correctness questions, not module-boundary questions. A Unit test with fixed start times and real datetime objects (no mocks) will catch wrong calendar math. Mocking datetime would hide real edge cases, so we use real datetime with pinned inputs.",
+      "test_description": "For a set of (cron_expr, start_datetime, expected_next_N_timestamps) triples — including: standard `*/5 * * * *`, `0 0 L * *` (last day of month across months of different lengths), `0 9 15W * *` (nearest weekday to the 15th), and a year-boundary case — call next_run_times(expr, start, n=3) and assert each returned timestamp exactly matches the expected value. Use UTC datetimes to avoid DST interference.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Overlap detector identifies schedules firing within the minimum gap",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS applies: the overlap detector must consume real run-time sequences produced by the calculator. If the calculator is mocked with pre-built timestamp lists, the test cannot catch failures where the calculator produces subtly wrong times (e.g., L/W edge cases) that only become overlapping in combination. The real failure mode lives at the handoff between the calculator and the detector — mocking the calculator removes the boundary where bugs appear. Two modules must be wired together with real cron inputs.",
+      "test_description": "Construct two Schedule objects from raw cron strings. Wire them through the real calculator to produce run-time sequences, then pass both to the overlap detector with a 5-minute minimum gap. Assert: (a) schedules that fire 3 minutes apart are flagged with the correct conflicting window; (b) schedules that fire 6 minutes apart are not flagged; (c) for an L/W edge case where months differ in length, verify the detector correctly handles month boundaries without false positives. No mocking of the calculator.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.78,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling produces correct times across DST transitions",
+      "minimum_level": "Integration",
+      "justification": "MOCK-HIDE: the entire failure mode is in how the scheduler interacts with the real timezone library (zoneinfo/pytz). Mocking timezone conversion would by definition suppress the DST gap and fold behaviors under test. The real library must be invoked to produce the spring-forward gap (2:30 AM doesn't exist → should map to 3:00 AM or be skipped per policy) and fall-back fold (2:30 AM is ambiguous → must pick the correct occurrence). This is Integration: the scheduler logic + real timezone library wired together, no subprocess or network needed.",
+      "test_description": "Using the America/New_York zone and pinned DST transition dates (2024-03-10 spring-forward, 2024-11-03 fall-back): (a) schedule `30 2 10 3 *` and assert the computed next run time skips the non-existent 2:30 AM or maps it forward per the engine's documented DST-gap policy; (b) schedule `30 2 3 11 *` and assert the engine emits exactly one run time and selects the correct fold (pre- or post-transition) as documented; (c) assert both return timezone-aware datetime objects in the target zone, not UTC or naive. Use the real zoneinfo or pytz library — no datetime mocking.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Engine applies skip vs backfill policy when a scheduled run time has passed",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the failure mode requires the calculator to produce a past-due timestamp, the engine to detect it relative to 'now', and the policy branch to execute correctly. If the calculator is mocked, the test cannot catch cases where the calculator's output differs from what the policy engine expects (e.g., off-by-one on the schedule window, or DST causing the run time to be ambiguously in the past). The handoff between calculator output and policy evaluation is exactly where bugs appear in practice.",
+      "test_description": "Set a fixed 'current time' by injecting a clock dependency. For a skip-policy job: configure a cron that fired 10 minutes ago, invoke the engine's next-action resolver, and assert it returns SKIP with the missed timestamp recorded. For a backfill-policy job with the same scenario, assert it returns BACKFILL with the correct missed run time. Also test a job that fired 1 second ago vs the configured grace window boundary. Use the real calculator to derive past-due timestamps from cron expressions — do not hardcode timestamps or mock the calculator.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

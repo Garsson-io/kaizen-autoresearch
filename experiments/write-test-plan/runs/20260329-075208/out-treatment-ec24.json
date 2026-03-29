@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves meaning, not just word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is not about module wiring — it is about whether the neural MT model actually produces coherent, meaning-preserving output. LLM-DEP: 'Grammatically coherent' and 'preserves meaning' are quality properties that only a real neural MT model can exhibit or violate. A stub always returns a fixed string, so a stub-based test would always pass regardless of whether the real model produces garbage. REJECTION-GATE: Integration/System would use a stub or fake API — that hides the exact failure described (low quality output from the model). There is no behavior text that disqualifies Agentic. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Agentic, OUTPUT-LEVEL = Agentic, no override.",
+      "test_description": "Call the real neural MT API with a representative source sentence (e.g., an idiomatic phrase that has no word-for-word equivalent). Assert that the returned translation is not a token-by-token literal substitution by checking against a reference translation or using a BLEU/similarity threshold. Run several semantically distinct inputs to cover meaning-preservation. This must use the real model endpoint because a stub cannot expose translation quality failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the HTTP client and the fallback routing logic — the service must catch the 503, suppress it, and invoke the dictionary translator. This requires multiple modules wired together. REAL-INFRA: A stub HTTP client that returns 503 is sufficient to reproduce the failure; real network infrastructure is not needed. LLM-DEP: Correctness here is about error routing, not translation quality — a stub response is valid. INTEGRATION-BRAKE: (a) No real OS/network needed — in-process stub reproduces the 503. (b) No AI/ML output quality dependency. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Wire the service with a stub HTTP client configured to return HTTP 503. Call the service's translate() method. Assert that the response contains a non-error translation result (from the dictionary fallback) and that no exception propagates to the caller. Also assert that the dictionary translator was invoked exactly once. Use a real SQLite DB (seeded with the test phrase) so the fallback path executes end-to-end.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the fallback lookup code and the SQLite database — SQL query bugs, schema mismatches, or encoding issues only appear when the real DB is exercised. A mocked DB would mask these. REAL-INFRA: SQLite is local and in-process; no real network or OS-level infrastructure is required. An in-process SQLite instance (even in-memory) is sufficient. LLM-DEP: No AI/ML output involved. INTEGRATION-BRAKE: (a) No real network/OS. (b) No AI/ML. (c) No chained agentic steps. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Seed an in-memory SQLite database with known phrase-translation pairs. Instantiate the dictionary fallback component wired to this DB. Call the lookup for a phrase that exists and assert the exact stored translation is returned. Also assert that a phrase not in the DB returns a defined sentinel (null, empty, or a raised exception per spec). This exercises the real SQL query path without mocking the DB layer.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two parts: (1) a deterministic algorithm (edit distance), which is Unit-testable in isolation, and (2) persistence of the metric, which requires a real DB boundary. Mocking the DB layer for the storage assertion would trivially pass regardless of whether the metric is correctly persisted. REAL-INFRA: SQLite is local and in-process; no real network needed. LLM-DEP: Edit distance is fully deterministic. INTEGRATION-BRAKE: (a) No real network/OS. (b) No AI/ML. (c) No chained steps. REJECTION-GATE: Unit covers only the computation half; 'and stores the metric' explicitly requires verifying persistence, which needs a real DB boundary. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration (because of the storage assertion), OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Provide two known strings (primary output and fallback output) with a precomputed expected edit distance. Invoke the quality tracker component with both strings wired to a real in-memory SQLite DB. Assert the stored metric row contains the correct computed edit distance value. Run a second case where both strings are identical (distance = 0) and a third where they are maximally different, to confirm the algorithm is not hardcoded.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans the orchestration layer — the service must invoke the primary translator, capture the fallback translation for comparison, and dispatch a background task without blocking the response. This only appears when multiple modules are wired together. REAL-INFRA: Background task execution (thread, async task, or queue dispatch) needs to actually fire, but this can be verified in-process without real network. LLM-DEP: We are testing routing and background dispatch, not translation quality — stubs for both translators suffice. INTEGRATION-BRAKE: (a) No real OS/network needed for in-process background dispatch. (b) No AI/ML quality dependency. (c) No chained agentic steps — one translation with a side-effect. COMMIT-TO-REASONING: EVIDENCE-LEVEL = Integration, OUTPUT-LEVEL = Integration, no override.",
+      "test_description": "Wire the service with a stub primary translator (returns a fixed string) and a stub fallback translator (returns a different fixed string). Call translate() and assert the return value equals the primary stub output. Then flush/await any background tasks and assert that the quality comparison log (or DB record) was written with the correct primary and fallback strings. This verifies both the synchronous return path and the asynchronous logging side-effect without needing real translators.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

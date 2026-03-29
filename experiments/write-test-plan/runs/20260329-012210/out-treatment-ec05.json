@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "The ordering failure emerges at the boundary between file-discovery, prefix-parsing, and the DB-application step. A pure unit test of the sort function cannot confirm the runner actually passes sorted filenames to the DB executor in that order. A mocked DB could verify call order, but wiring real filesystem + real local PostgreSQL is necessary to confirm no ordering bug is introduced by the file-reading or SQL-execution plumbing. REAL-INFRA is not required (no OS subprocess or remote network); a local PG instance suffices.",
+      "test_description": "Create a temp `migrations/` directory containing `003_c.sql`, `001_a.sql`, and `002_b.sql`, each inserting a row with its own label into a `run_log` table. Run the migration runner against a local PostgreSQL instance. Query `run_log` by insertion order (e.g., serial PK or `ctid`) and assert the rows appear in label order 1 → 2 → 3.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.18,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode requires real DB state to persist between two separate runner invocations. A mocked DB would be pre-configured to report 'applied' or 'not applied', which cannot expose bugs in the actual INSERT-to-_migrations / SELECT-from-_migrations handshake. Two sequential runs against a local PG instance exercise the real state round-trip. MOCK-HIDE rules out a mocked DB; REAL-INFRA does not apply because no subprocess or remote network is needed.",
+      "test_description": "Seed a local PostgreSQL instance, run the migration runner to completion, then run it a second time. Wrap the DB executor with a call counter before the second run. Assert the counter recorded zero SQL executions from migration files during the second run, and assert `_migrations` still contains exactly the same rows as after the first run (no duplicates).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.72,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "Transaction rollback semantics are database-engine behaviour, not application logic. A mocked DB that simply returns an error cannot confirm that partial writes within the failing migration's transaction were actually rolled back by PostgreSQL. The 'no further migrations' half of the invariant requires the real control-flow path from the DB error through the runner's error handler. A local PG instance with a real failed statement covers both halves. REAL-INFRA does not require a subprocess.",
+      "test_description": "Provide three migration files: (1) a valid INSERT into a side-effect table, (2) a valid INSERT followed by a deliberate syntax-error statement in the same file, (3) another valid INSERT. Run the runner against a local PostgreSQL instance. Assert: the side-effect table contains the row from migration 1; contains no partial row from migration 2; contains no row from migration 3. Assert `_migrations` records only migration 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.73,
+        "System": 0.2,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "The requirement explicitly targets separate OS processes. Advisory-lock or table-lock correctness depends on real OS-level process isolation and PostgreSQL's lock manager across distinct connection sessions. An in-process simulation with two async coroutines shares the same event loop and cannot reproduce true concurrent process startup races. Spawning two actual Node.js subprocesses via `child_process.spawn` with synchronised start times is the minimum that exercises the real failure boundary. REAL-INFRA: yes — real subprocess + real local PG.",
+      "test_description": "In a test harness, launch two `node runner.js` subprocesses simultaneously (using `Promise.all` over two `spawn` calls) against the same local PostgreSQL database. Wait for both to exit. Query the `_migrations` table and assert each expected migration appears exactly once (GROUP BY migration_id HAVING COUNT(*) > 1 returns no rows). Also assert all migration side-effects are present and not duplicated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.22,
+        "System": 0.73,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "This invariant spans two ordered operations: DDL table creation and then migration application. The ordering guarantee must be verified against a real PostgreSQL instance that starts with no `_migrations` table — a mock cannot confirm that the DDL was actually committed before the first migration SQL ran. No subprocess or remote API is needed; a local PG instance with a pre-dropped `_migrations` table provides the fresh-database condition.",
+      "test_description": "Drop the `_migrations` table (and any other runner-created objects) from a local PostgreSQL instance so it is fully empty. Run the migration runner once. Assert that `_migrations` exists in the schema (via `information_schema.tables`), contains one row per migration file applied, and that the migration side-effects (e.g., tables/rows created by the .sql files) are also present — confirming bootstrap order: table creation first, then migrations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.78,
+        "System": 0.15,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

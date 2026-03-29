@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode has two layers — (a) the tool may invoke git without rename-detection flags (e.g., missing `-M`/`--find-renames`), causing git to report the rename as a delete+add at the subprocess level, and (b) even if flags are correct, the rename entry format (`R100\\told\\tnew`) must be parsed without double-counting. A unit test that feeds crafted git output only catches (b); it cannot catch (a), because mocking git output presupposes the right command was issued. Only running git against a real repository with an actual renamed file verifies both the invocation and the categorization together. REAL-INFRA: requires a real git subprocess and a real git repository with a committed rename.",
+      "test_description": "Create a temporary git repository, commit a file, then rename it and commit again. Invoke the CLI tool as a subprocess pointing at this repository. Assert that the structured report contains exactly one entry in the 'renamed' category with the correct old→new paths, zero entries in 'deleted', and zero entries in 'added' for those paths.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.08,
+        "System": 0.75,
+        "Agentic": 0.07,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The crash risk sits at the boundary between the git subprocess output and the tool's diff parser. Git formats binary-file diff lines as 'Binary files a/X and b/X differ' — a format distinct from text diff hunks. A unit test could feed this string to an isolated parser, but MOCK-HIDE applies: if the tool reads the subprocess stream in a way that chokes on binary markers (e.g., trying to decode bytes), the failure occurs in the I/O layer before any parser function is reached. Only running against a real git repo that produces actual binary output exercises that full path. REAL-INFRA: requires a real git subprocess and a repository containing a committed binary file.",
+      "test_description": "Create a temporary git repository, commit a binary file (e.g., a PNG or compiled object), then modify it and stage the change. Invoke the CLI as a subprocess. Assert the process exits with code 0 (no crash) and that the report includes exactly one binary file counted under the appropriate change category.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.1,
+        "System": 0.72,
+        "Agentic": 0.06,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This behavior is entirely about how the tool handles a specific git subprocess failure mode. On a repo with no commits, git commands like `git log` or `git diff HEAD` exit non-zero with messages such as 'fatal: your current branch does not have any commits yet'. The tool must detect this condition and return an empty report instead of propagating the error. No in-process mock can reproduce the exact exit code and stderr that real git produces here — the test must spawn a real git subprocess against a real (commit-less) repo. MOCK-HIDE: mocking the subprocess would just be testing that the tool handles a fake empty response, not that it correctly interprets the real git error.",
+      "test_description": "Run `git init` in a temporary directory without making any commits. Invoke the CLI tool as a subprocess targeting that directory. Assert the process exits with code 0 and the report output represents an empty result (all category counts are zero or the report structure is present but empty), with no error message or stack trace on stderr.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.87,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Verifying count accuracy requires a ground-truth repository whose change history is fully known and controlled. The only way to establish that ground truth reliably is to create a real git repository, make a precise series of commits (adding N files, deleting M files, etc.), and then compare the tool's output counts against the known totals. An integration test with mocked git output would only confirm that the tool correctly parses whatever mock data it receives — it cannot catch off-by-one errors in range arguments to git commands, incorrect handling of merge commits, or miscounting when commit ranges overlap. MOCK-HIDE: any mock of git output assumes the right git invocation was used, which is exactly what this behavior is testing.",
+      "test_description": "Create a temporary git repository and execute a scripted sequence of commits: add 3 files in one commit, delete 1 file in a second commit, modify 2 files in a third commit. Invoke the CLI as a subprocess. Assert that the report shows added=3, deleted=1, modified=2, renamed=0, with no other counts.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.07,
+        "System": 0.82,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Staged' vs 'unstaged' is a real git state distinction — staged changes appear in the index, unstaged changes are only in the working tree. The tool must issue different git commands (`git diff --cached` vs `git diff`) or a unified command that covers both, and the results must be equivalent for the same logical changeset. This is a behavioral contract that requires a real git subprocess and a real repository with controlled staging state; no in-process fake can reproduce git's index mechanism. MOCK-HIDE: mocking git output would hide whether the tool calls the wrong git subcommand for one of the two paths, which is the most likely failure mode here.",
+      "test_description": "Create a temporary git repository with one committed baseline. Make changes to a set of files. In the first run, stage all changes (`git add .`) and invoke the CLI. In the second run, reset the index (`git restore --staged .`) so the same changes are unstaged, and invoke the CLI again. Assert both outputs are byte-for-byte identical in their structured report content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.86,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

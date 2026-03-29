@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The pipeline routing logic (flag → hold) could be tested with a mocked model, but that is not what this behavior asserts. It asserts that the real AI vision model correctly classifies an explicit image. LLM-DEP: Correctness depends on what the real AI vision model produces for a given explicit image. Mocking the model to return 'explicit' trivially passes without verifying the model actually fires on real explicit content. REJECTION-GATE for Integration: a mocked vision model always returns the pre-programmed label — the failure mode (explicit content not caught by the model) would never surface.",
+      "test_description": "Submit a real image containing explicit content to the moderation pipeline using the live AI vision model. Assert that the pipeline result is 'held for review' and the post is not published.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The entire claim rests on whether the real AI text model handles obfuscation robustly. Mocking the model to return 'hate speech' for an obfuscated string proves nothing about the model's actual behavior — it hides the exact failure mode the behavior is designed to catch. REJECTION-GATE for Integration: a mocked text classifier will pass any input we configure it to pass; real robustness to unicode lookalikes and letter substitution can only be verified against the live model.",
+      "test_description": "Submit text posts with hate speech expressed via letter substitution and unicode lookalikes to the live AI text classification model. Assert each variant is flagged regardless of obfuscation technique.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.02,
+        "Agentic": 0.82,
+        "Workflow": 0.09
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the routing logic after both models return safe — a wiring bug between modules (e.g., a double-negative, a default-deny fallback, or a silent drop on an unhandled code path). Both AI models can be stubbed to return 'safe'; no real AI output is needed. LLM-DEP: None — we are testing the control flow conditional on safe results, not the classifier quality. MOCK-HIDE: Using real AI could cause flaky results on borderline inputs; a stub cleanly isolates the routing logic. REJECTION-GATE for Unit: 'published rather than held or silently dropped' implies the image check module, text check module, and publish gate must all be wired together — a single function unit test cannot catch a dropped handoff between them.",
+      "test_description": "Wire image-check, text-check, and publish modules together with both classifiers stubbed to return 'safe'. Submit a neutral post and assert the pipeline outcome is 'published', not 'held' or silently absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0.06,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: 'Full moderation pipeline' is explicitly the sequence: submission → real AI vision call → real AI text call → publish decision. That is two independent real LLM/vision model calls chained in sequence, satisfying the Workflow criterion. LLM-DEP: Real model latency drives whether the 5-second SLA is met; in-process stubs return instantly and always pass. REAL-INFRA: End-to-end wall-clock timing depends on real network round-trips to both AI services. REJECTION-GATE for Agentic (single step): the behavior requires both the image model and the text model to complete in sequence — a single-model Agentic test would not catch the cumulative latency budget.",
+      "test_description": "Submit a post with both an image and text through the live full pipeline (real AI vision model, real AI text model, publish decision) and measure wall-clock time from submission to final decision. Assert completion under 5 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.07,
+        "Agentic": 0.23,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the error-handling branch when the vision service throws an unavailability error — the system must route to the retry queue rather than default-approving. The vision model's unavailability can be simulated by having the stub raise a connection/timeout error. LLM-DEP: None — we are not testing what the model classifies; we are testing the system's fallback behavior when the model cannot be reached. REAL-INFRA: An in-process stub that raises an exception reproduces the exact failure boundary (queue vs. auto-approve); a real unavailable endpoint is not needed. REJECTION-GATE for Unit: 'queued for retry' requires the error-handling code, the queue component, and the vision service client to be wired together — a single function unit test cannot catch a missing enqueue call.",
+      "test_description": "Configure the vision service client stub to raise an unavailability exception. Submit an image post and assert the post appears in the retry queue and is not marked as approved or published.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.14,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: A 'borderline' image is by definition one where the real AI model's output is near its classification threshold. Consistency under repeated submission is an empirical claim about real model behavior (temperature, sampling stochasticity). With a mock, the return value is deterministic by construction — the mock always passes trivially and the behavior's actual failure mode (real model flip-flopping on borderline content) is invisible. MOCK-HIDE: Any stub returns the same label every time, making the test vacuous. REJECTION-GATE for Integration: even with caching logic wired in, the test cannot verify that cache-miss paths produce consistent AI outputs without calling the real model.",
+      "test_description": "Submit the same borderline image (near classification threshold) to the live AI vision pipeline at least 5 times within a short window. Assert all decisions are identical, verifying the system (whether via caching or model determinism) delivers a consistent outcome.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.14,
+        "System": 0.04,
+        "Agentic": 0.72,
+        "Workflow": 0.08
+      }
+    }
+  ]
+}

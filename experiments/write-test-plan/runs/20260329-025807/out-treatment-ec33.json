@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode only appears when the summary-write path interacts with the findings-store — the blocking logic must query existing findings from another module. A pure unit test on a validation function that accepts findings as a parameter would not catch a bug where the summary layer never fetches findings before writing. REAL-INFRA: No OS, subprocess, or real network required; an in-process fake store is sufficient to reproduce the exact failure. LLM-DEP: No model output involved — this is data-consistency enforcement. REJECTION-GATE: System/Agentic rejected because the failure is fully reproducible with in-process module wiring and fake storage.",
+      "test_description": "Seed the findings store with a FAIL verdict for dimension D1 in round R1. Attempt to write a PASS summary for round R1 through the summary-storage API. Assert that the write is rejected (raises an error or returns a failure status). Then seed all dimensions for round R2 with PASS verdicts and write a PASS summary for R2 — assert this succeeds. Confirms the guard reads live findings, not cached or injected data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The specific failure in the issue was the gate trusting summary text rather than stored findings. Testing a pure compute function in isolation cannot reproduce this — the bug lives in the data-path wiring between the gate and the storage layer. REAL-INFRA: An in-process fake store is sufficient; no OS or network boundary needed. LLM-DEP: Verdict computation is deterministic once findings are stored. REJECTION-GATE: Unit rejected because a unit test would inject findings directly and skip the storage-read path, which is exactly the path where the bug lived.",
+      "test_description": "Populate the findings store with FAIL verdicts for at least one dimension. Separately compose and store a PASS summary text for the same round. Invoke the stop-gate verdict computation through its public interface (without injecting findings directly). Assert the computed verdict is FAIL, demonstrating the gate read from stored findings and not from the summary text. Then update the findings to all-PASS and recompute — assert PASS, confirming bidirectional correctness.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two module interactions must both be verified — the validation layer must check the override flag, and the audit/warning subsystem must write a record. A unit test on the flag-check function alone cannot verify the warning record is actually persisted. REAL-INFRA: An in-process fake audit store reproduces both failure modes. LLM-DEP: None. REJECTION-GATE: System rejected — no external command or real network involved. Unit rejected — the warning-record side-effect requires a second module to be wired in.",
+      "test_description": "Attempt to write a manual summary override without the override flag set — assert rejection. Then attempt the same write with the flag set — assert it succeeds. After the successful write, query the audit/warning store and assert exactly one warning record exists, containing the round ID, actor identity, and a timestamp. Run a third case where a non-override summary write path is used — assert no warning record is created, confirming warnings are scoped to override writes only.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure requires the loop's state machine to be wired to the round-tracking and diff-tracking stores — a unit test on a boolean flag check cannot detect a loop that skips the agent-rerun enforcement. REAL-INFRA: No OS/subprocess boundary needed; mocked review agents and an in-process state store reproduce the exact failure. LLM-DEP: The enforcement is orchestration logic, not LLM output quality — a mock agent stub that returns a fixed verdict is sufficient to verify the loop enforces a new round. REJECTION-GATE: Agentic/Workflow rejected because the failure mode (missing enforcement gate) is deterministic and reproducible with stub agents. Workflow would be needed only if the test required verifying real agent classification quality across multiple steps.",
+      "test_description": "Configure the loop with a mocked review agent stub that returns all-PASS. Simulate Phase 4: record that fixes were applied, advancing the diff version. Attempt to finalize PASS without running any new review round on the updated diff — assert the loop rejects finalization with an appropriate error. Then invoke the mocked agent for a new round against the updated diff, and attempt finalization again — assert it succeeds. Confirm the round-counter incremented and the diff version recorded for the new round matches the post-fix diff version.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.5,
+        "System": 0.1,
+        "Agentic": 0.2,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The escalation logic depends on the round-counter and the findings store interacting — a unit test on an escalation predicate with injected values cannot catch a bug where the orchestrator reads the wrong store or miscounts rounds. REAL-INFRA: No OS or network boundary; in-process fake stores are sufficient. LLM-DEP: MUST-FIX findings can be pre-seeded in the store; the test does not require real agents to produce them. REJECTION-GATE: Agentic rejected — correctness of the escalation path is deterministic once findings are stored. Workflow rejected — multi-round simulation with stub agents is Integration, not Workflow, because no real AI/ML non-determinism is involved.",
+      "test_description": "Configure the flow with a maximum-round limit of N. Seed the findings store with MUST-FIX verdicts for at least one dimension across all N rounds (simulating exhaustion without resolution). Invoke the stop-gate/flow-finalization entry point. Assert the returned outcome is the designated escalation status (not PASS and not a generic error). Additionally confirm that no PASS record is written to the summary store. Then re-run with all findings resolved on round N and assert the outcome is PASS, verifying the escalation branch is exclusive to unresolved findings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.08,
+        "Agentic": 0.1,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

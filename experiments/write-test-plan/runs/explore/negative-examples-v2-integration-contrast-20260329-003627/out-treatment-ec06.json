@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files placed in subdirectories of the watched root are processed, not only root-level files",
+      "minimum_level": "Integration",
+      "justification": "The failure is architectural: does the daemon's watcher correctly set up monitoring on subdirectories? Mocking fs.watch() hides this—a mocked readdir returning subdirectory contents doesn't prove the code actually subscribes to those directories. Real OS file-watch events flowing through actual filesystem structure are needed to verify the watcher initialization logic correctly sets up nested watchers.",
+      "test_description": "Create a temporary directory structure with nested subdirectories. Start the daemon watching the root. Place a test file in a subdirectory (not root). Verify the file is processed by checking it appears in the output directory. Repeat with multiple nesting levels. Real filesystem events must be captured and routed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window",
+      "minimum_level": "Unit",
+      "justification": "This is pure state-machine logic: given a dedup map and a time window, if file X is marked at time T, reject processing until T + window expires. The failure is in the algorithm, not at module boundaries or in how filesystem events arrive. You can unit-test this by injecting timestamps and mocking Date.now() without any real infrastructure.",
+      "test_description": "Instantiate a FileDeduplicator class with a known time window (e.g., 1000ms). Call markFile('path.txt', t0), then call shouldProcess('path.txt', t0 + 500) and assert false. Call shouldProcess('path.txt', t0 + 1001) and assert true. Test edge cases: exactly at window boundary, different file paths, rapid-fire calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once",
+      "minimum_level": "Integration",
+      "justification": "The failure involves two layers: (1) real OS emits multiple events (change, close, etc.) for a single write, and (2) these must route through dedup logic. While dedup is Unit-testable in isolation (Behavior 2), the event-routing is not. Mocking individual events won't catch if the daemon subscribes to the wrong event type, subscribes twice, or fails to route events to dedup. Real filesystem write operations triggering actual OS events are required.",
+      "test_description": "Create and write to a file while the daemon is watching the directory. Monitor that the file is processed exactly once (not duplicated in output). To be thorough: capture all filesystem events the daemon receives for that write operation and verify they are deduplicated before processing. Real OS must emit the multiple events; mocking them is insufficient.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart",
+      "minimum_level": "Integration",
+      "justification": "The failure is OS-level file-handle invalidation. When the directory is deleted, the watcher's file handle becomes invalid and emits an error. Mocking fs.watch() to emit an error doesn't reflect real OS behavior—you need actual deletion and recreation to test the daemon's recovery logic. The daemon must detect the error, clean up, and re-establish a watcher on the newly created directory.",
+      "test_description": "Start the daemon watching a temporary directory. Delete the directory (via fs.rmdir or similar). Verify the daemon logs/detects an error. Recreate the directory with the same path. Place a test file in the recreated directory. Verify the daemon processes the new file without restart. This requires real filesystem state transitions and the daemon's error recovery path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.88,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps",
+      "minimum_level": "Unit",
+      "justification": "The failure is in the sorting algorithm: given a list of files, sort by createdAt ascending. This is deterministic logic testable as a pure function. You can construct a file list with known creation timestamps (in random order), sort, and assert the result is correctly ordered. No filesystem, no OS events, no I/O required.",
+      "test_description": "Create an array of file metadata objects with different createdAt timestamps (e.g., [t3, t1, t2]). Pass to sortFilesByCreation(files) and assert the returned array is [t1, t2, t3]. Test edge cases: files with identical timestamps, very old/new times, single file, empty array. Pure function test.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete",
+      "minimum_level": "Integration",
+      "justification": "The failure is file-handle state: the daemon must detect if a file is still open for writing and delay processing. Mocking fs.stat() or fs.open() won't work (MOCK-HIDE)—the real daemon might use file-size stability detection, lock inspection, or close events, and each approach has different OS-level semantics. You need a real file handle held open by the test to verify the daemon's file-ready-check logic works correctly.",
+      "test_description": "Open a test file for writing and keep the file handle open (do not close). Trigger the daemon to scan and watch the directory. Verify the file is detected but NOT processed while the handle is open (it remains in 'pending' or similar state). Then close the file handle. Verify the daemon now processes the file. Real file-handle state is essential; mocking cannot substitute.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

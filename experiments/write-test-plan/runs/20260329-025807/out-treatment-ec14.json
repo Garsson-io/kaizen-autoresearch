@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Speech-to-text output preserves speaker labels so the summary can attribute statements to specific attendees.",
+      "minimum_level": "Agentic",
+      "justification": "Speaker diarization (assigning labels like 'Speaker 1') is produced by the real STT AI/ML model. A mocked STT response with pre-injected labels only tests plumbing — it cannot reveal failures where the real model merges speakers, drops labels, or returns inconsistent speaker IDs across utterances. Correctness here depends on what the real STT model actually returns, making it non-deterministic across runs. REJECTION-GATE for Integration: an in-process mock STT fixture would always pass because it already has correct labels; the real failure mode (STT fails to diarize) is invisible at that level.",
+      "test_description": "Send a real short audio clip (≥2 identifiable speakers) through the actual STT API call; assert the returned transcript object contains per-utterance speaker identifiers (e.g., 'Speaker 1', 'Speaker 2') and that these labels survive serialization through the pipeline into the data structure passed to the summarization step.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.13,
+        "System": 0.08,
+        "Agentic": 0.62,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The structured summary contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "Extracting and correctly attributing action items to named attendees is LLM inference work. The failure mode — the LLM missing an assigned task or misattributing it — only surfaces with a real LLM call. A mocked LLM response would hard-code correct action items, hiding any extraction or attribution failure. The behavior's correctness criterion ('at least one action item for every task-assigned attendee') depends on real non-deterministic model output. REJECTION-GATE for Integration: a stub LLM returning a fixture response trivially passes; no real extraction quality is exercised. MULTI-STEP: only one summarization LLM call is needed given a fixed transcript, so Workflow is not required.",
+      "test_description": "Provide a realistic meeting transcript fixture containing explicit task assignments ('Alice will set up the staging environment', 'Bob will draft the proposal') to the real LLM summarizer; assert the returned structured output's action_items list contains at least one item attributed to Alice and at least one attributed to Bob.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.71,
+        "Workflow": 0.18
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions mentioned in the transcript appear in the 'decisions' section of the summary, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "Classifying a statement as a 'key decision' and routing it to the correct structured field (rather than a general narrative) is LLM inference behavior. The failure — the model leaving decisions in a narrative field — only appears with real model calls. A mock LLM trivially satisfies the assertion by returning pre-structured output. Running the real LLM 100 times on the same transcript could yield different routing decisions, confirming non-determinism. REJECTION-GATE for Integration: stub output always puts content in the right section; no routing failure is detectable. No additional agentic steps beyond the summarizer are needed, so Workflow is not required.",
+      "test_description": "Supply a transcript fixture containing clear decision statements (e.g., 'We have decided to migrate to the new database by Q3') to the real LLM summarizer; assert each such decision appears in the structured output's decisions field and is absent from any narrative/notes-only field.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0.72,
+        "Workflow": 0.16
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior chains multiple agentic steps: STT(segment 1) → LLM summarize(segment 1) → STT(segment 2) → LLM summarize(segment 2) → LLM merge into coherent summary. 'Coherent' means the merge step must produce output that correctly integrates context from both halves — a quality judgment that requires real LLM calls. The failure modes span both per-segment summarization quality and merge coherence, requiring at least two sequential real LLM calls. REJECTION-GATE for Agentic (single step): testing only the merge LLM call with fixture segment summaries misses failures where per-segment summarization drops context needed for coherent merging. The sequential multi-step dependency makes this Workflow.",
+      "test_description": "Construct or load a synthetic audio recording exceeding 60 minutes (or two stitched segments); run the full split-process-merge pipeline with real STT and real LLM calls for each segment and the merge step; assert the final output is a single structured summary document containing content derived from both the early and late portions of the recording with no contradictions or duplicate sections.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.07,
+        "System": 0.05,
+        "Agentic": 0.23,
+        "Workflow": 0.62
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full pipeline — upload audio, transcribe, summarize, deliver structured output — completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "This behavior is explicitly end-to-end: real HTTP audio upload, real STT API call, real LLM summarization call, and real delivery of structured output — all in sequence with no human step. Each agentic step (STT and LLM) is real and non-deterministic; multiple such steps are chained, satisfying both REAL-INFRA (real HTTP, real external APIs) and MULTI-STEP (≥2 sequential agentic steps). No lower level can simulate 'completes without manual intervention for a real meeting recording' because the behavior's correctness criterion is defined over the entire pipeline producing valid output. REJECTION-GATE for Agentic: testing only STT or only LLM misses failures at handoff boundaries (malformed transcript format passed to LLM, delivery endpoint rejecting output shape).",
+      "test_description": "Upload a real meeting recording file (5–15 minutes) through the service's upload endpoint; wait for the pipeline to complete asynchronously; assert that a structured output document is delivered (to a test delivery target) with non-empty action_items, decisions, and attendee_attributions fields, and that no human confirmation step was required at any stage.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.04,
+        "Agentic": 0.1,
+        "Workflow": 0.83
+      }
+    }
+  ]
+}

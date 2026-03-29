@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent, meaning-preserving translation",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is not in module wiring — it's whether the NMT model actually produces coherent output. MOCK-HIDE: Any mock trivially passes by returning whatever string we specify; only a real model call can exhibit the failure (word-for-word substitution, broken grammar). LLM-DEP: A neural machine translation API is by definition a non-deterministic ML model whose output quality varies per call and per model version. 'Grammatically coherent' and 'preserves meaning' are semantic properties that only a real NMT model can satisfy or violate. REJECTION-GATE for System: The failure is about model output quality, not just HTTP reachability — System (real HTTP) without evaluating model output quality would miss the actual failure.",
+      "test_description": "Call the real NMT translation API with a set of source sentences in a known language (e.g., French → English). Evaluate the returned translations against gold-standard references using both character-level metrics and spot-check for grammatical structure (e.g., word order, verb conjugation). Assert that output is not a direct word-for-word dictionary lookup and preserves the semantic meaning of the source. Run against at least 3–5 representative sentences to account for model variability.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.14,
+        "Agentic": 0.78,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Service falls back to dictionary translator transparently when translation API returns 503",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the API client, the service orchestrator, and the SQLite fallback — not inside any single function. The service must catch the error from the API client and successfully invoke the dictionary fallback. REAL-INFRA: The API can be stubbed/mocked to return 503; the SQLite fallback is local and does not require real HTTP. MOCK-HIDE: Mocking the fallback would hide whether the error-handling routing actually triggers the correct fallback path. The real SQLite DB must be in the loop to confirm the fallback produces a result. LLM-DEP: Translation quality is irrelevant here; the test only checks that no error is returned and a result comes back. REJECTION-GATE for Unit: The failure requires at least three modules (API client, service, fallback) to hand off data correctly — a unit test of the error handler in isolation would not catch a wiring bug in the fallback invocation.",
+      "test_description": "Wire the full service with a stubbed API client configured to return HTTP 503 and a real in-memory SQLite database pre-seeded with at least one phrase. Call the service's translate() method with that phrase. Assert that no exception is raised, no error code is returned to the caller, and the returned translation matches the dictionary entry. Verify the API client was called exactly once before fallback was triggered.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.15,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Dictionary fallback returns correct pre-stored translation for phrases in SQLite database",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is whether the fallback module's SQL query retrieves the correct row. This is a single-module boundary against a real database. REAL-INFRA: SQLite is local — no network, no subprocess required; an in-memory SQLite instance suffices. MOCK-HIDE: Mocking the DB cursor or connection would always return whatever we configure, hiding SQL query bugs, schema mismatches, or key normalization errors. The real SQLite engine must execute the query. LLM-DEP: No model call involved — this is a deterministic lookup. REJECTION-GATE for Unit: The query correctness cannot be verified without running against a real (or in-memory) SQLite engine; a pure unit test mocking the DB would not catch a malformed query or wrong column name.",
+      "test_description": "Create an in-memory SQLite database, insert a known set of phrase-translation pairs matching the production schema. Instantiate the dictionary fallback module pointed at this database. Call the fallback's translate() method with each pre-stored phrase. Assert the returned translation exactly matches the pre-inserted value. Also call with a phrase not in the DB and assert the appropriate 'not found' behavior (exception or None).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracker correctly computes character-level edit distance and stores the metric",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two sub-failures: (a) wrong edit distance algorithm output, (b) metric not persisted correctly. Sub-failure (a) is purely algorithmic and could be caught at Unit. Sub-failure (b) requires the quality tracker module to be wired to real storage. MOCK-HIDE: Mocking the storage layer would pass even if the INSERT statement is malformed or writes to the wrong table. Both sub-failures must be catchable, so Integration is the minimum that covers the full behavior. REAL-INFRA: Storage is local SQLite — no network needed. LLM-DEP: Edit distance is a deterministic algorithm. REJECTION-GATE for Unit: The 'stores the metric' clause cannot be verified at Unit without mocking storage, which would hide persistence bugs.",
+      "test_description": "Provide two known strings to the quality tracker (e.g., 'hello world' and 'helo world', expected edit distance 1). Call the comparison-and-store method. Assert the returned edit distance value matches the expected value computed by a reference implementation. Then query the in-memory SQLite metrics table directly and assert the stored row contains the correct source text identifiers and the correct distance value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.32,
+        "Integration": 0.58,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, service returns primary translation and logs quality comparison in background",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two distinct module interactions must work: (1) the service prefers the primary over the fallback, and (2) the background quality-logging task is triggered. A unit test of the routing decision alone would not verify the background task is actually spawned and executes the quality comparison. MOCK-HIDE: Mocking the quality logger entirely would pass even if the service never calls it or passes wrong arguments. The logger must actually run (against real storage) to confirm end-to-end wiring. LLM-DEP: The test checks routing behavior and background execution, not translation quality — no model evaluation needed. REAL-INFRA: All components are local; in-memory SQLite suffices for quality log storage. REJECTION-GATE for Unit: The background task launch mechanism (threading, asyncio task, etc.) and its interaction with the quality tracker cannot be verified at Unit without mocking both, which would hide task-dispatch or argument-passing bugs.",
+      "test_description": "Wire the full service with a stubbed primary API (returning a fixed translation) and a real in-memory SQLite fallback. Call translate() with a phrase present in the fallback DB. Assert the response equals the primary stub's output, not the dictionary value. After the call (waiting for the background task to complete), query the quality metrics table and assert a new edit-distance record was inserted reflecting a comparison between the primary and fallback outputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

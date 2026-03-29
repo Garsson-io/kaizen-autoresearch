@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-34",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Branch staleness detection correctly identifies branches with commits not in main, older than the configured age threshold, and no open PR.",
+      "minimum_level": "Integration",
+      "justification": "The detection algorithm combines three distinct data sources: git commit distance from main, branch age (timestamp), and PR API state. The real failure boundary is where these data sources are joined — a unit test with injected inputs tests only the combining logic and misses bugs in git log parsing or in how PR status is fetched and threaded through. A local git repo with mocked PR API is the minimum infrastructure needed to surface a real failure in how git output and PR state are integrated.",
+      "test_description": "Create a local git repo with several branches at varying commit distances from main and different ages. Mock the PR API to return no open PR for some and an open PR for others. Invoke the staleness detector and assert that only branches satisfying all three conditions (diverged commits, age >= threshold, no open PR) are flagged; branches failing any single condition must not be flagged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.56,
+        "System": 0.17,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Session-start setup emits a stale-work warning with actionable branch context when the current branch is stale.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode here is in the cross-module wiring: session bootstrap must call the staleness detector, receive the result, and propagate branch context (name, commit count, age) into the emitted warning. A unit test that mocks out detection misses the case where bootstrap never calls detection, or calls it but discards the context before formatting the warning. Wiring both modules together in-process with a controlled stale-branch state is the minimum needed to catch this.",
+      "test_description": "Wire session bootstrap with a real (or local-git-backed) staleness detector configured with a branch that exceeds the staleness threshold and has no PR. Trigger the session-start hook and capture emitted warnings. Assert that exactly one stale-work warning is emitted and that it contains the branch name, number of commits ahead of main, and the age in days.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.62,
+        "System": 0.13,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A local status-classifier function maps computed branch state to labels (`clean`, `stale-no-pr`) deterministically.",
+      "minimum_level": "Unit",
+      "justification": "The behavior explicitly describes a local function that takes already-computed branch state as input and returns a label. 'Computed branch state' means the inputs are resolved before this function is called — no I/O, no module wiring, no external data fetching. The entire failure space (wrong label, missing case, off-by-one on threshold) is reachable by calling the function with crafted arguments.",
+      "test_description": "Call the classifier directly with explicit branch state structs: (commits_ahead=0, age_days=0, has_pr=False) → 'clean'; (commits_ahead=5, age_days=10, has_pr=False) → 'stale-no-pr'; (commits_ahead=5, age_days=10, has_pr=True) → 'clean'. Assert exact label output for each case. Parametrize boundary conditions around the age threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.13,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "`/kaizen-wip` against live repo and PR state distinguishes 'clean' from 'has commits but no PR (STALE)' in rendered output.",
+      "minimum_level": "System",
+      "justification": "The behavior explicitly requires 'live repo and PR state' — real HTTP to the PR API and real git repository history. Mocking either hides failures in authentication, API pagination, rate-limit handling, or actual PR status resolution. The rendered output correctness depends on real data flowing through the full stack. REAL-INFRA applies: real HTTP is required.",
+      "test_description": "Against the actual git repo with real GitHub/GitLab API credentials, run /kaizen-wip and capture its output. Assert that branches known to have commits not in main and no open PR are rendered with a 'STALE' marker, and branches with commits but an open or merged PR are rendered as 'clean'. Requires at least one branch in each state to exist in the live repo at test time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.12,
+        "System": 0.73,
+        "Agentic": 0.11,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Branches with open or merged PRs are not flagged as stale-no-PR false positives.",
+      "minimum_level": "Integration",
+      "justification": "The false-positive failure lives at the boundary between PR status retrieval and the detection decision. If the PR-fetch module returns 'open' but detection ignores or misreads it, a unit test injecting pr_status as a plain argument will pass while the real system still flags the branch. Wiring the PR-fetching module with the detection module using a mocked PR API returning 'open'/'merged' is the minimum needed to expose this class of failure.",
+      "test_description": "Set up a local git repo with a branch that has commits not in main and exceeds the age threshold. Mock the PR API to return an open PR for that branch. Invoke the full staleness detection pipeline and assert the branch is not flagged. Repeat with PR status 'merged'. Also assert a branch with the same git state but no PR is flagged, to confirm the PR-status gate is the active discriminator.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.27,
+        "Integration": 0.57,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Staleness detection remains correct across rebases or squash merges where commit hashes change but branch state should no longer be classified as unPRed stale work.",
+      "minimum_level": "Integration",
+      "justification": "A squash or rebase rewrites commit hashes so the original commits no longer appear in main by hash. A hash-based 'commits not in main' check will incorrectly report the branch as having unmerged work even after a squash merge. This failure only manifests with real git history that includes a squash merge or rebase — it cannot be reproduced by injecting arguments into a function, and no in-process fake can replicate the actual git object model behavior. A local test git repo with a scripted squash-merge scenario is the minimum infrastructure to catch this.",
+      "test_description": "Create a local git repo with a feature branch containing two commits. Squash-merge the branch to main (producing a single new commit with a different hash). Mock the PR API to return the branch's PR as merged. Invoke staleness detection on the feature branch and assert it is not flagged as stale-no-PR. Also verify that a branch in an identical git state but with no corresponding merged PR is still flagged, confirming PR status drives the decision rather than hash presence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.64,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

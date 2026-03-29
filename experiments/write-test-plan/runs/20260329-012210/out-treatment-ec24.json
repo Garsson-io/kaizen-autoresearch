@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator produces grammatically coherent, meaning-preserving translation (not word-for-word).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Grammatically coherent' and 'preserves meaning' are quality properties of the neural MT model's output, not of service wiring. A mock translator always returns whatever string you hardcode — it cannot fail this assertion. Only a real model call can produce or fail to produce semantic fidelity. This is the canonical Agentic case: correctness depends entirely on what the real ML model produces, and results would vary across runs or model versions.",
+      "test_description": "Call the live neural MT API with a representative sentence (e.g., a Spanish sentence with idiomatic phrasing). Assert that the returned translation is not a naive word-for-word mapping (e.g., verify idiomatic phrases are handled) and scores above a semantic similarity threshold (e.g., via BLEU or a reference translation comparison). Repeat for a small gold-standard sentence set.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.8,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503, the service falls back to the dictionary translator and returns a result without error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the module boundary — the service's error-handling layer must catch the 503 from the API client and correctly route the call to the fallback module. Testing just the error-handling function in isolation (Unit) cannot catch a bug where the fallback is invoked incorrectly or the result is not threaded back to the caller. The API itself does not need to be real (mock the HTTP client to raise/return 503), but the service and fallback modules must be wired together with a real SQLite-backed dictionary to confirm the fallback actually resolves and the caller sees a successful response.",
+      "test_description": "Seed the SQLite dictionary with a known phrase. Stub the HTTP translation client to return a 503. Invoke the top-level service method. Assert: (1) no exception is raised, (2) the returned translation matches the pre-stored dictionary entry, (3) the response object carries no error indicator.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is whether the fallback module's SQL query retrieves the right row from a real SQLite file — schema mismatch, column naming, or query logic bugs only surface against a real DB. A unit test with a mocked DB connection would pass trivially (MOCK-HIDE). Using a real in-memory or temp-file SQLite database seeded with known phrases is the minimum level needed to catch real lookup failures. No LLM, no real network required.",
+      "test_description": "Create a temporary SQLite database, insert a known phrase-translation pair (e.g., 'good morning' → 'buenos días'). Instantiate the dictionary fallback module pointed at this DB. Call its translate method. Assert the returned string matches the stored translation exactly. Also assert that a phrase absent from the DB returns None or raises a defined sentinel.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracking correctly computes character-level edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two coupled parts: (a) the edit-distance algorithm and (b) persistence of the metric. The computation itself is a pure algorithm testable at Unit, but the behavior as stated includes 'stores the metric,' which requires a real SQLite write-then-read cycle to confirm the value is persisted correctly. Mocking the storage layer (MOCK-HIDE) would pass regardless of whether the computed value is what gets written. Integration (real SQLite, real edit-distance code) is the minimum level to cover both parts together.",
+      "test_description": "With a real temp SQLite database, call the quality-tracking module with two known strings whose edit distance is precomputed (e.g., 'cat' vs 'cut' → 1). Assert the returned metric equals 1. Then query the SQLite metrics table directly and assert the stored value matches. Parametrize with a few string pairs including identical strings (distance 0) and fully dissimilar strings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.62,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and triggers background quality comparison logging.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The routing decision (return primary) and the background dispatch are both behaviors of the service orchestration layer, not of any single function. A unit test of the routing function alone cannot verify that the background task is actually submitted and executed. The background logging also interacts with the quality-tracking module (behavior 4) and persistence layer. Mocking both translators is fine (no real LLM needed), but the service, background task runner, and persistence layer must be wired together to confirm the metric is actually logged and the correct translation is returned to the caller.",
+      "test_description": "Stub the primary translator to return 'Translation A' and the fallback translator to return 'Translation B'. Invoke the service method. Assert: (1) the return value is 'Translation A', (2) after allowing the background task to complete (e.g., join the thread/task), the quality metrics store contains an entry comparing 'Translation A' with 'Translation B'. Verify no error is surfaced to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

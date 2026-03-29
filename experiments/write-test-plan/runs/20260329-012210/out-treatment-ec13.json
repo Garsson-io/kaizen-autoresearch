@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The routing logic (flag → hold) is simple enough to test in isolation, but the failure mode here is whether the real AI vision model actually classifies explicit content correctly — not just whether the routing code handles a flagged result. MOCK-HIDE: Mocking the vision model always passes because the mock returns whatever the test author tells it to; it proves nothing about the model's classification ability. LLM-DEP: Correctness depends entirely on what the real AI vision model produces for explicit images. The test must submit a real explicit image to the real model to catch a real failure.",
+      "test_description": "Submit a curated set of known-explicit test images (pre-approved for testing) to the real AI vision model via the moderation pipeline. Assert that the pipeline response status is 'held_for_review' (not 'published') for every image in the set. Also assert that no explicit image reaches a published state in the datastore.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The obfuscation-resistance property is a quality of the real AI text model's classification capability, not of any routing or wiring logic. MOCK-HIDE: Any mock of the text classifier that returns 'hate_speech' for obfuscated input has pre-encoded the answer; it tests nothing about the model's robustness. LLM-DEP: Whether 'h4te spe3ch' or unicode-substituted variants are correctly classified as hate speech is a non-deterministic, model-quality question that only the real AI text model can answer. A test using mocks would always pass regardless of model regression.",
+      "test_description": "Build a fixture of obfuscated hate speech variants (letter substitution, unicode lookalikes, zero-width characters, homoglyphs) for a fixed set of seed phrases. Submit each variant through the real text moderation endpoint. Assert that every variant returns a flagged/held status, and that none reach a published state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.8,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is in the routing and publish logic — that after both image and text classifiers return 'clean', the system correctly transitions to 'published' rather than getting stuck, held by default, or silently discarded. This is a module-boundary failure between the classification output, decision logic, and publish sink. MOCK-HIDE: Mocking both classifiers to return 'clean' is valid here because the behavior under test is the downstream routing and publish path, not the classifiers themselves. LLM-DEP: No — the behavior explicitly conditions on both checks passing; the AI model's judgment is out of scope. The wiring between classifier output and publish state is deterministic integration logic.",
+      "test_description": "Wire the image classifier and text classifier with test doubles that always return 'clean'. Submit a benign post through the full moderation pipeline. Assert that the post's final state in the datastore is 'published', that no human-review queue entry exists for it, and that the submission response indicates success.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-HIDE: Mocking the AI models eliminates the dominant latency contributors; a test with mocks would pass the 5-second SLA trivially, even if the real system consistently exceeds it. REAL-INFRA: Real network latency to the AI APIs is a primary variable. LLM-DEP: Real AI API call time is non-deterministic and is exactly what this SLA guards against. MULTI-STEP: The 5-second budget covers the full sequential pipeline — image check AND text check AND publish decision — which constitutes multiple real agentic steps. A single-step Agentic test cannot cover the cumulative latency of both steps plus orchestration overhead.",
+      "test_description": "Submit a batch of posts (with both image and text content) through the live moderation pipeline using real AI model endpoints. Record wall-clock time from submission to final state transition for each post. Assert that p99 latency across the batch is under 5 seconds. Run at least 20 posts to get a meaningful latency distribution.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.08,
+        "Agentic": 0.17,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the interaction between the error-handling path of the image classifier client and the retry queue module — this is a real module-boundary failure. When the classifier throws a connection/timeout error, does the caller enqueue the post or fall through to auto-approve? This only manifests when both modules interact. REAL-INFRA: The retry queue likely uses a real local queue backend (Redis, DB, in-process). LLM-DEP: No — the AI model is explicitly unavailable; its output is irrelevant. Simulating unavailability with a stub that raises a network error is correct and does not hide the failure. MOCK-HIDE: Mocking the queue would hide whether the enqueue call is actually made and persisted; use a real (local) queue backend.",
+      "test_description": "Configure the image classifier client to raise a connection error (using patch.object on the HTTP client's send method). Submit an image post through the moderation pipeline. Assert that: (1) the post is NOT marked as published or auto-approved, (2) a retry queue entry exists for the post with its original payload, and (3) no human-review flag is raised as a substitute for the missing classification.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Workflow",
+      "justification": "LLM-DEP: This behavior exists precisely because AI models can be non-deterministic on borderline inputs. A mock always returns the same answer and would always pass, proving nothing. The real failure is a real AI model returning different classifications across calls. MULTI-STEP: The test must run the full pipeline multiple times (multiple submissions → multiple real AI calls → multiple routing decisions) and compare outcomes across those runs. This is multiple agentic steps in sequence/parallel, placing it firmly at Workflow. MOCK-HIDE: Any level below Workflow hides the exact failure the behavior is designed to catch.",
+      "test_description": "Select a curated set of pre-identified borderline test images. For each image, submit it through the full live moderation pipeline N times (e.g., N=5) in rapid succession. Assert that all N pipeline runs for each image produce the same final decision ('held' or 'published'). A disagreement across runs for any single image is a test failure. Document the images and acceptance threshold (e.g., must be consistent across all 5 runs).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.04,
+        "Agentic": 0.18,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

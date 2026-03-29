@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is between the validator and the DLQ writer — a row can be correctly rejected by the validator but still fail to reach the DLQ, or be written without the row number. 'Appear in the dead-letter queue' demands that both modules wire correctly; a Unit test of the validator alone cannot catch the routing failure. REAL-INFRA: An in-process stub DLQ (a list or in-memory queue) is sufficient to reproduce the failure — no real SQS or filesystem queue is needed. INTEGRATION-BRAKE: (a) No real OS/network required — stub DLQ catches it. (b) No LLM. (c) No multi-step. REJECTION-GATE for System: nothing in the behavior text implies a real message broker is needed; the observable outcome is just presence and correctness of the row entry.",
+      "test_description": "Wire the validator and DLQ writer against a stub in-memory dead-letter store. Feed a CSV with rows missing each required field in turn and confirm each rejected row appears in the stub DLQ exactly once, carrying the correct original 1-based row number. Also feed rows with all required fields present and confirm they do not appear in the DLQ.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.18,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives entirely inside the date-conversion function — wrong parsing regex, incorrect format detection, or wrong output formatting. No module handoff is involved; the function takes a string and returns a string. REAL-INFRA: No OS, network, or filesystem needed. LLM-DEP: No AI/ML. MOCK-HIDE: There is nothing to mock; the function is pure. A parameterized unit test with representative inputs is sufficient and will catch the real failure. REJECTION-GATE for Integration: the behavior text names specific input formats and a canonical output format — this is purely algorithmic, with no wiring to external components.",
+      "test_description": "Call the date transformation function directly with a representative set of inputs: ISO 8601 (e.g. '2024-03-15'), US format (e.g. '03/15/2024'), and European format (e.g. '15.03.2024'). Assert each produces the same canonical output string. Also include boundary cases such as single-digit months/days and two-digit years if the spec allows them.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The two failure modes are (1) memory exhaustion and (2) wall-clock timeout breach. Both are enforced by the OS — OOM is an OS-level resource limit, and the configured timeout is checked against real clock time. While the actual CSV data can be generated locally (no real S3 required), observing the failure requires real OS resource tracking at production-like scale. An in-process stub that doesn't actually process 500K rows cannot reproduce an OOM or a timeout overrun. Mocking away the processing volume would trivially pass, hiding the bug. INTEGRATION-BRAKE: (a) Memory limits and wall-clock timeout are OS behavior → System. (b) No LLM. (c) No multi-step. REJECTION-GATE for Integration: a stub cannot reproduce OOM or timeout; you must run the full pipeline processing real data volume under real OS constraints.",
+      "test_description": "Generate a 500,000-row CSV fixture (synthetic, written to a temp file or stream). Run the full pipeline with stub S3 (reading from the local temp file) and a stub DB writer that discards rows. Measure peak resident memory (e.g. via tracemalloc or process RSS) and total wall-clock elapsed time. Assert both stay within the configured limits. The test must actually execute all 500K rows — no sampling shortcuts.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test involves real OS-level resource measurement (memory RSS, wall-clock time) at scale, which is the defining System characteristic, even though S3 and DB are stubbed.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.28,
+        "System": 0.63,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the pipeline's retry/backoff logic and the S3 client — the client could surface the 503, but the caller could ignore retry logic, abort, or use linear backoff instead. This is a wiring failure between the HTTP-error-handling layer and the retry orchestrator. REAL-INFRA: A fake HTTP server (or mock S3 client) that returns 503 on the first N calls then succeeds is sufficient to reproduce the failure — real S3 network conditions are not needed. Exponential backoff timing can be verified by mocking or patching the sleep/wait primitive, avoiding flaky wall-clock assertions. MOCK-HIDE: Mocking at the level of the S3 client's return value is the right level — it forces the retry path to actually be exercised. INTEGRATION-BRAKE: (a) No real network required — stub HTTP catches it. (b) No LLM. (c) No multi-step. REJECTION-GATE for System: the behavior text says 'S3 bucket returns a transient 503,' which can be reproduced exactly by a stub that returns HTTP 503.",
+      "test_description": "Wire the pipeline's S3 reader against a stub HTTP client configured to return 503 on the first two calls then succeed on the third. Patch the backoff sleep function to record sleep durations without blocking. Invoke the pipeline and assert: (a) the S3 read was attempted exactly three times, (b) the recorded sleep durations follow an exponential pattern, (c) the batch completes successfully rather than propagating an error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.22,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the pipeline's checkpointing/idempotency logic and real PostgreSQL semantics (unique constraints, upsert behavior, transaction isolation). A mid-batch restart means some rows were committed; the restarted pipeline must not re-insert them. This requires real state to persist across two pipeline runs and real RDBMS deduplication semantics to enforce the invariant. REAL-INFRA: A local PostgreSQL instance (Docker-based or embedded) is sufficient and fits the Integration definition ('local DB'). An in-memory fake DB might not faithfully enforce unique constraint violations or upsert semantics, hiding the real failure. INTEGRATION-BRAKE: (a) No real network or subprocess required — local DB. (b) No LLM. (c) No multi-step agentic. REJECTION-GATE for System: a local PostgreSQL test database is explicitly within Integration scope per the level definitions; no production-network connectivity is needed.",
+      "test_description": "Spin up a local PostgreSQL test database. Run the pipeline against a small CSV, simulating an abort after the first half of rows are committed (e.g. by raising an exception at a controlled checkpoint). Restart the pipeline with the same input. Query the PostgreSQL table and assert the total row count equals the number of rows in the input — no row appears more than once. Verify using the row's natural key or idempotency key as the uniqueness criterion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.8,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

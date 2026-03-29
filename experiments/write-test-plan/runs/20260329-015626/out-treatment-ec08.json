@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is pure arithmetic — a function that takes retry count and config and returns a duration. The failure mode (wrong doubling, cap not applied) lives entirely inside that function. No module handoff is involved. REAL-INFRA: None. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — the doubling and cap logic does not depend on how the retry loop is wired to the HTTP client; a wrong formula fails in isolation.",
+      "test_description": "Call the backoff-computation function directly with retry counts 0, 1, 2, 3 and a configured max. Assert each output is double the previous, and that once the computed value exceeds max it is clamped to max. No HTTP, timer, or async infrastructure needed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Two discrete sub-behaviors — response classification (is this a 429 / quota-limit header?) and wait-time computation — both live within a single module. A constructed mock HTTP response object is sufficient input; no real network handoff is needed for the failure to surface. REAL-INFRA: No. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered because the wait-time value feeds the retry loop, but the classification and computation logic itself fails independently of whether it is correctly threaded into the loop.",
+      "test_description": "Construct synthetic HTTP response objects (status 429 with Retry-After header, status 200, status 500) and pass them directly to the rate-limit-detection and wait-computation functions. Assert correct identification of quota-limit responses and correct extraction/derivation of wait duration for each case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode only appears when the retry module correctly hands control back to the HTTP dispatch layer with the same request object after the wait elapses. A unit test on the retry function alone cannot verify that the original request (same URL, method, body, headers) is reconstructed and re-dispatched. REAL-INFRA: No — a controllable fake HTTP transport is sufficient. MOCK-HIDE: Mocking at the wrong granularity (e.g. mocking the retry function itself) would hide the failure. LLM-DEP: No. REJECTION-GATE: System was rejected — no real network is needed; a deterministic fake transport that records invocations and returns 429 then 200 is enough to catch the real failure.",
+      "test_description": "Wire the full client (retry module + HTTP dispatch) against a fake transport that returns 429 on the first call and 200 with a payload on the second. Assert that (a) the transport receives exactly two calls with identical request parameters, (b) the resolved promise carries the success payload, and (c) no error is thrown to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The specific error type is only surfaced after the retry counter reaches its limit and the error-wrapping path executes. A unit test on the counter alone cannot verify that the right error class propagates out of the `call()` method to the caller. The failure — a generic Error instead of QuotaExhaustedError — only manifests when the retry loop and error-construction code are wired together. REAL-INFRA: No. LLM-DEP: No. REJECTION-GATE: Unit was rejected because the discriminating behavior (correct class propagating to the caller) cannot be tested without the full retry loop running to exhaustion.",
+      "test_description": "Wire client against a fake transport that always returns 429. Set max retries to 3. Await `call()` and assert the rejection is an instance of QuotaExhaustedError (not Error or any other supertype). Also verify the transport was called exactly max_retries+1 times.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Does not loop indefinitely' can only fail when the retry loop, quota tracker, and termination condition are all wired together. A unit test on the loop counter in isolation cannot catch an infinite loop caused by a faulty interaction between quota tracking and retry state. REAL-INFRA: No real network needed; a fake transport and a test timeout suffice. LLM-DEP: No. REJECTION-GATE: System was rejected — an OS-level subprocess or real HTTP is not required; the non-termination bug is observable within the same process using a fake transport and a promise-race timeout.",
+      "test_description": "Wire client (retry + quota tracker + dispatch) with a fake transport always returning 429 and max_retries=5. Race the `call()` promise against a hard timeout (e.g. 2 s, much longer than accumulated fake delays). Assert the promise rejects with QuotaExhaustedError before the timeout fires, and that the transport call count equals max_retries+1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.72,
+        "System": 0.19,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — callers using separate quota counters instead of a shared one — only manifests when multiple concurrent call sites interact through the shared state. A unit test on a single caller cannot detect this. REAL-INFRA: Concurrency within a single Node.js process does not require real network or OS-level infrastructure. LLM-DEP: No. REJECTION-GATE: System was rejected — a fake transport that records calls and introduces artificial latency (to allow interleaving) is sufficient; no real HTTP is needed to expose the shared-vs-isolated bucket bug.",
+      "test_description": "Instantiate one client and issue N concurrent calls simultaneously (Promise.all). Use a fake transport that initially returns 429 for all calls and records each invocation. Inspect the shared quota tracker state to assert it was decremented exactly N times total (not N times per caller). Verify all concurrent callers see the same exhaustion threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.76,
+        "System": 0.16,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: FIFO dispatch order can only fail at the boundary between the queuing mechanism and the HTTP dispatch module. A unit test on the queue data structure alone cannot catch a bug where the dispatch loop dequeues in wrong order under async interleaving. REAL-INFRA: No real network needed — a fake transport that records the order of received requests is sufficient. LLM-DEP: No. REJECTION-GATE: System was rejected because the ordering failure is entirely an in-process concurrency/state bug observable with a fake transport.",
+      "test_description": "Submit N requests sequentially (request-1 through request-N) in rapid succession so that most queue behind the first. Use a fake transport that imposes artificial per-call latency and records the order each request URL/ID is received. Assert the recorded dispatch sequence matches the original submission sequence exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.76,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

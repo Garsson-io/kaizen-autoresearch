@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The tool invokes `git` as an external subprocess. Git rename detection uses a similarity index and produces 'R' status codes with a specific output format (e.g., `R100 old.py\\tnew.py`). Mocking subprocess would hide: (a) the exact wire format git uses for renames vs. add+delete pairs, (b) the rename threshold at which git promotes a delete+add into a rename, and (c) flag semantics like `--diff-filter=R`. Bright-line applies: behavior correctness depends on executing an external `git` command. REJECTION-GATE for Integration: an in-process fake subprocess could inject a plausible rename diff string, but the failure mode is specifically about how real git encodes renames—a fake could accidentally encode it correctly, masking a parser that only works on idealized input.",
+      "test_description": "Create a real temporary git repository, commit a file, rename it via `git mv`, and commit again. Run the CLI tool and assert the output contains exactly one entry in the 'renamed' category with zero entries in 'added' or 'deleted' for that file path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.15,
+        "System": 0.7,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Binary files in a git diff produce the literal string 'Binary files a/... and b/... differ' instead of a line-based diff. The tool must not crash while parsing this. Bright-line applies: the behavior requires executing `git diff` against a repo containing real binary content. MOCK-HIDE: mocking subprocess with a manually crafted binary-diff string could test the parser's error handling, but would miss: (a) git's own detection heuristics for what counts as binary, (b) whether the tool correctly invokes git with flags (e.g., `--numstat`) that produce structured output even for binaries, and (c) edge cases like null bytes in filenames. The crash risk is specifically in the interaction between real git output and the parsing layer.",
+      "test_description": "Create a temporary git repo, commit a real binary file (e.g., a small PNG or a file with embedded null bytes), then run the CLI tool against it. Assert the tool exits with code 0 and includes the binary file in the count output rather than raising an unhandled exception.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.13,
+        "System": 0.7,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: An empty git repository (one where `git log` has no output and `git rev-parse HEAD` exits with code 128) is a specific OS/subprocess state that cannot be reliably reproduced with in-process fakes. The failure mode is how the tool handles a non-zero exit code or stderr from git when there is no HEAD ref. A mocked subprocess could return exit code 0 with empty output, masking the real error path where git returns exit code 128 with 'fatal: your current branch 'main' does not have any commits yet'. Bright-line applies: behavior correctness depends on real git subprocess exit semantics.",
+      "test_description": "Use `git init` to create a temporary empty repository (no commits). Run the CLI tool targeting that repository. Assert the process exits with code 0 and produces an empty or zero-count report rather than printing a traceback or exiting with a non-zero status.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This is an end-to-end correctness assertion: the report numbers must match what actually happened in a real git history. No amount of in-process wiring or mocked git output can validate count accuracy, because the ground truth is the real commit history. Bright-line applies: the tool runs git commands, and the correctness criterion is defined relative to real git history. MOCK-HIDE: any mock-based test would encode the expected answer in the mock, making the test circular—the test would always pass regardless of whether the counting logic is correct.",
+      "test_description": "Create a temporary git repo and script a known sequence of operations: add 3 new files, delete 1 file, rename 1 file, and modify 2 files across one or more commits. Run the CLI tool and assert the report shows exactly added=3, deleted=1, renamed=1, modified=2 with no off-by-one errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.07,
+        "System": 0.87,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Staged' and 'unstaged' are real git index concepts. `git diff` vs `git diff --cached` vs `git diff HEAD` produce different output depending on actual index state managed by the OS-level git process. The behavior requires verifying that the tool invokes the correct git plumbing in both modes and that its output is identical. Bright-line applies: the staging area is external subprocess/OS state. MOCK-HIDE: mocking would require separately stubbing the staged and unstaged code paths with identical fake output, making the test trivially pass rather than catching a case where the tool accidentally uses the wrong git diff flag for one mode.",
+      "test_description": "Create a temporary git repo with an initial commit, then modify a file. Run the tool once before staging (unstaged changes) and record the output. Run `git add` to stage the change. Run the tool again (staged changes) and record the output. Assert both outputs are identical in file counts and categories.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.08,
+        "System": 0.86,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-32",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A static prompt-template lint check rejects phase-specific instruction leakage copied from SKILL.md.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely algorithmic — does the lint function detect forbidden patterns in a template string? No module handoff is involved. REAL-INFRA: No filesystem I/O, subprocess, or network is needed; the template text can be supplied as a string literal in the test. MOCK-HIDE: No external dependency to mock. LLM-DEP: No model call. The lint check is a deterministic pattern-match over static text. MULTI-STEP: Single function call. REJECTION-GATE for Integration: loading the actual template file would make this Integration, but the behavior specifies a 'lint check', not a harness assembly pipeline — a unit test feeding a string to the lint function exercises the real failure boundary.",
+      "test_description": "Call the lint function (or its equivalent static-analysis routine) with two inputs: (a) a clean template string with no SKILL.md phrases, and (b) a template string containing a verbatim phase instruction copied from a representative SKILL.md section. Assert the function returns no violations for (a) and returns at least one violation pointing to the offending phrase for (b).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The fully assembled prompt produced by the real test harness (after interpolation/fixtures) still contains no phase-instruction leakage.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a cross-module one — interpolation logic, fixture loading, and template assembly must all run together. A unit test that checks only the lint function (behavior 1) would miss leakage introduced during fixture substitution or harness assembly. The bug lives at the handoff between fixture values and the template engine, so Integration is the floor. REAL-INFRA: No real HTTP or subprocess is required; the harness runs in-process. MOCK-HIDE: Mocking the interpolation step would trivially pass by bypassing the exact stage that might introduce leakage. LLM-DEP: No model call needed — we assert on the assembled string, not model output. REJECTION-GATE for System: in-process execution of the harness plus a real fixture file is sufficient; no subprocess or OS event is needed.",
+      "test_description": "Invoke the test harness assembly path with real fixture files and real template files (no mocks on interpolation or fixture loading). Capture the fully assembled prompt string before it would be sent to any model. Assert that the string contains none of the known phase-instruction phrases catalogued from SKILL.md. Also assert that the skill context placeholder was actually substituted (i.e., the raw placeholder token is absent), confirming interpolation ran.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The test invocation loads skill context from the plugin/skill files and validates behavior from that context rather than from hard-coded prompt rules.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is source-of-truth confusion — the harness might appear to 'load' skill context but actually fall back to a hard-coded string. Verifying this requires tracing data from real plugin/skill files through the loading layer to the point of validation, which spans at least two modules. A unit test that mocks the file loader can never prove the real invocation path reads the files. REAL-INFRA: Real filesystem reads are involved, but a test-local copy of the skill file is sufficient; no real HTTP or subprocess is needed. MOCK-HIDE: Mocking the file loader defeats the purpose — the test must confirm the live loader touches the actual files. LLM-DEP: We are asserting on what was loaded and used as context, not on model output quality, so no real LLM call is required. REJECTION-GATE for Agentic: 'validates behavior from that context' means the test checks that the context source is correct, not that the model produced high-quality output.",
+      "test_description": "With a real (test-local) copy of the skill plugin files, invoke the test harness's skill-loading path and capture the context object it produces. Assert the context content matches the plugin file contents (e.g., key sections are present verbatim or by hash). Then assert that the prompt assembly step references this loaded context object, not any inline constant. Optionally, swap in a modified skill file and verify the assembled prompt changes accordingly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0.2,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the relevant SKILL.md section is removed or degraded, the behavioral test fails with the same user-style prompt.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is a regression in real model behavior — the test must show that without the skill content, the model no longer produces the expected structured behavior. REAL-INFRA: No OS or subprocess edge case; standard HTTP is fine. MOCK-HIDE: This is the central concern of the issue. A stub LLM always returns the same canned response regardless of whether SKILL.md is present, so it would always pass even when the skill is fully degraded. The failure surface is model-output sensitivity to skill context. LLM-DEP: YES — correctness depends on the real model responding differently when skill content is absent. Running the test with the degraded SKILL.md 100 times must produce consistent failure; with the intact SKILL.md it must pass. This non-determinism and context-sensitivity is precisely the Agentic boundary. MULTI-STEP: Single model call; no chained agentic steps needed. REJECTION-GATE for Workflow: the behavior describes one invocation with a user-style prompt, not a multi-step pipeline.",
+      "test_description": "Run the behavioral smoke test twice using the real model: once with the canonical SKILL.md intact, and once with the relevant section removed or replaced with filler text. The user-style prompt must be identical across both runs and must contain no phase instructions. Assert the intact-skill run passes all behavioral assertions. Assert the degraded-skill run fails (i.e., the behavioral assertion fires, not just an error). Record both raw outputs as diagnostic artifacts. This is a regression-detection test, so failure in the degraded condition is the expected outcome — the test suite should treat that failure as a pass of the test itself.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.07,
+        "System": 0.04,
+        "Agentic": 0.76,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Raw model output is captured to a diagnostic artifact before any JSON parsing or extraction logic runs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is pipeline-ordering — capture must happen before parsing. Verifying this requires the capture step, the parsing step, and their wiring to all execute together. A unit test on either step in isolation cannot observe whether capture precedes parsing. REAL-INFRA: No real model call, OS event, or subprocess is needed. A deterministic stub response (e.g., a fixed JSON string) is sufficient to exercise the ordering. MOCK-HIDE: The model call can be stubbed; what must not be mocked is the wiring between capture and parse. LLM-DEP: Ordering is deterministic; no model non-determinism is relevant. REJECTION-GATE for System: no real HTTP or subprocess is required — the stub response can be injected in-process.",
+      "test_description": "Inject a stub model response containing valid JSON into the pipeline. Instrument the capture step (e.g., via a spy on the artifact-write path) and the parsing step (e.g., via a spy on the JSON parser entry). Run the full pipeline. Assert that the artifact-write spy was called exactly once before the JSON-parser spy was called (by comparing call-order indices or using an ordered call recorder). Additionally assert that the artifact content matches the raw stub string, not a post-parsed representation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Assertions verify structured behavior (for example field placement or schema shape), not mere keyword presence that could come from prompt echoing.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the assertion logic itself — a keyword-presence check passes on a response that echoes prompt text but has the wrong schema. To expose this, the test needs to produce a synthetic response and run the actual assertion code against it, which requires the assertion module to be wired to the response-processing pipeline. REAL-INFRA: No real model, network, or OS needed. MOCK-HIDE: Mocking the response trivially passes; instead the test must provide a crafted adversarial response (keywords present, schema violated) and verify the assertion fires. LLM-DEP: The assertion logic is deterministic; no real model call needed. REJECTION-GATE for Unit: a purely static analysis of the assertion source code (e.g., 'does it use `in` vs. a schema validator?') could be Unit, but behavior-level confidence requires running the assertion against adversarial synthetic data, which spans the assertion module and response-parsing module together.",
+      "test_description": "Construct two synthetic model responses: (a) a response that contains all expected keywords but with fields in the wrong schema positions or missing required structure, and (b) a response that satisfies the full schema contract. Run both through the actual assertion logic used in the behavioral smoke tests. Assert that response (a) triggers an assertion failure (the schema check fires) and response (b) passes. Optionally add a third case that adds no keywords at all but satisfies the schema, verifying the assertion still passes — confirming keyword presence is not required.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.6,
+        "System": 0.04,
+        "Agentic": 0.07,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a cross-module handoff bug — e.g., the aggregation layer silently drops one source's data before passing it to the summary step. A unit test on the aggregator alone (with injected return values) could catch this, but only if we wire the real fetchers through the real aggregator do we validate that the collection-to-summary handoff preserves all three payloads. INTEGRATION-CHECK: Cannot reduce to one function call with crafted args if we want to verify the actual data pipeline wiring (fetchers → aggregator → summary input). In-process module wiring is sufficient; no real network or LLM needed.",
+      "test_description": "Wire the three data-source clients (metrics, issue tracker, deployment log) with in-process fakes that return known fixture data. Run the data collection and aggregation layer. Capture the payload that is passed into the summary-generation interface. Assert that each source's known fixture values appear in that payload, and that no source's data is absent or replaced with a placeholder.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure requires that (a) the fetch layer surfaces an error correctly, (b) the aggregation layer catches it without propagating an exception, and (c) the report generation layer renders a `data unavailable` note rather than an empty or broken section. Any one of those transitions can be the bug. A unit test on just the fetcher error path or just the renderer misses the cross-module handoff. INTEGRATION-CHECK: We need to wire a failing fetcher with the real aggregator and the real report assembler to catch the full graceful-degradation path. In-process fakes for the failing source are sufficient — no real OS or LLM required.",
+      "test_description": "Configure two source fakes to return valid fixture data and one to raise a connection/timeout exception. Run the full collection-and-assembly pipeline in process. Assert that the pipeline does not raise an exception, and that the produced report object contains valid data for the two working sources and the literal text `data unavailable` (or equivalent sentinel) in the section corresponding to the failed source.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Accurately represents' is an inherently generative quality claim. The summary step is described as narrative generation, which is almost certainly an LLM call. No deterministic stub can reproduce whether the real model faithfully surfaces a specific metric value, identifies the correct trend, or omits a key finding. Running this 100 times with the real model could produce different phrasings — some correct, some not. The only way to catch a real failure (hallucinated value, dropped metric, misattributed stat) is to send a structured input to the real model and evaluate its output. MULTI-STEP: Only one LLM call is involved, so Workflow is not required.",
+      "test_description": "Construct a structured data payload with specific, unambiguous key values (e.g., deploy count = 42, open P1 count = 3, p95 latency = 1200 ms). Call the real summary-generation step with this payload. Assert that the returned narrative contains the literal key values (or their unambiguous text representation) and does not contradict them (e.g., does not claim zero deployments or describe latency as 'within normal range' when the value exceeds threshold).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.06,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP + LLM-DEP + REAL-INFRA: This behavior is an explicit full-pipeline claim. It spans: real (or realistic) data collection, a real LLM narrative generation step (see behavior 3), and actual email delivery verified at the recipient inbox. 'Reaches the configured recipient's inbox correctly' cannot be satisfied by a mock SMTP stub — we must verify delivery, headers, and content at the receiving end, which requires a real or integration-grade mail server. Combined with the non-deterministic LLM step in the middle, this is a multi-step agentic pipeline touching real infrastructure — the definition of Workflow.",
+      "test_description": "Using a sandboxed but real SMTP environment (e.g., Mailpit or a dedicated test inbox), configure the pipeline with real data source fakes, a real LLM call, and the actual email sender pointed at the test server. Trigger one scheduled run. Poll the test inbox until the message arrives (with a timeout). Assert that: (a) exactly one email was delivered, (b) the To header matches the configured recipients, (c) the subject matches the expected format, and (d) the body contains key data values from the input fixtures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.14,
+        "Agentic": 0.16,
+        "Workflow": 0.65
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure can live at any cross-module seam: the email layer failing silently instead of raising, the file-save logic not being invoked, the file path being wrong, or the retry logic on the second run not detecting the pending file. No single function unit test covers all three transitions (failure detection → file write → retry pickup). REAL-INFRA: Local filesystem I/O is within Integration scope. The 'next scheduled run' can be reproduced by invoking the scheduled entry point twice in process — no real cron or OS scheduler needed. INTEGRATION-CHECK: We need cross-module wiring (email module + file writer + retry dispatcher) but in-process wiring with a local temp directory is sufficient.",
+      "test_description": "Point the email sender at an address/port with nothing listening so it raises a connection error. Run the scheduled entry point once. Assert that (a) no exception escapes to the caller, and (b) a report file is written to the configured fallback directory with non-empty content. Then restore a working (fake) SMTP server and run the entry point a second time. Assert that (c) the pending file is detected, (d) the report is delivered via the now-available email path, and (e) the local file is removed or marked as sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.65,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

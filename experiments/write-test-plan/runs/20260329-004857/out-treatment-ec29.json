@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required patient fields are validated before downstream processing; missing fields return one clear error listing all missing items.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is the handoff gate: validation must prevent calls into insurance/triage/scheduling when fields are missing. A unit test of field-check logic alone can miss downstream invocation bugs.",
+      "test_description": "Run intake through the orchestration layer with missing `name` and `insurance_id`; assert returned error lists both fields and assert downstream modules (insurance API client, triage, scheduler) are not invoked.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Date-of-birth validation rejects future dates, dates older than 150 years, and non-date strings.",
+      "minimum_level": "Unit",
+      "justification": "This is pure input-validation logic in one boundary with no required I/O or module interaction to expose the target failure.",
+      "test_description": "Test DOB validator with representative invalid values (future date, 151+ years old, malformed strings) and one valid boundary case; assert specific validation errors.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.93,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility check sends correct patient ID/plan code and correctly interprets `eligible`/`not eligible`/`pending`.",
+      "minimum_level": "System",
+      "justification": "Real failure often appears at the HTTP contract boundary (serialization/field names/status mapping). Mocked clients can hide request-shape and protocol issues.",
+      "test_description": "Against a real payer sandbox (or real HTTP contract endpoint), submit known cases and verify outbound payload contains exact patient ID/plan code and response mapping is correct for all three statuses.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.68,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If payer API is unreachable, eligibility is set to `pending` and intake continues.",
+      "minimum_level": "System",
+      "justification": "The behavior depends on real network failure modes/timeouts and continuation through the live orchestration path; mocks can miss retry/timeout/socket behavior.",
+      "test_description": "Run intake with payer endpoint intentionally unreachable (connection refused/timeout) and verify eligibility becomes `pending`, pipeline continues to scheduling/confirmation, and no hard failure is returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.26,
+        "System": 0.63,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "AI triage assigns high urgency to emergency symptom combinations (e.g., chest pain + shortness of breath).",
+      "minimum_level": "Agentic",
+      "justification": "Correctness is about model judgment quality, not deterministic code wiring. Real model outputs can vary and must be validated on real calls.",
+      "test_description": "Execute repeated real triage model calls on curated emergency symptom cases and assert high-urgency classification rate meets threshold (e.g., >=95%) with drift tolerance.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.08,
+        "Agentic": 0.81,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Triage returns a clinician-reviewable natural-language explanation, not only a numeric score.",
+      "minimum_level": "Agentic",
+      "justification": "This depends on real generated language quality/format compliance from the AI model; deterministic mocks cannot catch explanation adequacy failures.",
+      "test_description": "Call the real triage model for representative symptom inputs and assert response includes non-empty explanation text meeting minimal clinical readability/structure checks plus urgency value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.77,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Scheduling picks first available slot matching urgency SLA (high=same day, medium<=48h).",
+      "minimum_level": "Integration",
+      "justification": "Failure occurs where scheduling logic interacts with shared calendar persistence and availability queries. Pure unit tests can miss DB ordering/query issues.",
+      "test_description": "With a local calendar DB fixture containing occupied/free slots, run scheduler for high and medium urgency and assert chosen slot is earliest valid one within SLA window.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.19,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Scheduling prevents double-booking when two patients are processed concurrently.",
+      "minimum_level": "Integration",
+      "justification": "The target failure is concurrent interaction with shared DB state (locking/transaction constraints) across modules, not single-function logic.",
+      "test_description": "Launch two concurrent intake/scheduling requests targeting same candidate slot against a real local DB with production transaction settings; assert only one booking succeeds and the other is re-assigned/rejected without duplicate row.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.76,
+        "System": 0.19,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Confirmation includes patient name, appointment time, provider name, and visit-type-specific preparation instructions.",
+      "minimum_level": "Integration",
+      "justification": "Risk is in composing data from scheduling/provider/visit-type modules into outbound message; unit template checks alone can miss missing-field wiring issues.",
+      "test_description": "Run confirmation generation from persisted appointment + visit type records and assert message body contains all required fields and correct prep instructions for each visit type.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "End-to-end intake pipeline (validate → insurance → triage → schedule → confirm) completes for a real submission without manual intervention.",
+      "minimum_level": "Agentic",
+      "justification": "This is end-to-end and includes a real AI triage step whose output affects downstream flow; minimum infrastructure must include the live model call plus real external/system interactions.",
+      "test_description": "Submit a realistic patient intake through the production-like pipeline using real payer API path, real triage model, and real scheduling DB; assert successful completion with final confirmation artifact and no human override.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.06,
+        "System": 0.26,
+        "Agentic": 0.58,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

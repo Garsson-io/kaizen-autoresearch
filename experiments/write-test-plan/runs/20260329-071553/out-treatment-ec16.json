@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is at a module boundary: the file-discovery module (fetching changed files from the GitHub API or event payload) must correctly hand off only the changed file paths to the analysis-dispatch module. A stub returning a controlled set of changed files wired to the real dispatch path will catch incorrect filtering (e.g., off-by-one in pagination, wrong diff scope). REAL-INFRA: a stub HTTP client is sufficient — the failure is in selection logic, not real HTTP behavior. LLM-DEP: none. REJECTION-GATE for System: behavior says 'reads changed files' from the API; the selection logic is deterministic given a file list, so a stub response fully exercises the boundary without real HTTP.",
+      "test_description": "Stub the GitHub API (or action event payload) to return a known set of 3 changed files out of a synthetic repo tree containing 10 files. Wire the stub into the real file-selection module and real analysis-dispatch module. Invoke the pipeline. Assert that exactly the 3 changed file paths were passed to the linter and no other paths were queued.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.52,
+        "System": 0.18,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "Grouping findings by severity is a pure deterministic transformation over an in-memory collection. The failure mode (wrong grouping, missing severity bucket, wrong ordering) is entirely inside one function with no I/O. MOCK-MISS: no module boundary is involved — this is a local algorithm. REAL-INFRA: none needed. LLM-DEP: none. REJECTION-GATE for Integration: the grouping function operates on a list of findings already collected; no cross-module wiring is required to catch its failure.",
+      "test_description": "Construct a flat list of synthetic Finding objects covering all three severities (some interleaved, some repeated severity). Call the grouping function directly. Assert that the returned structure contains exactly three sections (error, warning, info), each section contains only findings of its severity, and the rendered comment string reflects that partitioning.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "This is a wall-clock performance guarantee against real execution. The linter runs as a subprocess (per behavior 4); subprocess startup overhead, real file I/O, and process scheduling all contribute to the timing. REAL-INFRA: an in-process mock of the linter would never reproduce subprocess spawn cost or I/O-bound behavior — the failure (exceeding the timeout) only surfaces with real subprocess invocations on real files. MOCK-HIDE: mocking subprocesses would always 'complete instantly', hiding the real bottleneck. REJECTION-GATE for Integration: 'completes within the 10-minute Actions timeout' is an external wall-clock constraint that requires real subprocesses and real I/O to be meaningful.",
+      "test_description": "Create 200 small but valid source files in a temp directory. Run the full pipeline end-to-end (real linter subprocess, real file enumeration, real result aggregation) under a wall-clock timer. Assert the total elapsed time is under 600 seconds. The test must not mock the subprocess or file I/O paths.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.87,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "System",
+      "justification": "The failure mode is error-handling behavior around a real subprocess crash. A subprocess crash (non-zero exit, SIGABRT, or unhandled exception inside the child process) has different observable properties from an in-process Python exception: exit codes, signal delivery, and partial stdout/stderr output differ. REAL-INFRA: an in-process exception mock does not reproduce the OS-level process failure semantics the pipeline must handle. MOCK-HIDE: mocking the subprocess to raise an exception bypasses the actual crash-recovery path (which reads the process returncode and possibly partial output). REJECTION-GATE for Integration: 'linter process crashes' explicitly names a subprocess crash, not an in-process error; the cross-process boundary is the failure boundary.",
+      "test_description": "Provide a mix of valid source files and one crafted malformed file known to crash the real linter process (e.g., a binary blob with a valid extension). Run the full pipeline with real subprocess invocations. Assert that (a) findings from all valid files appear in the output and (b) the pipeline posts a comment rather than aborting. Verify the malformed-file error is surfaced in the posted comment or error log.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.12,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is a pure algorithmic operation over an in-memory collection of Finding objects. The failure mode (duplicate appearing in output) is fully exercised by calling the deduplication function with a crafted input containing intentional duplicates. MOCK-MISS: no cross-module handoff is involved. REAL-INFRA: none. LLM-DEP: none. REJECTION-GATE for Integration: the deduplication logic operates on a finalized findings list; it has no dependency on how findings were produced or which module generated them.",
+      "test_description": "Construct a list of Finding objects that includes exact duplicates (same file, same line, same rule, same message) as well as near-duplicates (same line, different rule — should NOT be deduplicated). Call the deduplication function directly. Assert that exact duplicates are collapsed to a single entry and that near-duplicates are preserved as distinct findings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.91,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

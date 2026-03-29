@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is the handoff between 'fetch changed file list' (GitHub API or git subprocess) and 'select files to analyze.' A pure unit test of the filter function alone cannot catch a bug where the wrong list is fetched or the integration between fetch and filter is broken. REAL-INFRA: The changed-file list can be injected via a stub HTTP client or mock git response without needing a real GitHub API call — an in-process fake reproduces the failure. MOCK-HIDE: Mocking the file-fetch call still lets us verify the filter logic consumes the list correctly; the core failure mode (analyzing unchanged files) is visible with a stub. INTEGRATION-BRAKE: (a) No real OS/network required — stub HTTP response reproduces the failure. (b) No AI/ML. (c) No multi-step agentic chain. EVIDENCE-LEVEL: Integration. OUTPUT-LEVEL: Integration. No override.",
+      "test_description": "Wire the file-fetch module (stubbed to return a known set of 'changed' files) to the analysis dispatcher. Place both changed and unchanged files on a fake filesystem. Assert the analysis module receives exactly the stubbed changed-file list and no unchanged-file paths appear in the findings or scan log.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.58,
+        "System": 0.27,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure can appear either in the grouping algorithm or in the serialization path that renders grouped findings into the comment body. A unit test of the grouping function alone misses bugs where the grouped data is flattened or re-sorted before posting. The failure boundary spans grouping → formatting → HTTP POST payload. REAL-INFRA: A stub HTTP client can capture the exact comment body POSTed to GitHub without a real API call; in-process fakes fully reproduce the failure. MOCK-HIDE: Mocking only at the HTTP layer still lets us assert the payload contains the correct severity sections. INTEGRATION-BRAKE: (a) No real network required. (b) No AI/ML. (c) No multi-step chain. EVIDENCE-LEVEL: Integration. OUTPUT-LEVEL: Integration. No override.",
+      "test_description": "Inject a synthetic findings list with mixed severities into the full pipeline (grouper → formatter → HTTP poster with a stub client). Capture the comment body sent to the stub. Assert it contains distinct sections for 'error,' 'warning,' and 'info,' each containing only the correctly-severity-matched findings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.57,
+        "System": 0.21,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Timing failure only surfaces under real execution conditions — process startup overhead, real filesystem I/O across 200 files, and real subprocess invocations per file all contribute to wall-clock time. REAL-INFRA: An in-process mock of file reads or subprocess calls removes the actual I/O cost, making any timing assertion meaningless. The failure mode (exceeding 10 minutes) only appears with real subprocess execution and real filesystem access. MOCK-HIDE: Mocking subprocess.run hides the dominant cost (linter process startup × 200); the test would always pass regardless of actual performance. INTEGRATION-BRAKE: (a) Yes — real subprocess execution time and real filesystem I/O are required to observe the failure; demoting to Integration would hide the bottleneck. REJECTION-GATE: No text in the behavior disqualifies System; 'within the 10-minute Actions timeout' explicitly references real execution wall time. EVIDENCE-LEVEL: System. OUTPUT-LEVEL: System. No override.",
+      "test_description": "Create 200 synthetic source files on a real (or tmpfs) filesystem. Invoke the Action step as a real subprocess with a wall-clock timer. Assert total elapsed time is under 600 seconds. Optionally set a stricter soft budget (e.g., 300s) to catch regressions before they breach the hard limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.83,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure boundary is process-level crash recovery: does the driver loop correctly detect a non-zero exit code or signal termination from the linter subprocess and continue with the next file? REAL-INFRA: A real subprocess crash (non-zero exit, segfault signal, or unhandled exception) exercises OS-level process management that in-process mocks cannot replicate — mocking subprocess.run to raise an exception is a different failure mode than a real crash exit code. MOCK-HIDE: Replacing the linter with a mock that raises a Python exception hides real behavior: crash cleanup, partial output on stdout/stderr, exit-code parsing, and signal propagation all differ from an in-process exception. INTEGRATION-BRAKE: (a) Yes — 'linter process crashes' is explicitly a subprocess crash; real subprocess behavior is required to observe the exact failure mode. REJECTION-GATE: The behavior text says 'linter process crashes' — this is a real subprocess event, not an exception within the driver. Cannot disqualify System. EVIDENCE-LEVEL: System. OUTPUT-LEVEL: System. No override.",
+      "test_description": "Create a batch of files including one known-malformed file. Supply a real (or minimal test-double) linter binary that exits with code 1 (or SIGSEGV) on the malformed file and exits 0 on all others. Invoke the Action step as a subprocess. Assert the posted comment (captured via stub HTTP or output file) contains findings from all non-malformed files and none are silently dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Deduplication is a pure algorithmic transformation: given a list of findings (file, line, rule, message), return a list with duplicates removed. The failure lives entirely inside this function — no module handoff, no I/O. REAL-INFRA: No filesystem, network, or subprocess is involved in the deduplication step. MOCK-HIDE: No external dependency needs mocking; the function is self-contained. LLM-DEP: No AI/ML involved. MULTI-STEP: No agentic chain. INTEGRATION-BRAKE: (a) No OS/network. (b) No AI/ML. (c) No multi-step chain. EVIDENCE-LEVEL: Unit. OUTPUT-LEVEL: Unit. No override.",
+      "test_description": "Construct a synthetic list of findings that includes exact duplicates (same file, same line, same rule) and near-duplicates (same line, different rule). Call the deduplication function directly. Assert the output contains each unique (file, line, rule) tuple exactly once, and that near-duplicates with different rules are preserved as distinct entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.13,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

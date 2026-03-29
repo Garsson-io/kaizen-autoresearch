@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Products marked as out-of-stock are excluded from the recommendation results regardless of their relevance score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the availability-filter predicate — an in-stock item passes, an out-of-stock item with a higher relevance score must not. That logic lives in one function with no module boundary involved. REAL-INFRA: No I/O required; catalog state is injected as arguments. MOCK-HIDE: No hidden dependency; filter inputs are deterministic. LLM-DEP: None. REJECTION-GATE: Integration was considered but rejected — the failure (out-of-stock item leaks through) appears at the predicate boundary, not at a module handoff.",
+      "test_description": "Construct an in-memory list of products where at least one out-of-stock item has a higher relevance score than all in-stock items. Call the availability filter function directly. Assert the returned list contains only in-stock products and that no out-of-stock item appears regardless of its score.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The user preference filter correctly excludes product categories the user has explicitly blocked in their settings.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the preference-filter predicate: given a user settings object with blocked categories and a catalog spanning those categories, the filter must exclude matching items. This is one function's logic. REAL-INFRA: User settings and catalog are injected — no DB or network needed. MOCK-HIDE: No dependency to hide. REJECTION-GATE: Integration was considered but rejected — reading user settings from a store can be stubbed; the real failure is in whether the predicate correctly applies blocked-category rules.",
+      "test_description": "Instantiate a user-settings object with two explicitly blocked categories. Build a product list that includes products from blocked and unblocked categories. Call the preference-filter function and assert no product from a blocked category appears in the output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The recommendation algorithm ranks products that match the user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the scoring function's weighting logic — does a browsed-category product receive a higher score than an unbrowsed one? This is a single function's algorithmic logic, testable with injected inputs. REAL-INFRA: Browsing history and catalog are both injected as data structures; no DB needed. MOCK-HIDE: No hidden dependency. LLM-DEP: The algorithm is a deterministic recommender, not an AI/ML model. REJECTION-GATE: Integration was considered (browsing history could come from a DB), but the failure — whether the score weights browsing signal correctly — appears entirely in the ranking function and is fully exposed by injecting mock history.",
+      "test_description": "Construct a product catalog where half the items share categories the user recently browsed and the other half have zero browsing signal. Inject a mock browsing-history object. Call the ranking function and assert all browsed-signal products appear above all zero-signal products in the returned order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns the correct page of results, with stable ordering — requesting page 2 twice returns identical results if the underlying data hasn't changed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Stable ordering is a cross-cutting property. The failure emerges when the ranking module's output feeds into the pagination module and the combined ordering is non-deterministic (e.g., due to unstable sort on tied scores, or different DB row orderings). A unit test of the pagination slice function alone cannot expose this because it would inject a pre-sorted list, hiding any non-determinism from the ranking stage. REAL-INFRA: No OS or network required; an in-process fake data store suffices. MOCK-HIDE: Mocking the ranking stage hides the real failure source. REJECTION-GATE: Unit was rejected because the stability property spans the ranking→pagination module boundary; System was rejected because no real HTTP or subprocess is needed.",
+      "test_description": "Wire the ranking algorithm and pagination module together against a fixed in-memory catalog and user-state snapshot. Request page 2 once, capture the result. Request page 2 again without modifying any data. Assert the two responses are byte-for-byte identical in product order and IDs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The recommendation algorithm surfaces at least one product from a category the user hasn't browsed before (serendipity requirement), avoiding a filter bubble.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The serendipity logic is an intentional algorithmic rule — inject a known category into the result regardless of browsing signal. The failure ('zero unbrowsed categories in results') manifests in the serendipity component of the ranking function itself, not at a module boundary. REAL-INFRA: None required. MOCK-HIDE: No hidden dependency. LLM-DEP: None. REJECTION-GATE: Integration was considered but rejected — the serendipity rule can be exercised by injecting a full catalog (with known browsed and unbrowsed categories) into the ranking function and checking the output; no cross-module wiring is necessary to expose the failure.",
+      "test_description": "Build a catalog where every high-scored product is in categories the user has browsed. Include several low-scored products in unbrowsed categories. Call the recommendation function with injected browsing history. Assert at least one product from an unbrowsed category appears in the final ranked list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A new user with no purchase or browsing history receives recommendations based on overall popularity rather than an empty result set.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the cold-start branch of the ranking algorithm — when the user history is empty, the algorithm must fall back to popularity rather than returning nothing. This is a single conditional path in the ranking function. REAL-INFRA: Empty history and popularity scores are injected as data structures. MOCK-HIDE: No dependency to hide. LLM-DEP: None. REJECTION-GATE: Integration was considered but rejected — the cold-start branch is entirely within the ranking function; querying a popularity store can be stubbed without hiding the real failure.",
+      "test_description": "Create a new user profile with empty purchase history and empty browsing history. Inject a catalog where each product has an associated popularity score. Call the recommendation function and assert the returned list is non-empty and that products are ordered by descending popularity score.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records the correct product ID, position in the list, and timestamp for each recommendation the user interacts with.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Records' implies the event must be durably written. The failure can occur either in (a) the tracking handler constructing the wrong payload or (b) the payload not reaching the store correctly. A pure unit test that mocks the store can verify field construction but cannot catch store-write bugs (wrong collection, missing fields after serialization, clock skew in timestamp). REAL-INFRA: An in-process fake event store or test DB suffices — no real HTTP or subprocess needed. MOCK-HIDE: Mocking the store hides field-mapping bugs between the tracking handler and the persistence layer. REJECTION-GATE: System was rejected because a local fake event store exposes the real failure; Unit was rejected because mocking the store hides the serialization boundary.",
+      "test_description": "Wire the click-tracking handler to an in-process test event store. Fire a click event for a known product at a known list position, capturing a timestamp immediately before. Query the event store and assert the stored record contains the exact product ID, the correct position index, and a timestamp within an acceptable delta of the captured time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.65,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is computational — the algorithm's complexity or data-access pattern becomes unacceptably slow at 100K scale. Mocking the catalog hides the real failure entirely. REAL-INFRA: Real data volume is required, but no real HTTP, subprocess, or external service is needed — an in-process test can load 100K product objects and time the recommendation call. MOCK-HIDE: Any mock that reduces catalog size or pre-computes scoring would trivially pass, hiding a real O(n²) bug. REJECTION-GATE: System was considered (dedicated performance environment for reliable timing), but Integration is the minimum needed to expose the algorithmic failure; environmental timing noise is a reliability concern, not a correctness one. Unit rejected because it requires real data scale.",
+      "test_description": "Programmatically generate an in-memory catalog of 100,000 products with realistic field distributions. Record wall-clock time, call the recommendation pipeline end-to-end (ranking + pagination, first page), record end time. Assert elapsed time is under 200ms. Run three times and assert the median is under 200ms to reduce timing noise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.47,
+        "System": 0.45,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased by the user, the recommendation algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure emerges at the boundary between the purchase-event handler (which must write to user history) and the recommendation algorithm (which must read that updated history and downrank the purchased product). A unit test of the ranking function alone, given pre-constructed history, cannot expose a bug where the purchase event fails to update the history store that the ranker reads from. REAL-INFRA: An in-process fake user-history store suffices. MOCK-HIDE: Mocking the history store hides any bug in the purchase-event → history-update → ranker-reads chain. REJECTION-GATE: System was rejected because no real HTTP or subprocess is needed; Unit was rejected because the failure spans the purchase-event and ranking modules.",
+      "test_description": "Wire the purchase-event handler and recommendation algorithm to a shared in-process user-history store. Run an initial recommendation and capture the rank of a target product. Fire a purchase event for that product. Run the recommendation again with no other state changes. Assert the target product's rank has decreased (or it is absent from the top-N results).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The recommendation results are deterministic for the same user state — requesting recommendations twice with no intervening user activity returns the same ranked list.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is non-determinism inside the ranking algorithm itself — hidden randomness, floating-point sort instability on tied scores, or an uninitialized random seed. All of these manifest in a single call to the ranking function with identical inputs. REAL-INFRA: None required; both calls receive the same injected state. MOCK-HIDE: No hidden dependency. LLM-DEP: None — the algorithm is expected to be deterministic; if it were an AI model with stochastic output, the behavior would be impossible to satisfy. REJECTION-GATE: Integration was considered (non-determinism could arise from DB returning rows in different orders), but the behavior specifies 'same user state' — controlling state at the function boundary is sufficient to expose algorithmic non-determinism without cross-module wiring.",
+      "test_description": "Construct a fixed user-state object and a fixed product catalog. Call the recommendation ranking function twice in succession with the identical inputs, with no state mutation between calls. Assert the two returned ranked lists are equal element-by-element in both product ID and order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.35,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-25",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Scoring model assigns correct risk score when transaction exceeds configured amount threshold for its merchant category.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the rule evaluation logic — does the scoring model correctly apply the per-category threshold and map it to a numeric score? This is a pure algorithmic check over configurable inputs. The bug would appear in the threshold comparison and score assignment logic itself, not at a module handoff boundary. REAL-INFRA: No OS, subprocess, or network required; an in-process test with a constructed transaction and config is sufficient. LLM-DEP: The scoring model applies deterministic configurable rules, not an ML model — outputs are reproducible. REJECTION-GATE: Integration was considered, but the failure is internal to the scoring model's rule evaluation, not at a cross-module boundary.",
+      "test_description": "Construct a scoring model instance with a merchant-category config (e.g., 'electronics': threshold=$500). Call score_transaction() with a transaction just above the threshold and verify the returned numeric score matches the expected configured value. Also test a transaction just below the threshold returns the lower risk score.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Risk model identifies a fraudulent transaction pattern (rapid small purchases from different geographies) even when no single rule threshold is exceeded.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The risk model 'predicts whether the transaction is fraudulent' using merchant category, purchase history, and device fingerprint — this is an AI/ML classification model, not a deterministic rule engine. The behavior explicitly tests the model's ability to recognize a pattern that no rule catches. If the model is mocked or stubbed, you are no longer testing whether it actually identifies the pattern; you are only testing the harness. Running the test 100 times with the real model could produce varying classification confidence. MOCK-HIDE: Mocking the risk model would always pass by construction, hiding the real question of whether the model generalizes to this pattern. REJECTION-GATE: Integration was considered, but the failure mode is the ML model's classification quality, not pipeline wiring — mocking the model entirely hides the failure.",
+      "test_description": "Submit a sequence of transactions to the real risk model: multiple small-amount purchases at short time intervals from geographically distant merchants, each individually below any threshold. Assert that the model returns a fraud probability above a meaningful threshold (e.g., >0.7) for the session, confirming the pattern is recognized without any single-rule trigger.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Velocity check in the scoring model correctly counts the number of transactions within the configured time window per user.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the time-window counting algorithm — does it correctly filter transactions by timestamp and user ID within the window? This is a deterministic algorithmic function that can be exercised by passing a list of transactions with known timestamps and a window configuration. REAL-INFRA: No external store or OS time source required; tests can inject a fixed 'now' reference and a pre-built transaction list. LLM-DEP: Fully deterministic rule logic. REJECTION-GATE: Integration was considered because velocity checks sometimes query a persistence layer, but the behavior describes a counting rule within the scoring model — the correctness of the count algorithm is testable in isolation. If the implementation requires a real DB query, the minimum level rises to Integration, but the behavior description places this inside the scoring model's rules.",
+      "test_description": "Call the velocity check function with a user ID, a configured window of 10 minutes, and an in-memory list of timestamps: 3 within the window, 2 outside. Assert the returned count is 3. Also test the boundary: a transaction exactly at the window edge to verify inclusive/exclusive boundary behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.33,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A transaction flagged by the risk model but not by the scoring model is still held for review — the models operate as an OR gate, not AND.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode appears at the orchestration boundary where both model outputs are combined and the hold decision is made. A bug here would be: the orchestrator uses AND instead of OR, or drops the risk model's flag when the scoring model returns 'pass'. This failure requires both models (or believable stubs) wired to the orchestrator. REAL-INFRA: No OS or network needed; stubs for both models suffice — the failure is about state propagation between modules, not real infrastructure. LLM-DEP: The risk model stub can return a deterministic 'flagged' result; we are testing the OR gate logic, not the model's classification quality. REJECTION-GATE: Unit was considered, but the OR gate logic is at the integration boundary between the scoring model, risk model, and the review-hold decision — isolating it to a single function boundary would require the orchestrator's combine logic to already be isolated, which is not guaranteed.",
+      "test_description": "Wire a stubbed scoring model (returns score below threshold, no flag) and a stubbed risk model (returns fraud probability above threshold, flagged) to the transaction orchestrator. Submit a single transaction and assert the hold_for_review flag is True in the combined output. Invert: stub the risk model to return 'not flagged' and stub the scoring model to flag — assert hold_for_review is still True.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The combined output includes both the numeric risk score and the risk model's fraud probability, so the reviewer can see which model flagged the transaction and why.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is that one model's output gets dropped or overwritten when the pipeline combines results. This is a data-flow bug at the module boundary between each model's output and the combined result struct. Testing this requires both model outputs to flow through the combination layer simultaneously. REAL-INFRA: No OS or network needed; deterministic stubs for both models suffice. LLM-DEP: We are testing output structure completeness, not model quality — stubs with known return values are appropriate. REJECTION-GATE: Unit was considered for testing a combine_outputs() function in isolation, but the behavior describes an end-to-end pipeline property (the reviewer can see both values), which requires verifying the full output propagation from both models through to the final result.",
+      "test_description": "Wire stubbed scoring model (returns score=0.42) and stubbed risk model (returns fraud_probability=0.87) through the transaction pipeline. Assert the combined output contains both fields: risk_score==0.42 and fraud_probability==0.87. Also assert the output includes a source attribution field indicating which model(s) flagged the transaction.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.04,
+        "Agentic": 0.06,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

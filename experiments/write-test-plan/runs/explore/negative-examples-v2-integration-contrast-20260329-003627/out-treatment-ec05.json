@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Unit",
+      "justification": "The failure (migrations executing out of order) can be caught by testing the runner's orchestration logic in isolation. Mock file discovery to return realistic filenames in random order (e.g., '005_create.sql', '003_add.sql', '001_init.sql'), mock the database to track execution order, and verify the runner sorts by numeric prefix before application. This is the runner's single responsibility; no module interaction is required. A mock returning unsorted files would still expose the failure. MOCK-MISS test: if we mock discovery returning unsorted files and the runner applies them unsorted, we've caught the bug.",
+      "test_description": "Create a test that mocks fs.readdir() to return migration filenames in non-sequential order (e.g., ['015_add_feature.sql', '003_init.sql', '010_create_users.sql']). Mock the database client to record which migrations are executed and in what order. Call runner.apply() and assert that migrations are executed in ascending numeric order (003, 010, 015), not in discovery order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Unit",
+      "justification": "The failure (re-executing an applied migration) can be caught by mocking the _migrations metadata table. Mock a query that returns already-applied migrations, call runner.apply() a second time with the same migrations, and verify the applied ones are skipped. This is purely checking logic against a mocked dependency. The skip decision is the runner's single responsibility; no module interaction is required. MOCK-MISS test: if we mock the metadata table returning ['001.sql'] and the runner skips it on the second run, the failure is caught.",
+      "test_description": "Mock the database query for _migrations table to return ['001_init.sql', '002_add_users.sql']. Create a mock file discovery returning ['001_init.sql', '002_add_users.sql', '003_add_email.sql']. Call runner.apply() and verify that only '003_add_email.sql' is executed (the unapplied one), and that the applied migrations are not re-executed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "The failure (changes not rolled back, or further migrations executed after failure) cannot be reliably caught with mocked database behavior. MOCK-MISS: a mock transaction manager would always return 'rollback succeeded', hiding real database-level issues. REAL-INFRA: rollback behavior is database-specific (PostgreSQL transaction semantics). Need a real test database to verify that (1) the runner wraps migrations in a transaction, (2) an intentional failure (SQL error, constraint violation) occurs, (3) rollback actually succeeds and leaves the database clean, and (4) no subsequent migrations are attempted. Can use test PostgreSQL instance or in-memory SQLite with transaction support.",
+      "test_description": "Using a real test database (PostgreSQL or SQLite), create a migration file that intentionally fails (e.g., contains a syntax error or violates a unique constraint). Verify the runner wraps it in a transaction, the failure occurs, the transaction is rolled back (database state before the migration is preserved), and any migration files after it in the run are not attempted. Assert that the _migrations table has no entry for the failed migration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "Integration",
+      "justification": "The failure (double-execution due to race condition) cannot be caught with mocked database locks. MOCK-MISS: a mock lock manager would never expose race conditions; real database-level locking is essential. REAL-INFRA: distributed locking (advisory locks, row-level locks) is database infrastructure behavior. Need a real test database with concurrent connections: set up two concurrent execution contexts (threads, async tasks, or separate connections) that simultaneously attempt to apply the same migration. Verify a lock mechanism (advisory lock or _migrations table lock) prevents double-execution, such that only one runner applies the migration and the other either waits or skips it. Assert the _migrations table has exactly one record for that migration. Integration level is sufficient with real DB concurrency; System level (separate OS processes) would add stronger isolation but is not the minimum.",
+      "test_description": "Using a real test database, create a scenario where two runner instances (or two concurrent connections within a test) both see a fresh database and both attempt to apply the same migration set. Use real database advisory locks or implement a lock row in the _migrations table. Verify that both instances don't both execute the same migration. Assert that after both complete, the _migrations table has exactly one record per migration, with the same result whether the runner uses advisory locks, a lock row, or transaction isolation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "While the execution order could theoretically be tested with mocks, the real failure depends on correct CREATE TABLE SQL syntax, actual table creation, and schema correctness for the target database (PostgreSQL). REAL-INFRA: database schema creation is database-specific and depends on real PostgreSQL DDL behavior. Need a real test database in a fresh/empty state to verify (1) _migrations table doesn't exist initially, (2) CREATE TABLE is issued before any migration file is executed, (3) the table is created with the correct schema, and (4) migrations are then recorded correctly. This catches failures like: wrong column names, missing indexes, syntax errors, or execution order bugs that mock verification would hide.",
+      "test_description": "Using a real test database in a clean state (no _migrations table), run the migration runner. Verify that the _migrations table is created with the correct schema before any migration files are applied. Assert the table exists immediately after the first migration is applied, and has exactly one record. Run the migration runner again and verify it doesn't error due to missing the _migrations table. Check that the schema matches the runner's expectations (e.g., 'name' and 'applied_at' columns).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

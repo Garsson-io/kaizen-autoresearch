@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "Key generation is a pure, local computation: a function maps query parameter inputs to a string key. The failure mode — producing different keys for the same input, or the same key for different inputs — is fully observable within that single function's boundary. No module handoff, no I/O, no external state is required to trigger or observe the bug. MOCK-MISS: not applicable — the bug lives entirely inside one function. REAL-INFRA, LLM-DEP, MULTI-STEP: none apply.",
+      "test_description": "Invoke the key generation function directly. Assert that two calls with the same parameter dict return byte-for-byte identical keys. Assert that a large set of distinct parameter combinations (varying each dimension independently and in combination) produces no duplicate keys. Include edge cases: empty parameter sets, parameters with None/null values, parameters whose string representations could naively collide (e.g., {a: '1b'} vs {a: '1', b: ''}).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule.",
+      "minimum_level": "Unit",
+      "justification": "TTL computation is a local lookup-and-calculation: given a data category and a configuration map, return a duration. The failure mode — returning the wrong TTL for a category, or using the wrong category's rule — lives entirely inside the TTL computation function and is visible without any module interaction. The configuration is a plain data structure, not an external service. MOCK-MISS: the function's own logic is the failure boundary, not a handoff between modules. REAL-INFRA, LLM-DEP, MULTI-STEP: none apply.",
+      "test_description": "Instantiate the TTL computation function with a test configuration covering at least two distinct categories (e.g., user_profiles=5 min, product_catalog=1 hour). Assert each category returns the configured duration exactly. Assert that an unknown/unconfigured category either raises a clear error or applies a documented default. Parametrize across all documented freshness-rule categories to guard against per-category regression.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.11,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is not in a single threshold-comparison expression — it is in whether the cache's memory-tracking subsystem correctly updates a shared metric, and whether the strategy-selection path actually reads that metric at decision time. A unit test that stubs the memory reading skips exactly the wiring that can break: the memory tracker may not publish its value in the format or at the time the selector reads it. MOCK-MISS: the bug manifests at the handoff between the memory monitoring component and the strategy selector — a module boundary. REAL-INFRA: no OS or network required; the memory figure is an internal counter managed by the cache layer itself, making this Integration (local modules wired together). LLM-DEP, MULTI-STEP: none apply.",
+      "test_description": "Wire the cache layer with its memory monitor and strategy selector using real module instances (not mocks). Configure a low threshold (e.g., 10 entries). Fill the cache to below the threshold and assert the active strategy is LRU. Insert entries until the internal memory metric crosses the threshold, then perform a cache operation that forces strategy re-evaluation. Assert the active strategy is now LFU. Also assert the switch back to LRU when entries are evicted and memory drops below the threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode can only manifest when a real (or faithfully equivalent) database write triggers the invalidation notification path, and the cache layer correctly identifies which keys map to the affected rows. MOCK-MISS: mocking the PostgreSQL write removes the very trigger that the invalidation mechanism must handle — a downstream mock would always fire, hiding failures in the notification parsing or row-to-key mapping logic. REAL-INFRA: a local PostgreSQL instance (or pg-compatible in-process DB) is needed to exercise the notification mechanism (e.g., LISTEN/NOTIFY, triggers, or WAL tailing); this is the Integration-level boundary per the level definitions. LLM-DEP, MULTI-STEP: none apply.",
+      "test_description": "Spin up a local PostgreSQL instance (or use a Docker-based fixture). Pre-populate the cache with entries for known row IDs across multiple tables. Issue a real UPDATE/INSERT via the database write path. Assert that exactly the cache keys derived from the affected rows are gone, and that unrelated keys remain. Test partial overlap: a write affecting row IDs 1 and 3 should not invalidate the entry for row ID 2. Also test a bulk write (multiple rows in one statement) to confirm all matching keys are purged atomically.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.82,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "Eviction correctness is an algorithmic property of the eviction data structure (ordered map, frequency counter, etc.). The failure mode — evicting the wrong entry under LRU or LFU — is fully observable by populating an in-memory cache with a controlled access sequence and triggering an eviction. No module handoff, no I/O, and no external state is required. MOCK-MISS: the bug lives in the eviction algorithm itself, not at a module boundary. REAL-INFRA, LLM-DEP, MULTI-STEP: none apply.",
+      "test_description": "Construct a cache instance with a small fixed capacity (e.g., 3 slots) configured for LRU. Insert entries A, B, C (full). Access A, then B (making C the least-recently-used). Insert D and assert C was evicted and A, B, D remain. Repeat the test with the same access pattern under LFU: access A twice and B once, then insert D — assert B (lowest frequency) was evicted. Include tie-breaking cases (equal frequency or equal recency) to verify the documented tie-breaking rule.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

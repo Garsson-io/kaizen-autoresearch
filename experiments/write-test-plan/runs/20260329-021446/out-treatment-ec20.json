@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — missing transitive dependencies — only surfaces when the manifest-parser module hands its output to the transitive-resolver module (e.g., lock-file walker or dependency-graph expander). A unit test on the parser alone cannot reveal that transitive deps are dropped at the handoff. REAL-INFRA: A fixture file on disk (package-lock.json, requirements.txt) is sufficient; no subprocess or real network needed. REJECTION-GATE: System is disqualified because a real npm/pip registry call is not required — transitive deps are encoded in the lock file, which can be a test fixture.",
+      "test_description": "Wire the manifest-parser and transitive-resolver modules together using a fixture package-lock.json (or requirements.txt + pip freeze output) that contains two direct deps and three transitive deps. Call the extraction entry point and assert the returned dependency list contains all five packages with correct version pins, including each transitive dep.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.55,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — querying by name only and ignoring version range — lives at the boundary between the query-builder module and the API-client module. A unit test on the query-builder alone cannot catch if the API call drops the version parameter. REAL-INFRA: A record-and-replay stub for the vulnerability DB is sufficient; the real external API is not required to observe whether the version range is omitted from the request. MOCK-HIDE: A mock that ignores request shape and always returns canned CVEs would hide this. REJECTION-GATE: System is disqualified — an in-process HTTP stub that inspects the incoming request body/params can reproduce the exact failure without a live network call.",
+      "test_description": "Stub the vulnerability database API with an in-process HTTP server that records incoming requests. Invoke the scanner with a manifest declaring 'lodash@^4.17.0'. Assert that the recorded request contains the version constraint '^4.17.0' (not merely the package name 'lodash'), and that the stub returns version-filtered CVE results which are then included in the report.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is purely in the comparator/sort-key logic. The bug (e.g., treating severity as a string sort, or inverting CVSS for ties) is fully observable by calling the sort function with a crafted list of CVE objects. No module handoff is required to expose it. REAL-INFRA: No I/O. LLM-DEP: No model call. REJECTION-GATE: Integration is disqualified — the sort is a self-contained pure function; wiring it to a parser or DB adds no new failure surface for this specific behavior.",
+      "test_description": "Construct a list of CVE data objects (using the model class) spanning all four severity levels with deliberate CVSS tie-breakers at each level. Call the sort function directly and assert the output sequence is Critical-highest-CVSS first, descending through High, Medium, Low, with CVSS score ordering applied correctly within each severity band.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure — a regex or AST replacement touching unintended entries — is fully contained in the modification function. The bug appears with a multi-entry input string/object regardless of which module provides that input. No cross-module handoff is required to surface it. REAL-INFRA: The function can be tested with an in-memory string or parsed dict; no filesystem I/O is load-bearing for observing this failure. REJECTION-GATE: Integration is disqualified — a unit test that passes a fixture manifest string and diffs the output is sufficient to prove other entries are untouched.",
+      "test_description": "Call the manifest-modification function with an in-memory multi-dependency manifest (five entries across multiple formats) and a target of bumping only 'requests' from 2.27.0 to 2.28.1. Assert the returned manifest has exactly one changed value and that every other version string is byte-for-byte identical to the original.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.55,
+        "Integration": 0.38,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly targets a real repository. The failure modes that matter — authentication failures, API format mismatches, unexpected diff content due to line-ending or encoding differences, branch creation permissions — only appear with a real VCS host over real HTTP. An in-process mock GitHub client always succeeds and cannot reproduce these. REJECTION-GATE: Integration is disqualified because 'correct single-dependency diff on the real repository' cannot be verified without an actual git push and PR API call to a real host; a stub would assert the call was made but cannot confirm the diff the platform sees.",
+      "test_description": "In a CI-controlled real test repository (or a dedicated sandbox repo with a test token), run the full scanner against a manifest with one known-vulnerable pinned dependency. Assert that exactly one new pull request appears on the repository, that the PR's file diff touches exactly one file (the manifest), and that exactly one version string changed in that diff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure (misidentifying 1.x→2.x as non-breaking, or misidentifying 1.0.0→1.1.0 as breaking) lives entirely in the semver comparison function. It is observable by passing version-pair inputs directly. REAL-INFRA: No I/O. LLM-DEP: No model call. REJECTION-GATE: Integration is disqualified — semver parsing and major-bump detection is a pure deterministic function; no module boundary crossing is needed to observe the failure.",
+      "test_description": "Parametrize the semver breaking-change detector with pairs: (1.0.0→2.0.0) → breaking, (1.0.0→1.1.0) → not breaking, (1.0.0→1.0.1) → not breaking, (0.9.0→1.0.0) → breaking, (2.0.0→2.0.1) → not breaking. Assert the return value matches the expected classification for each pair.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.93,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — PR creation proceeding despite a breaking-change flag, or the review flag being absent from output — only manifests when the breaking-change detector's return value flows through the orchestration layer to the PR-creation gate. A unit test on either module independently cannot catch a wiring bug between them. REAL-INFRA: A stub for the GitHub API (records whether it was called) is sufficient; no real network is needed to observe that PR creation was skipped and the output flag is present. REJECTION-GATE: System is disqualified — we are asserting a call does NOT happen and that a flag appears in local output; both are observable with an in-process spy without real infrastructure.",
+      "test_description": "Wire the scanner orchestrator with a stub PR-creation client that records all calls. Configure a scan scenario where the only available fix is a major version bump (e.g., vulnerable-lib 1.2.3 → 2.0.0). Run the scan end-to-end. Assert the stub PR client received zero calls, and that the scanner's returned report/output contains a review-required flag for vulnerable-lib with the breaking-change reason.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

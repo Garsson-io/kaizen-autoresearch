@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "TSP heuristic produces a route no more than 1.5x optimal length for up to 20 stops.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the heuristic algorithm — does it produce a near-optimal ordering of a coordinate list? No module boundary is involved. REAL-INFRA: No OS, network, subprocess, or filesystem needed; the heuristic is a pure function over coordinates. MOCK-HIDE: No external dependency to mock — inputs are pre-geocoded coordinates. LLM-DEP: No AI/ML involved. MULTI-STEP: No. The 1.5x quality bound is an algorithmic correctness invariant testable in isolation. REJECTION-GATE: Integration was considered but rejected — there is no inter-module handoff whose correctness determines whether the heuristic stays within the approximation ratio; that failure lives entirely inside the algorithm.",
+      "test_description": "Construct a set of synthetic coordinate lists (3–20 stops) with known optimal distances computed by brute force. Invoke the TSP heuristic directly on each list and assert that the returned route length is ≤ 1.5× the brute-force optimum. Include worst-case layouts (collinear, clustered, uniformly random) to stress the bound.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Delivery time window estimates are computed correctly from distance and configured average speed per road type.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a calculation error — distance / speed = duration, applied per road-type config. This is a single function's arithmetic and configuration lookup; no module boundary is crossed. REAL-INFRA: No external I/O required. MOCK-HIDE: No dependency to mock; inputs are a route (distances) and a config object. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — the road-type config is just a plain data structure passed in; the failure cannot only appear when modules are wired together.",
+      "test_description": "Parametrize over several (distance, road_type, speed_config) tuples with known expected durations. Call the time-window estimator directly and assert the returned start/end window matches the expected value within floating-point tolerance. Include edge cases: zero distance, missing road type falling back to default speed, and very short/long distances.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Shift-hours validator rejects a route whose total estimated time exceeds driver's remaining shift hours, returning the excess amount.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a comparison and arithmetic error inside the validator — sum of window durations vs. remaining hours, returning the difference. This is a single pure function. REAL-INFRA: No I/O. MOCK-HIDE: No external dependency. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered but rejected — there is no handoff between modules whose interaction determines whether the excess is correctly computed; the validator consumes a pre-built route and a scalar shift budget.",
+      "test_description": "Call the shift-hours validator with: (a) a route whose total time exactly equals remaining hours (boundary — should pass), (b) a route that exceeds by a known amount (should be rejected, returned excess must equal the delta), and (c) a route well under the limit (should pass). Assert on both the accept/reject outcome and the exact excess value returned on rejection.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address fails geocoding (API returns no results), the service skips that stop, optimizes remaining addresses, and reports the skipped addresses.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans multiple modules: the geocoder must propagate a 'no results' signal, the orchestration layer must collect skipped addresses without aborting, and the optimizer must receive only the successful coordinates. A unit test of the geocoder alone or the orchestrator alone cannot reproduce this — the bug appears at the handoff between them. REAL-INFRA: The geocoding API call can be reproduced faithfully with a mocked HTTP client returning an empty-results payload; the failure mode is about the service's handling logic, not about real HTTP timeout/retry/TLS behavior. A stub is sufficient. MOCK-HIDE: Mocking the HTTP transport at Integration level still exercises the geocoder's response-parsing and the orchestrator's skip-and-collect logic together. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: System was considered; rejected because the behavior's correctness (skip logic, reporting) does not depend on real network conditions — an in-process fake returning the same empty JSON payload fully exposes the failure.",
+      "test_description": "Wire the geocoder module to a stubbed HTTP client configured to return an empty-results response for exactly one address and valid coordinates for the rest. Invoke the top-level route service with a mixed address list. Assert: (1) the returned route contains only the successfully geocoded stops, (2) the skipped-address report includes exactly the failed address, and (3) the optimizer was called with the reduced coordinate list. Vary which position in the list fails (first, last, middle) to catch ordering assumptions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.18,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses are consolidated into a single stop with combined delivery items and not visited twice.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The core failure mode — two identical address strings map to one stop whose items list is the union — is a pure data-transformation invariant. If the deduplication function produces the right consolidated output, downstream modules receive a de-duplicated list and cannot visit the stop twice. The failure lives inside the deduplication/consolidation function, not at a module boundary. REAL-INFRA: No I/O required. MOCK-HIDE: No external dependency to mock. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered because 'not visited twice' could imply verifying the optimizer's behavior. Rejected: if the deduplication step produces a list with one entry, no optimizer implementation can visit it twice — the invariant is fully owned by the deduplication step, not by the optimizer.",
+      "test_description": "Call the deduplication/consolidation function directly with an address list containing: (a) two identical addresses with different delivery items, (b) three identical addresses, and (c) a mix of unique and duplicate addresses. Assert: the output contains exactly one entry per unique address, that entry's delivery-items list is the concatenation of all duplicates' items, and no address appears more than once. Also test that all-unique input is returned unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.24,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

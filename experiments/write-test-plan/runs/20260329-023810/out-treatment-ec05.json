@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not just a buggy sort function — it's that the runner applies migrations to the database out of order, leaving the schema in a broken state. A Unit test on the sort function alone won't catch a wiring bug where the sorted list is iterated incorrectly or re-sorted downstream. REAL-INFRA: A real local PostgreSQL is needed to verify that the database schema reflects the expected application sequence. An in-process stub could be used to verify call order, but a stub won't catch schema-state divergence caused by out-of-order DDL. REJECTION-GATE for System: no real OS subprocess, network, or filesystem event is involved; a local DB connection is sufficient.",
+      "test_description": "Seed a local PostgreSQL instance with three migration files named '002_add_col.sql', '001_create_table.sql', '003_add_index.sql'. Run the migration runner. Query the DB to verify that (a) the table from 001 exists before the column from 002 is present, and (b) all three migrations appear in the _migrations table ordered by version ascending.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.55,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This is an idempotency guarantee that depends on real persistent state in the _migrations table surviving between two separate runner invocations. A Unit test of the filter function ('skip if already in applied set') proves nothing unless the set is seeded from actual DB reads. REAL-INFRA: An in-process fake DB can reproduce this: insert a row into a fake _migrations table, then call the runner again and assert no SQL execution occurs for that migration. Real PostgreSQL is not strictly required, but a real local DB is the safest way to catch bugs in the query that checks applied state. REJECTION-GATE for System: no subprocess, real OS event, or network condition needed.",
+      "test_description": "Against a local PostgreSQL instance, apply a single migration file. Then run the runner a second time. Assert that the migration's SQL is not re-executed (e.g., spy on the DB execute calls or verify no duplicate rows in _migrations) and that the _migrations table still contains exactly one row for that version.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.6,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two distinct failure modes exist here — (a) rollback correctness and (b) halt-on-failure control flow. Control flow could be Unit-tested with a mock DB that throws. But rollback correctness (DDL/DML changes are actually undone) requires real PostgreSQL transaction semantics; a mock that simply records 'rollback called' cannot verify the database is actually left in a clean state. REAL-INFRA: PostgreSQL's transactional DDL is required to verify that partial changes from the failing migration do not persist. An in-process fake cannot reproduce PostgreSQL's transaction isolation behavior. REJECTION-GATE for System: no real subprocess, OS event, or external network needed — a local DB connection is sufficient.",
+      "test_description": "Against a local PostgreSQL instance, prepare two migration files: migration 001 creates a table, migration 002 inserts a valid row then executes an intentionally invalid statement. Run the runner. Assert: (a) the table from 001 exists, (b) the row from 002's first statement does NOT exist (rolled back), (c) no entry for 002 appears in _migrations, and (d) any migration 003 that follows was never attempted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.62,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is a real race condition — both instances read an empty _migrations table before either writes to it, then both apply the same migration. This only manifests with real concurrent execution paths. REAL-INFRA: PostgreSQL advisory locks, `SELECT FOR UPDATE`, or `INSERT ... ON CONFLICT` are the typical mechanisms; these only serialize correctly under real concurrent connections. An in-process mock serializes method calls on a single thread and cannot reproduce the interleaving that triggers the race. Real subprocesses (or at minimum real concurrent Node.js processes sharing one PostgreSQL instance) are required. REJECTION-GATE for Integration: an integration test with a single-threaded fake DB cannot produce the actual lock-contention scenario. Real concurrent processes or connections against a real DB are necessary.",
+      "test_description": "Spin up a local PostgreSQL instance and two separate Node.js subprocesses running the migration runner against the same database, launched within milliseconds of each other (e.g., via `Promise.all([exec(runner), exec(runner)])`). After both exit, query _migrations and assert each migration version appears exactly once and all expected schema objects exist without duplication or corruption.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.1,
+        "System": 0.84,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is an ordering bug in bootstrap: if the runner tries to INSERT into _migrations before creating it, it crashes on the very first migration. This is a sequencing interaction between the bootstrap step and the migration-application step, not just a property of a single function. REAL-INFRA: A real local PostgreSQL is needed to verify that (a) the _migrations table does not exist before the run, (b) the table is created as the first DB action, and (c) migration DDL executes after. An in-process fake can reproduce this ordering check but a real DB provides stronger assurance that the CREATE TABLE SQL is syntactically correct and actually creates the schema. REJECTION-GATE for System: no subprocess or OS-level behavior required; a local DB connection is sufficient.",
+      "test_description": "Point the runner at a fresh local PostgreSQL database with no prior schema. Run the runner with at least one migration file. After the run, verify: (a) the _migrations table exists, (b) it contains exactly the applied migration version(s), and (c) the schema objects from the migration file are present — confirming that bootstrap completed before any migration was applied.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

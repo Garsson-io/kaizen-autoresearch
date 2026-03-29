@@ -471,7 +471,7 @@ export function runVariation(variation: VariationDir, tasks: string[], outDir: s
       "--prompt", variation.treatmentPath,
       "--no-latest",
       "--out-dir", outDir,
-      "-j", "4",
+      "-j", "6",
     ];
 
     const child = spawn("bash", [PATHS.runEval, ...args], {

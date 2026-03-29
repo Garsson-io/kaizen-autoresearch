@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-17",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated reply references specific points from the incoming email rather than producing a generic response.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode — a generic, context-free reply — only manifests through real LLM output. The logic being tested is not prompt construction or pipeline wiring; it is whether the model actually grounds its reply in the provided thread. LLM-DEP: Running this test 100 times with a real model can produce varying degrees of specificity; a mocked LLM can be forced to return a perfectly grounded reply, permanently hiding the failure. REJECTION-GATE: Integration is disqualified because the bug (generic output) does not appear at a module boundary — it appears inside the model's generation step, which a mock would bypass entirely.",
+      "test_description": "Feed a real multi-turn email thread with several specific, distinguishable claims (e.g., a quoted price, a named deadline, a referenced attachment) to the live drafting pipeline. Assert that the returned draft text contains references to at least N distinct thread-specific details (quoted terms, names, dates) and does not match a template response that could have been produced without reading the thread. Run several times to confirm consistency.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.82,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The factual consistency check flags claims in the draft that contradict entries in the knowledge base.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The consistency check in an LLM-based assistant almost certainly uses a model (or embedding similarity + LLM judgment) to identify contradictions; the correctness of detection is an LLM quality question. LLM-DEP: Whether the checker correctly identifies that 'our refund window is 14 days' contradicts a KB entry saying '30 days' depends on the model's semantic reasoning — a deterministic mock would always return a canned flag, hiding any regression. REJECTION-GATE: Integration is disqualified because the failure — a contradiction slipping through unflagged — is inside the model's classification step, not at the KB-retrieval or data-handoff boundary. If the check were purely rule-based string matching, Integration would suffice; absent evidence of that, the LLM dependency dominates.",
+      "test_description": "Construct a KB with a set of ground-truth facts (e.g., 'return period is 30 days', 'product is not available in Canada'). Craft or elicit a draft that contains at least two direct contradictions of KB entries. Pass the draft and KB to the real consistency-check component and assert that each contradicting claim appears in the flagged output. Also include a non-contradicting claim and assert it is not flagged, to avoid trivial all-flag implementations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.72,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the knowledge base has no relevant entries, the draft includes a disclaimer rather than fabricating facts.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The pipeline logic for detecting an empty KB result set is testable at Integration, but the behavior under test is whether the final draft text actually contains a disclaimer rather than hallucinated facts — that depends on LLM compliance with the prompt instruction. LLM-DEP: A model may or may not follow the disclaimer instruction across runs; mocking it guarantees a canned disclaimer string and hides any hallucination tendency. REJECTION-GATE: Integration is disqualified because passing 'no KB results' through the pipeline with a mocked LLM trivially satisfies the assertion; the real failure (fabrication) only surfaces with a live model call.",
+      "test_description": "Configure the KB to return zero results for any query. Submit an email thread that prompts a factual claim (e.g., asking about pricing or availability). Run the full draft generation step with the real LLM. Assert that the returned draft contains a disclaimer phrase (e.g., 'I don't have specific information', 'please verify') and does not assert any concrete fact about the queried topic. Run multiple times to confirm the disclaimer is stable, not occasional.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.2,
+        "System": 0.02,
+        "Agentic": 0.68,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The approval workflow blocks sending until the user explicitly approves — no draft is sent automatically.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode — auto-sending without approval — is a control-flow/state-machine bug at the boundary between the draft-presentation component and the send-trigger component. It appears when those two modules are wired together, not inside a single function. REAL-INFRA: No real OS/network/subprocess is required; the send function can be replaced with a spy/stub while still exercising the real state-machine logic. LLM-DEP: Correctness does not depend on what the LLM produces — the approval gate is code logic. REJECTION-GATE: Workflow is disqualified because no LLM reasoning step determines whether sending is blocked; it is a deterministic guard. System is disqualified because actual email infrastructure is not needed to observe the unauthorized send.",
+      "test_description": "Wire together the real draft-presenter and send-trigger components with a spy replacing the actual send transport. Invoke the pipeline up to the approval-presentation step. Assert the spy has not been called. Then simulate an explicit user approval event through the approval interface. Assert the spy is called exactly once. Also assert that a second invocation without a new approval does not trigger a second send.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — read thread, generate draft, check facts, present for approval — works end-to-end for a real email thread.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names four sequential agentic steps: (1) read/parse the thread, (2) LLM draft generation, (3) LLM-powered factual consistency check, (4) approval gate presentation. At least steps 2 and 3 each involve a real LLM call whose output feeds the next step. MOCK-HIDE: Mocking any LLM step collapses the chain — inter-step failures (e.g., consistency checker misreading a draft that was actually produced by the generator, not a fixture) would be invisible. LLM-DEP: Each model call can vary; propagation of that variance through the pipeline is what Workflow tests are designed to catch. REJECTION-GATE: Agentic is disqualified because there are multiple distinct LLM calls in sequence; a single-call Agentic test cannot verify that outputs chain correctly across steps.",
+      "test_description": "Provide a realistic multi-message email thread containing at least one verifiable factual claim and one question requiring a KB lookup. Run the complete pipeline end-to-end with real LLM calls and a real (or realistic in-process) KB. Assert: (a) a draft is produced that references thread-specific content, (b) the consistency report is non-empty and pertains to claims in the draft, (c) the draft and report are surfaced to the approval layer before any send occurs, (d) no send is triggered without explicit approval. Treat this as a smoke/sanity test that the pipeline wiring holds under live conditions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.16,
+        "Workflow": 0.75
+      }
+    }
+  ]
+}

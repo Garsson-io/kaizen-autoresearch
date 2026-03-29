@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The critical failure boundary is between the manifest validator and the module importer — the behavior asserts not just that validation fails, but that the module is never imported. This requires the validator and module loader to be wired together, not just the validator in isolation. REAL-INFRA: No real OS/network needed; manifest can be an in-memory object and the module import mechanism can be spied on in-process. MOCK-HIDE: A spy/stub on the require/import function catches whether it was called, so in-process mocking is sufficient. LLM-DEP: None. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent. INTEGRATION-BRAKE: (a) No real OS/subprocess needed. (b) No AI/ML. (c) No agentic steps.",
+      "test_description": "Wire the loader with two mock plugins: one with a valid manifest and one with a manifest missing a required field (e.g., 'name'). Spy on the module import mechanism. Invoke the loader. Assert: (1) the loader returns/emits a rejection error for the invalid plugin, (2) the spy confirms the invalid plugin's module path was never passed to require/import, and (3) the valid plugin loads normally.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only appears when the dependency resolver's output is actually used to sequence hook invocations — the resolver and hook dispatch must be wired together. Testing the resolver alone (Unit) would not catch a bug where the loader ignores the resolved order and invokes hooks in discovery order instead. REAL-INFRA: No real OS/network needed; mock plugin objects with stubbed onLoad hooks suffice. MOCK-HIDE: Tracking invocation order via stubs is sufficient — no real modules needed. LLM-DEP: None. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent. INTEGRATION-BRAKE: (a) No real subprocess. (b) No AI/ML. (c) No agentic chain.",
+      "test_description": "Create two mock plugins: plugin B (no dependencies) and plugin A (dependency: 'B'). Give each a stub onLoad that records its call timestamp or push-order into a shared array. Run the loader. Assert the shared array shows B's onLoad was called before A's onLoad.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The cycle detection algorithm itself is Unit-testable, but 'loads neither' requires the loader to act on the cycle detection result — meaning the cycle detector and the hook dispatch path must interact. A Unit test on the graph algorithm alone would not catch a bug where cycle detection works correctly but the loader still proceeds with partial loading. REAL-INFRA: No real filesystem or subprocess required; mock manifests suffice. MOCK-HIDE: Spy stubs on onLoad hooks confirm they were never invoked. LLM-DEP: None. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent. INTEGRATION-BRAKE: (a) No. (b) No. (c) No.",
+      "test_description": "Create two mock plugins: plugin X with dependency 'Y' and plugin Y with dependency 'X'. Both have stub onLoad hooks. Run the loader. Assert: (1) the loader reports a cycle error (naming both plugins or indicating a circular dependency), and (2) neither stub onLoad was called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.68,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the sequencing between the module import step and the hook dispatch step — two distinct loader stages. A Unit test on either stage in isolation cannot catch a bug where they are invoked out of order. REAL-INFRA: In Node.js the module system is in-process; a spy on require/import captures the call, and a side-effect flag set inside a fake module (or via a stub) can confirm execution happened before onLoad. A real subprocess is not needed for this ordering check. MOCK-HIDE: A spy on require and a stub on onLoad both record timestamps/order; in-process stubs are sufficient to expose ordering violations. REJECTION-GATE for System: real filesystem files would make the test more faithful, but the behavior's failure mode — wrong invocation order — is fully exposed by in-process spying without a real file on disk. LLM-DEP: None. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent.",
+      "test_description": "Create a fake plugin where the entry module stub sets a flag 'moduleExecuted=true' when required, and the onLoad stub asserts that 'moduleExecuted' is already true when it runs. Spy on the require/import call. Run the loader. Assert: (1) require was called before onLoad, (2) onLoad did not throw the assertion (moduleExecuted was true when onLoad ran).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.62,
+        "System": 0.28,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure involves error propagation across plugin boundaries — specifically, the loader must catch the thrown error, skip dependents, and continue invoking hooks for unrelated plugins. This requires the error handler, the dependency graph, and the hook dispatch loop to all be wired together. A Unit test on the error handler alone cannot catch a bug where the loop aborts entirely or where the wrong set of plugins is skipped. REAL-INFRA: No real OS/network needed; mock plugins with stubs suffice. MOCK-HIDE: Tracking which onLoad stubs were called after the throwing plugin is sufficient in-process. LLM-DEP: None. EVIDENCE-LEVEL=Integration, OUTPUT-LEVEL=Integration — consistent. INTEGRATION-BRAKE: (a) No. (b) No. (c) No.",
+      "test_description": "Create three mock plugins: plugin F (no deps, onLoad throws), plugin D (depends on F, should be skipped), and plugin I (no deps, no relation to F, onLoad is a stub). Run the loader. Assert: (1) the loader emits or records an error for F's onLoad failure, (2) plugin D's onLoad stub was never called, (3) plugin I's onLoad stub was called successfully.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

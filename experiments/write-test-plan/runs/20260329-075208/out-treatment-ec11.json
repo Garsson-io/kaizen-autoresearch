@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to most recent 10 messages when full history exceeds context window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The trimming is a pure algorithmic operation on a list — selecting the last N items. The failure mode (wrong slice, off-by-one, wrong direction) lives entirely inside one function's logic; no module boundary is crossed. REAL-INFRA: No OS, network, or subprocess involved. MOCK-HIDE: No external dependency that could hide the failure. LLM-DEP: Trimming is deterministic; correctness does not depend on LLM output. MULTI-STEP: No. EVIDENCE-LEVEL = Unit. OUTPUT-LEVEL = Unit. No override needed. INTEGRATION-BRAKE: Not applicable — level is below Integration.",
+      "test_description": "Call the history-trimming function with a list of 15 messages and assert the returned list contains exactly the 10 most recent messages in order, with the oldest 5 dropped. Also test boundary cases: exactly 10 messages (no trim), 9 messages (no trim), and 0 messages.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Not a module-boundary issue — this is about output quality. LLM-DEP: Whether the response is on-topic or generic is entirely determined by what the real LLM produces given the prompt. A stub always returns the hardcoded value you gave it; it cannot surface the model's tendency to drift or produce generic replies. Running this test 100 times with the real LLM may yield different relevance outcomes. MOCK-HIDE: A mocked LLM response always passes because the developer controls the mock's content — the failure mode is hidden. REAL-INFRA: Requires a real LLM API call. MULTI-STEP: Single generation step, not multi-step. EVIDENCE-LEVEL = Agentic. OUTPUT-LEVEL = Agentic. REJECTION-GATE for System: real HTTP alone is insufficient — the failure depends on model output quality, not network behavior. REJECTION-GATE for Workflow: single agentic step only.",
+      "test_description": "Send a specific, concrete customer question (e.g., 'How do I reset my password?') to the real LLM-backed chatbot and assert the response contains semantically relevant content (e.g., references password, account, or reset) and is not a canned greeting or unrelated topic. Run multiple times or use a structured prompt evaluation to detect systematic off-topic replies.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.82,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: 'Correctly identifies' is a quality/accuracy claim about the tone classifier, not a control-flow claim. The classifier either uses an LLM (making it inherently non-deterministic) or rule-based heuristics. The word 'correctly' signals that the test must validate classification accuracy, not just that the code path exists. LLM-DEP: If the tone checker calls an LLM to classify formality, correctness depends on real model output. A stub that always returns 'too formal' proves nothing about identification accuracy. MOCK-HIDE: A mocked tone checker trivially passes regardless of whether the real classifier would correctly flag the response. REAL-INFRA: Requires real LLM calls to surface misclassification. MULTI-STEP: The tone check is a single classification step; the downstream regeneration trigger is control flow tested separately. EVIDENCE-LEVEL = Agentic. OUTPUT-LEVEL = Agentic. INTEGRATION-BRAKE: (b) Correctness of tone identification depends on real AI/ML output → must be Agentic or higher. REJECTION-GATE for Workflow: only a single classification step, not a chain of agentic steps.",
+      "test_description": "Feed the real tone-checker (backed by the real LLM or real classifier) a set of labeled response samples — some clearly formal (e.g., 'Pursuant to our service agreement, your request has been escalated') and some casual — for a casual-tier customer profile. Assert that formal samples are correctly flagged and casual samples are not, and that flagging a response causes the regeneration path to be invoked.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.73,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the service layer and the database layer — wrong field mapping, missing regeneration records, or timestamp serialization bugs only appear when the persistence code actually writes and reads back from a real (or real-enough) database. A pure unit test with a mock DB cannot catch these. REAL-INFRA: An embedded or containerized test database (e.g., SQLite, in-process Postgres) is sufficient — no real network or OS primitive is needed. MOCK-HIDE: Fully mocking the DB would always pass; the test must execute real write-then-read to validate field mapping and timestamps. LLM-DEP: LLM calls can be stubbed with fixed responses — the correctness of persistence does not depend on what the LLM produces. MULTI-STEP: No agentic steps needed. EVIDENCE-LEVEL = Integration. OUTPUT-LEVEL = Integration. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) No AI/ML output dependency. (c) No agentic chaining.",
+      "test_description": "Stub the LLM to return a fixed initial response and a fixed regenerated response. Invoke the chatbot service end-to-end against a real (embedded/test) database. Query the database directly and assert: the user message record exists, the initial (rejected) response record exists if regeneration occurred, the final response record exists, all records have correct foreign-key linkage, and all timestamps are present, non-null, and ordered (user_message_ts ≤ first_response_ts ≤ regeneration_ts).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (customer seeing the rejected draft) is a pipeline data-flow bug: the response assembly or return path exposes the intermediate draft. This only surfaces when the LLM stub, tone checker, and response assembler are wired together — a unit test on any single component cannot catch it. REAL-INFRA: No OS/network/subprocess needed; both LLM calls and the tone checker can be stubbed with deterministic responses. MOCK-HIDE: Mocking the full pipeline would hide the bug; we need the real wiring of modules with controlled stub inputs. LLM-DEP: The behavior is about control flow and data routing, not LLM output quality. Stubbing LLM call #1 to return a 'too formal' draft and call #2 to return an acceptable response is sufficient to exercise the exact failure mode. MULTI-STEP: The test uses stub steps, not real agentic steps — multi-step chaining of real LLM calls is not required to catch this failure. EVIDENCE-LEVEL = Integration. OUTPUT-LEVEL = Integration. INTEGRATION-BRAKE: (a) No real infra. (b) No AI/ML quality dependency — flow is deterministic given fixed stubs. (c) No real agentic chaining needed. REJECTION-GATE for Workflow: The behavior text specifies a data-routing invariant ('customer never sees the rejected draft'), not a quality invariant about LLM outputs — real LLM calls are not required to catch a draft-leakage bug.",
+      "test_description": "Configure stub LLM call #1 to return a formally-worded draft and stub the tone checker to flag it as 'too formal' for a casual-tier customer. Configure stub LLM call #2 to return an acceptable casual response. Invoke the full chatbot pipeline with these stubs wired in. Assert that the value returned to the caller is exactly the second (acceptable) response, that the first draft is not present in the returned value, and that the pipeline made exactly two LLM calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0.11,
+        "Workflow": 0.15
+      }
+    }
+  ]
+}

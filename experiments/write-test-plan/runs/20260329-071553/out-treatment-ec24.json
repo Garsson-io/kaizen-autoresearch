@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text, not just a word-for-word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Grammatically coherent' and 'preserves meaning' are quality judgments that can only be evaluated against real neural machine translation output. A stub always returns whatever it is programmed to return, so any stub-based test trivially passes regardless of actual model quality. MOCK-HIDE: Mocking the translation API completely hides the failure — the test would always pass since you define the mock output yourself. REJECTION-GATE for Integration: No disqualifying text exists; there is no way to verify grammatical coherence or semantic meaning preservation without calling the real NMT model. MULTI-STEP: Only one translation call, so Workflow is not required.",
+      "test_description": "Call the real translation API with several source sentences (e.g., idiomatic phrases, sentences with subject-verb-object structure requiring reordering) across at least two language pairs and assert that the returned translations are semantically equivalent to a reference translation and not a literal word-for-word substitution. Use a bilingual reference set and a meaning-similarity check (e.g., back-translation round-trip or BLEU above a threshold) to evaluate output quality.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.08,
+        "Agentic": 0.8,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the HTTP client (returning 503) and the fallback dispatch logic — multiple modules must be wired together for this to surface. REAL-INFRA: A 503 can be faithfully reproduced by an in-process stub HTTP client; the failure mode is control-flow logic, not real network conditions. MOCK-HIDE: Mocking only the HTTP client (not the dispatch logic) is sufficient; the fallback dictionary can be a real in-memory SQLite DB. LLM-DEP: The dictionary fallback is deterministic. REJECTION-GATE for System: The behavior text describes an HTTP status code response, not real network latency, packet loss, or OS-level socket behavior — an in-process stub is sufficient to reproduce the exact failure. INTEGRATION-BRAKE: (a) No real OS/network needed; (b) No AI/ML output dependency; (c) No chained agentic steps.",
+      "test_description": "Wire the real service layer with a stub HTTP client configured to return 503 and a populated in-memory SQLite dictionary. Call the translation service with a phrase present in the dictionary and assert: (a) the response is a successful translation (not an error), (b) the returned text matches the dictionary entry, and (c) no exception is propagated to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure involves the query logic against a real SQLite schema — the bug could be in the SQL query, parameterization, column mapping, or encoding. These only surface against a real database engine. MOCK-HIDE: Mocking the DB layer hides whether the actual SQL query is correct; you would just program the mock to return whatever you expect. REAL-INFRA: SQLite is a local file/in-memory database — no real network or subprocess needed; this is Integration, not System. LLM-DEP: Dictionary lookup is deterministic. REJECTION-GATE for System: SQLite operates in-process or via local file; no OS network stack or real subprocess is involved. INTEGRATION-BRAKE: (a) No real network/OS/subprocess — local SQLite suffices; (b) No AI/ML dependency; (c) No agentic chaining.",
+      "test_description": "Seed a real in-memory (or temp-file) SQLite database with several phrase-translation pairs. Instantiate the dictionary fallback module against this database and assert that querying each seeded phrase returns the exact stored translation. Also assert that a phrase not in the database returns a defined 'not found' result rather than raising an exception.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: 'Correctly computes edit distance' is a pure algorithmic property of a single function given two strings as inputs — the failure mode is an off-by-one error, wrong distance metric, or incorrect normalization inside that function, not a cross-module handoff. The 'stores' part can be verified by passing a mock storage sink and asserting the correct numeric value was delivered to it. REAL-INFRA: No OS, network, filesystem, or subprocess required. LLM-DEP: Edit distance is deterministic. REJECTION-GATE for Integration: The storage side does not require a real DB to verify correctness of the computation — a mock capturing the value passed to the write call is sufficient. The behavior's own failure mode centers on algorithmic correctness, not on a module-boundary state propagation issue. INTEGRATION-BRAKE not triggered because the test does not require real infrastructure, real AI/ML output, or chained agentic steps.",
+      "test_description": "Parametrize a unit test over known string pairs with expected edit distances (e.g., identical strings → 0, single insertion → 1, full replacement → len(string)). Inject a mock storage writer into the quality tracker. Assert that (a) the computed distance matches the expected value for each pair, and (b) the mock storage writer was called exactly once with the correct distance value. Cover edge cases: empty strings, Unicode characters, and strings that differ only in case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.58,
+        "Integration": 0.36,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at two module boundaries: (1) the routing decision that selects the primary over the fallback when both succeed, and (2) the background task dispatch that triggers quality logging without blocking the response. A single-function unit test cannot catch a bug where the service accidentally returns the fallback or forgets to enqueue the background job. REAL-INFRA: Both translators can be stubs — the failure mode is control-flow and async dispatch wiring, not real network behavior. LLM-DEP: We are testing routing correctness, not translation quality — a fixed stub response is sufficient. REJECTION-GATE for Agentic: The behavior explicitly tests 'returns the primary translation' (routing), not translation quality; stub outputs are enough to catch the routing failure. INTEGRATION-BRAKE: (a) No real OS/network needed; (b) No AI/ML quality dependency; (c) No chained agentic steps.",
+      "test_description": "Wire the full service with a stub primary translator (returns a fixed string 'PRIMARY_RESULT') and a stub fallback (returns 'FALLBACK_RESULT'), both configured to succeed. Call the service and assert: (a) the returned translation equals 'PRIMARY_RESULT' (not the fallback), (b) the background quality-logging task was invoked (use a spy/mock on the quality tracker), and (c) the response is returned before the background job completes (verify non-blocking dispatch, e.g., via a delayed mock that does not stall the response).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

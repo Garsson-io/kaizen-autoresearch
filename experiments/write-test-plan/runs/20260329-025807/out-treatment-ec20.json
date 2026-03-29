@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is whether the extraction pipeline correctly traverses both the manifest (direct deps) and the lock file or resolution graph (transitive deps). A single-function unit test on the parser can't catch a bug where the transitive-dep resolver module is never wired in. REAL-INFRA: Extraction reads real files (package-lock.json, requirements.lock) but doesn't require a subprocess unless the tool must invoke npm ls or pip to build the tree — if a lock file is parsed in-process, Integration is sufficient; if a CLI must be run, System would be required. Since the behavior says 'reads a project's dependency manifest' (implying file-based resolution), in-process parsing of manifest + lock file catches the real failure. Rejected System: no concrete evidence that subprocess execution is required for the extraction step itself.",
+      "test_description": "Given a project directory with a package.json declaring one direct dependency that itself declares a transitive dependency (captured in package-lock.json), invoke the dependency extractor module wired to the lock-file resolver. Assert that the resulting dependency list contains both the direct package and the transitive package with their exact pinned versions. Separately test a requirements.txt + constraints file pair.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.55,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is the code querying the vulnerability DB by package name alone, returning CVEs for all versions instead of only those affecting the declared version range. This is a module-boundary failure between the dependency extractor and the API client. REAL-INFRA: An in-process fake HTTP client can exactly reproduce the failure — configure it to return different CVE sets depending on whether the request includes a version range parameter, then assert the code sends version-qualified queries. The fake client is sufficient because the failure lives in what the code sends, not in the real API's filtering behavior. Rejected System: the behavior's own failure mode (wrong or missing version range in the outgoing query) is verifiable by inspecting the captured HTTP request inside the process — real network not required.",
+      "test_description": "Wire the vulnerability check module to a fake HTTP client that records incoming requests and returns a CVE stub set only when the request body/query string includes the exact version range. Invoke the scanner with a manifest pinning lodash@4.17.11. Assert (a) the captured request includes '4.17.11' or the declared range, and (b) the returned CVE list matches the version-specific stub, not the catch-all package-name stub.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.55,
+        "System": 0.25,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is entirely a sorting/ordering algorithm over an in-memory list of CVE objects. No module boundary, no I/O, no external dependency. The failure — wrong ordinal rank for severity tiers or wrong secondary sort by CVSS — appears entirely within a single comparator function. REAL-INFRA: No filesystem, network, or subprocess involved. Rejected Integration: there is no module hand-off whose state could cause this to fail; sorting is self-contained pure logic.",
+      "test_description": "Construct a list of CVE data objects covering all four severity tiers with multiple entries per tier having distinct CVSS scores. Call the sort function directly. Assert the resulting order is strictly Critical → High → Medium → Low, and within each tier entries are in descending CVSS score order. Include an edge case with equal CVSS scores to verify stability.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the full parse → mutate → serialize round-trip: a bug in the serializer could silently drop keys, reorder fields, or corrupt other entries. Testing only the mutation function in isolation misses serialization regressions. REAL-INFRA: The failure lives at the module boundary between the parser, the mutator, and the serializer — no subprocess or real network needed. A temporary real file (or in-memory bytes) is sufficient. Rejected Unit: the 'leaving all other entries unchanged' invariant can only be violated by a bug that spans the full parse-modify-serialize pipeline, not by a bug in any single function.",
+      "test_description": "Create a temporary package.json containing three dependencies at specified versions. Invoke the manifest-update pipeline to bump exactly one dependency. Read back the written file and assert: (a) the target dependency has the new version, (b) every other dependency key and version is byte-for-byte identical to the original, and (c) the JSON structure (ordering, whitespace, comments if applicable) is preserved for non-modified entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure involves the interaction of real git branch/commit operations and a real SCM API (GitHub/GitLab). REAL-INFRA: Bright-line applies — PR creation depends on executing external git commands (git checkout -b, git commit, git push) whose exit-code semantics, ref behavior, and credential handling vary with the real environment. Additionally, the PR creation itself calls a real HTTP API. An in-process fake cannot reproduce failures in git ref creation, push authentication, or API diff validation. Rejected Integration: a mock git subprocess or mock HTTP client hides real push failures, real branch-naming conflicts, and real API diff format mismatches — precisely the failure modes this behavior exercises.",
+      "test_description": "In a real temporary git repository initialized with a package.json, run the full scanner pipeline end-to-end against a test SCM API (e.g., a local Gitea instance or GitHub test org with a disposable repo). After the scanner completes, use the SCM API to fetch the created PR. Assert: (a) exactly one PR was opened, (b) the PR diff touches exactly one line (the bumped dependency), (c) the base branch is main/master and the head branch matches the expected naming convention, and (d) the PR body references the CVE IDs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.87,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Semver comparison is pure deterministic logic: parse two version strings, compare major/minor/patch components, return a classification. The entire failure lives within the comparison function. REAL-INFRA: No I/O, no subprocess, no external service. Rejected Integration: there is no module hand-off that could hide this failure — the comparison function is self-contained. A table-driven unit test covering major-bump, minor-bump, patch-bump, and pre-release edge cases is both necessary and sufficient.",
+      "test_description": "Parametrize the semver-comparison function over a matrix of (current_version, patched_version, expected_classification): (1.2.3 → 2.0.0 = breaking), (1.2.3 → 1.3.0 = non-breaking), (1.2.3 → 1.2.4 = non-breaking), (1.2.3 → 0.9.0 = downgrade/breaking), (1.0.0-alpha → 1.0.0 = non-breaking stable release). Assert the returned classification matches expected for every case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two module boundaries: (1) the breaking-change detector must signal the orchestrator, and (2) the orchestrator must suppress the PR creator and set the review flag in the output formatter. A unit test on any single module cannot catch a wiring bug where the signal is emitted but not consumed, or consumed but the flag is never written to output. REAL-INFRA: No subprocess or real network required — the PR creator module can be replaced with a call-recording stub inside the process. The failure is in conditional orchestration logic, not real infrastructure. Rejected System: PR non-creation is verifiable by asserting the PR creator stub was never called, without hitting a real SCM API.",
+      "test_description": "Wire the full scanner pipeline with a PR-creator stub (records calls). Provide a manifest where the only available fix is a major version bump. Invoke the scanner. Assert: (a) the PR-creator stub was called zero times, (b) the scanner's structured output contains a 'review_required' flag set to true for the affected dependency, and (c) the flag entry includes the CVE IDs and the reason 'breaking_change'. Contrast with a non-breaking patch bump to confirm the PR creator IS called and no flag is set.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

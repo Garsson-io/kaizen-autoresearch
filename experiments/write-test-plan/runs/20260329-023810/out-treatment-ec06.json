@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The failure mode is whether the filesystem watcher is configured for recursive watching and whether the OS actually emits events for nested paths (inotify, FSEvents, ReadDirectoryChangesW all handle this differently). An in-process fake that emits a subdirectory path would only test downstream routing logic — it cannot reproduce a failure caused by the watcher not being initialized with recursive:true, or by OS-level recursion limits, or platform-specific watcher behavior. REJECTION-GATE: Integration is disqualified because the behavior's own failure boundary is 'does the watcher actually observe subdirectory files', not 'does the processor route subdirectory paths correctly'. That failure only surfaces with a real directory tree and a real OS-level watcher.",
+      "test_description": "Create a nested directory tree (root/subdir/deep/) inside a temp directory, start the daemon against root, then write a file to root/subdir/deep/. Assert the file appears in the output directory, confirming the OS watcher emits recursive events and the daemon acts on them.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.78,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode lives entirely inside the deduplication module — a map/set tracking (path, timestamp) pairs and a comparison against the configured window. This is pure algorithmic logic with no I/O, no module handoff, and no OS dependency. A second call with the same path within the window should return 'skip'; a call outside the window should return 'process'. REJECTION-GATE: Integration is disqualified because no module boundary is involved — the dedup logic does not call out to filesystem, DB, or another service. The only failure is in the data structure and time arithmetic, which unit tests fully exercise.",
+      "test_description": "Call the deduplication function directly with the same path twice in rapid succession (within window) and assert the second call returns the skip/duplicate signal. Then advance a fake clock past the window and assert a third call returns the process signal. Test with a range of configurable window sizes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the event listener and the deduplication+processing pipeline — multiple events arrive in quick succession and must collapse to one processing call. This requires the watcher, dedup module, and processor queue to be wired together. A unit test on dedup alone (behavior 2) does not catch a wiring failure where events bypass dedup before reaching the processor. REAL-INFRA: The behavior says 'OS emits multiple events', but the critical question is whether in-process simulation captures the failure. A mock watcher emitting N events for the same path in a tight loop reproduces the exact failure mode (rapid duplicate events hitting dedup). OS timing variability would add noise without adding coverage. REJECTION-GATE: System is disqualified because the failure does not depend on real OS event storms — an in-process mock that fires 5 events for the same path in sequence faithfully reproduces the bug if dedup is misconfigured.",
+      "test_description": "Wire the real watcher event handler, dedup module, and a mock processor together. Programmatically emit 5 rapid change events for the same file path. Assert the mock processor's process() method was called exactly once. Also verify the dedup map holds exactly one entry after the burst.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.68,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Directory deletion causes the OS-level inotify watch descriptor (Linux) or FSEvents stream (macOS) to become invalid. The daemon must detect this (via MOVE_SELF/IN_DELETE_SELF/watcher error event), then re-establish a new OS watch on the recreated directory. An in-process fake cannot reproduce this because the failure mechanism is specific to OS watch-handle invalidation on directory removal — fakes don't invalidate watch descriptors. REJECTION-GATE: Integration is disqualified because there is no in-process fake that can simulate a watch handle becoming stale when its target directory is deleted. The failure only manifests with real `fs.rmdir` + `fs.mkdir` against a real OS watcher instance.",
+      "test_description": "Start the daemon against a real temp directory. Forcibly delete the directory with fs.rmSync, pause briefly, recreate it, then write a new file into it. Assert the output directory receives the transformed result, proving the daemon re-attached its OS watch. Run on Linux (inotify) and macOS (FSEvents) separately if CI permits.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.87,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans at least two module boundaries: (a) the stat call that retrieves creation timestamps and (b) the sort/queue logic that orders processing jobs. A unit test of the sort function alone cannot catch a bug where the daemon skips the stat call and uses event-arrival order instead of birthtime. The test must wire the event accumulation, stat retrieval, and ordering stages together. REAL-INFRA: fs.stat() can be stubbed in-process (mock returning controlled birthtime values), so no real filesystem is needed to reproduce the ordering failure. REJECTION-GATE: System is disqualified because a stubbed fs.stat returning deterministic timestamps is sufficient to expose a wrong ordering decision — real disk timestamps are not necessary to catch the failure.",
+      "test_description": "Wire the event accumulator, a stubbed fs.stat that returns controlled birthtimes, and the processing queue together. Inject 3 file events simultaneously with birthtimes out of insertion order. Assert the processor's process() calls arrive in birthtime-ascending order, not in event-injection order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: File stabilization logic (polling size/mtime, or acquiring an exclusive lock) depends on observing real file state changes over time — the file size grows as bytes are flushed, then stabilizes. An in-process fake cannot reproduce a partially-written file because mocking fs.stat to return different sizes requires precise timing coordination that the test framework can't replicate realistically. The true failure mode is: the daemon's stabilization poller reads the file before the writer's final flush, producing truncated output. REJECTION-GATE: Integration is disqualified because a mock that immediately returns a 'stable' size bypasses the very timing window where the failure occurs. The race between the writer and the poller only manifests with real concurrent I/O.",
+      "test_description": "Start the daemon, then open a real file in the watched directory for writing using a low-level stream, write a partial chunk, wait 50ms (longer than the daemon's event debounce), write the remaining chunk, then close the stream. Assert the processor receives the file only after close, and the content it receives is complete (full byte count). Run with both small and large files to stress the polling interval.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.78,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

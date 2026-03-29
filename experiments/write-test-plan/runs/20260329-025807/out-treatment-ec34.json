@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-34",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Branch staleness detection correctly identifies branches with commits not in main, older than the configured age threshold, and no open PR.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'commits not in main' requires executing git CLI commands (e.g., `git log main..branch`). Per the bright-line rule, correctness depending on an external CLI tool (git) means System — mocking subprocess output hides exit-code semantics, branch ref resolution, and output format variance. MOCK-MISS: The PR status check could be mocked, but the git commit-comparison logic cannot be safely stubbed without losing the real failure mode (e.g., detached HEAD, tracking vs. local branch ambiguity). REJECTION-GATE: Integration was considered but rejected because the commit-ahead-of-main comparison requires real git subprocess behavior, not an in-process fake.",
+      "test_description": "Spin up a real temporary git repo with main and a feature branch that has N commits ahead, branch age set to exceed threshold via backdated commit timestamps. Mock the PR-lookup client to return no open PRs. Assert the staleness detector returns the branch as stale-no-pr. Run a second case with branch age below threshold and confirm it is not flagged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.12,
+        "System": 0.73,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Session-start setup emits a stale-work warning with actionable branch context when the current branch is stale.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is in the session bootstrap wiring — does it invoke the staleness detector and propagate its output into the warning message with correct branch context (name, commit count, age)? This is a module-boundary failure between the session initializer and the staleness detection module. REAL-INFRA: The staleness detector itself (Behavior 1) needs git; but this behavior tests what session-start *does with* a stale detection result, which can be reproduced by injecting a pre-computed stale branch state. Mocking the staleness detector isolates the session-start logic without hiding any failure specific to this behavior. REJECTION-GATE: System was considered because session-start may itself call `git branch --show-current`; however, that single git call is safely stubbed (its output format is trivial), and the real failure the behavior targets lives in the downstream warning-emission logic.",
+      "test_description": "Wire the session-bootstrap module with a mock staleness detector that returns a stale BranchState object (branch name, commit count, days old). Call the session-start entry point. Assert that the emitted output/log contains the branch name, commit count, and a human-readable age with actionable next-step text. Also assert that when the mock returns a clean state, no warning is emitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A local status-classifier function maps computed branch state to labels (`clean`, `stale-no-pr`) deterministically.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior explicitly describes a *local function* that maps a computed branch state struct to a label. No I/O, no subprocess, no external API. The failure mode is a wrong mapping rule (e.g., off-by-one on the age threshold, wrong precedence between has-PR and has-commits flags). REAL-INFRA: None. The function takes already-computed branch state as input. LLM-DEP: None — the mapping is stated to be deterministic. REJECTION-GATE: Integration was considered in case the classifier depends on upstream state computation, but the behavior explicitly says 'local status-classifier function maps computed branch state', meaning inputs are pre-computed — any higher level would over-test this function's own logic.",
+      "test_description": "Call the classifier function directly with hand-constructed BranchState values covering: (a) no commits ahead → clean, (b) commits ahead + age above threshold + no PR → stale-no-pr, (c) commits ahead + age below threshold → clean, (d) commits ahead + open PR → clean. Assert each maps to the correct label.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "/kaizen-wip against live repo and PR state distinguishes 'clean' from 'has commits but no PR (STALE)' in rendered output.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly states 'against live repo and PR state.' 'Live repo' = real git subprocess calls; 'PR state' = real or realistically staged external API state. The failure mode is the rendered output of the full `/kaizen-wip` command pipeline, which depends on end-to-end integration of git, PR lookup, classification, and rendering. MOCK-MISS: An in-process fake cannot reproduce failures in rendered output driven by real git branch topology (e.g., tracking ref resolution, ref log currency). REJECTION-GATE: Integration was considered but the phrase 'live repo' in the behavior text is concrete evidence that real git subprocess behavior is required — an in-process fake would disqualify this as Integration.",
+      "test_description": "Using a real temporary git repo: create a main branch and a feature branch with commits ahead of main. Stage two scenarios: one where a mocked PR API returns no PR (STALE) and one where it returns an open PR (clean). Invoke the `/kaizen-wip` command as a subprocess or through its CLI entry point. Assert the rendered output contains 'STALE' for the no-PR case and does not contain it for the open-PR case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Branches with open or merged PRs are not flagged as stale-no-PR false positives.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Preventing false positives requires the full detection path: git commit comparison to establish 'commits ahead of main' AND PR lookup to confirm a PR exists. The commit-comparison step uses git CLI (bright-line → System). MOCK-MISS: If the git commit-comparison step is mocked, we lose confidence that the real branch-ref resolution correctly identifies which commits are 'ahead', which is the exact condition that triggers the false-positive path. REJECTION-GATE: Integration was considered because the PR lookup alone could be mocked; however, the false-positive bug can only manifest when the git layer correctly reports commits-ahead *and* the PR layer correctly reports a PR exists — both legs must be real or realistically wired to avoid a mock-always-passes failure.",
+      "test_description": "Create a real temporary git repo with main and a feature branch that has commits ahead. Run the staleness detector with a mocked PR-lookup client returning (a) an open PR and (b) a merged PR. Assert neither case returns stale-no-pr. As a negative control, remove the PR from the mock and assert the branch IS flagged, confirming the test can distinguish the two cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.72,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Staleness detection remains correct across rebases or squash merges where commit hashes change but branch state should no longer be classified as unPRed stale work.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Rebase and squash merge produce new commit SHAs through real git mechanics — this cannot be simulated in-process. The failure mode is precisely that detection logic keyed on commit hashes will break after a rebase/squash; only a real git repo that actually performs these operations produces the SHA-changed state needed to expose the bug. MOCK-MISS: An in-process fake returning pre-baked SHA lists cannot reproduce the git object model behavior that causes hash churn, so any mock would trivially pass while the real implementation fails. REJECTION-GATE: Integration was considered but the specific failure — commit hashes changing after rebase/squash causing mis-classification — is a git-internals effect that only real git subprocess execution can reproduce.",
+      "test_description": "Create a real temporary git repo: feature branch has commits ahead of main, mocked PR API returns a merged PR. Perform an actual squash merge of the feature branch into main (so commit hashes on main differ from those on the feature branch). Assert the staleness detector correctly classifies the feature branch as clean (not stale-no-pr). Also verify the pre-squash state correctly shows as stale when no PR is present, confirming the test distinguishes the two conditions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.88,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-26",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cron parser rejects invalid expressions with descriptive errors",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within one parsing function — does the tokenizer/validator reject month=13 or day=32? No module handoff is needed. REAL-INFRA: No OS, network, or subprocess involved; the parser operates in-process on a string. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration would require a failure that only surfaces when the parser hands off to another module (e.g., schedule builder); the behavior only claims the parser itself emits a descriptive error, so no handoff failure mode is possible.",
+      "test_description": "Call the cron parser directly with a battery of invalid expressions (month=13, day=32, hour=25, malformed field counts, non-numeric tokens) and assert that each raises a specific error type with a message that names the offending field and value. Also assert that equivalent valid expressions do NOT raise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Next-run-time calculator returns correct timestamps for standard and edge-case expressions",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is the calculator's own algorithmic correctness — 'last day of month' and 'nearest weekday' modifiers are computed inside a single function. No external handoff is required; the failure is observable by calling the function with a fixed start datetime. REAL-INFRA: No. LLM-DEP: No. REJECTION-GATE: Integration would require the failure to appear only when the calculator is wired to a schedule builder or storage layer, but the behavior describes the calculator's own output correctness, not a handoff failure.",
+      "test_description": "Invoke the next-run-time calculator directly with a fixed UTC start datetime and a variety of cron expressions — monthly on the last day, L-modifier, W-modifier for nearest weekday, cross-midnight, cross-month-boundary — and assert each returned timestamp matches the hand-computed expected value. Use parametrized cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.81,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Overlap detector identifies schedules firing within configured minimum gap",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is the comparison algorithm — given two sets of projected run times (or two schedule objects), does the detector flag pairs within the gap threshold? If the overlap detector accepts pre-built schedule objects (or computed time lists) as input, the entire failure is local. MOCK-HIDE: If the detector calls the next-run-time calculator internally, we could pass real schedule objects and let it compute internally — but even then the two components can be tested together in-process with no I/O. The integration question is whether the handoff between calculator and detector is itself a failure boundary; the behavior only claims the detector reports the conflicting windows, not that the wiring breaks. REJECTION-GATE: A higher level would be needed only if the failure depended on state shared across OS boundaries or external services, which is not the case here.",
+      "test_description": "Instantiate two schedule objects from cron strings, configure a 5-minute minimum gap, and call the overlap detector. Assert it returns the expected conflicting time windows for schedules that overlap, and returns empty for schedules with sufficient separation. Include edge cases at exactly the gap boundary (inclusive vs. exclusive).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Timezone-aware scheduling handles DST spring-forward gap and fall-back ambiguity correctly",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces at the boundary between the scheduler's time arithmetic and the timezone library's DST fold/gap handling. A unit test that mocks timezone resolution would always pass because the DST gap is exactly what the mock hides. The bug manifests only when the scheduler feeds a wall-clock time (2:30 AM) into a real timezone-aware datetime and the library must resolve whether that time is skipped or ambiguous. REAL-INFRA: The timezone data is loaded from the bundled or system tzdata (zoneinfo/pytz) in-process — no real network or subprocess needed — so System is not required. An in-process fake timezone object would hide the failure; the real library must be used. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: System would require OS-level time APIs or subprocess behavior; the failure here is in-process arithmetic with the real tz library.",
+      "test_description": "Wire the scheduler with real zoneinfo/pytz timezone objects for America/New_York. Schedule a job for '30 2 * * *'. Call the next-run-time computation across the spring-forward date (2:00 AM → 3:00 AM gap): assert the engine does not return 2:30 AM (nonexistent) but instead returns the correctly resolved time per the configured DST policy (skip or advance). Repeat for fall-back: assert the engine resolves the 1:30 AM ambiguity to the correct fold (first or second occurrence) per policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.67,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Engine applies skip-or-backfill missed-run policy when next run time has already passed",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The core failure is in one decision function: given a precomputed next-run time and the current wall clock, does the engine apply 'skip' or 'backfill' per the job's configured policy? That logic is self-contained and testable by calling the policy evaluator directly with a synthetic 'now' and a synthetic 'scheduled_at'. No module handoff causes this failure. REAL-INFRA: No OS time API or subprocess is required; 'current time' can be injected as a parameter or via a simple clock abstraction. LLM-DEP: No. REJECTION-GATE: Integration would require the failure to appear only when the policy module is wired to a persistent job store that records scheduled times; the behavior describes the engine's own decision logic, not a storage handoff.",
+      "test_description": "Call the missed-run policy evaluator directly, injecting a fixed 'now' timestamp that is after the precomputed next-run time by varying amounts. For a 'skip' policy, assert the engine returns no backfill action and advances to the next future occurrence. For a 'backfill' policy, assert it returns all missed run times between the last recorded run and 'now'. Test edge case where 'now' equals the scheduled time exactly (no miss).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.24,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

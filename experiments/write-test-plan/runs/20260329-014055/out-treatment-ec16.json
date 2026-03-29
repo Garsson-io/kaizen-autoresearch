@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "The failure mode sits at the boundary between the module that fetches the changed-file list (from the GitHub event payload or API) and the module that dispatches files to the linter. A unit test of a pure filter function can't catch bugs where the wrong source is queried, the payload is mis-parsed, or the list is handed off incorrectly. MOCK-MISS confirms escalation beyond Unit: the bug only appears when the file-fetcher and the analyzer are wired together. INTEGRATION-CHECK down-test fails — you can't reproduce the failure by calling a single function with crafted args without wiring both modules. Up-test: no real OS/network/AI needed; an in-process fake of the GitHub event payload + mock linter invocation is sufficient to observe the failure.",
+      "test_description": "Wire the changed-file reader (fed a fake GitHub pull_request event JSON with specific file paths) to the file dispatcher. Assert that the linter mock is invoked exactly once per changed file and never invoked for a file absent from the changed list. Inject an event that marks files A and C as changed and file B as unchanged; verify B is never dispatched.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "The grouping and formatting logic is a self-contained algorithmic concern: given a flat list of findings with severity fields, produce a structured output grouped by severity. No module handoff is required for this failure to manifest. MOCK-MISS: the bug (wrong grouping order, missing severity bucket, interleaved items) is fully reproducible by calling the grouping function with crafted input. INTEGRATION-CHECK down-test passes — a single function with crafted arguments reproduces the failure. No real infra, LLM, or multi-step needed.",
+      "test_description": "Call the findings-grouping/formatting function with a crafted list containing multiple error, warning, and info findings (including mixed-order input). Assert the returned structure has exactly three sections in the correct order, each containing only findings of the matching severity, with counts correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "This is a wall-clock performance requirement against the real execution stack. Timing correctness depends on actual subprocess spawning, real file I/O, OS scheduling, and process overhead — none of which an in-process mock can reproduce faithfully. REAL-INFRA: yes, the failure only manifests under real subprocess execution with real files. Mocking subprocess calls or file reads would make the test trivially fast regardless of actual performance, hiding the real failure. No AI model output is involved, so Agentic/Workflow do not apply.",
+      "test_description": "Create 200 temporary files with representative content (including some edge-case inputs), run the full lint step as a subprocess against this file set, and assert total wall-clock elapsed time is under 600 seconds. This must execute in an environment representative of the Actions runner (same CPU class and I/O speed) to be meaningful.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "System",
+      "justification": "The behavior explicitly involves a process crash — not an exception thrown inside the calling process. Real subprocess crashes produce exit codes, signals (SIGSEGV, SIGKILL), and partial/truncated stdout/stderr that differ meaningfully from a mocked exception raise. REAL-INFRA: reproducing a genuine process crash requires spawning a real subprocess. MOCK-HIDE: mocking the subprocess to raise an exception only tests Python-level exception handling; it cannot expose bugs in how the orchestrator handles non-zero exit codes, signal termination, partial output flushing, or OS-level process cleanup. A System test that feeds a genuinely malformed file to the real linter binary is needed to observe the actual failure mode.",
+      "test_description": "Prepare a set of files including one deliberately malformed file known to crash the linter binary (e.g., a file with invalid encoding or a pathological syntax). Run the full lint step subprocess against this set. Assert: (a) the process does not exit prematurely, (b) findings from the non-malformed files appear in the posted output, and (c) the malformed-file error is captured and reported rather than silently dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.17,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "Deduplication is a pure algorithmic operation on an in-memory collection of findings. The failure (duplicate appears in output, or a non-duplicate is incorrectly removed) is fully reproducible by calling the deduplication function with a crafted list of findings objects. No module wiring, real I/O, or AI output is needed. INTEGRATION-CHECK down-test passes cleanly — the entire failure mode lives inside a single function boundary. The identity key (file + line + rule + message) is domain logic testable in isolation.",
+      "test_description": "Call the deduplication function with a crafted findings list containing: two identical findings (same file, line, rule, message), two findings differing only in rule, and two findings on the same line but with different messages. Assert the output contains exactly the correct deduplicated set — the true duplicate collapsed to one, the others preserved.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

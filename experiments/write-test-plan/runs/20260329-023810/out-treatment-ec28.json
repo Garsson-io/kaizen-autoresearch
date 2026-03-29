@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-28",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "SUM(A1:A10) evaluates to the correct sum of the values in cells A1 through A10.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the SUM function's range-parsing and accumulation logic — a self-contained algorithm. A bug here (off-by-one on the range, wrong accumulation) is visible with a single in-process engine object holding 10 cells. No module boundary is crossed. REAL-INFRA: No filesystem, network, or subprocess needed. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE for Integration: the bug does not require two separate modules to hand off data; SUM operates on a range within the same evaluation context.",
+      "test_description": "Create an in-process engine with cells A1–A10 set to known integer values (e.g., 1–10). Set A11 = SUM(A1:A10). Assert A11 == 55. Also test edge cases: all zeros, negative values mixed with positives, and a single-cell range (SUM(A1:A1)).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.13,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A cell referencing another cell that contains a formula (=B1+1 where B1=A1*2) produces the correct cascaded result.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in how the reference resolver hands evaluated values to dependent formula evaluations — a module boundary between dependency resolution and formula evaluation. If B1's result is not available or stale when C1 evaluates =B1+1, the bug only surfaces when both modules are wired together with real cell state. Unit testing only the evaluator with a mock for B1 would not catch ordering or caching bugs in the resolver. REAL-INFRA: No real I/O needed. LLM-DEP: No. REJECTION-GATE for System: no subprocess or filesystem is required; the failure is fully reproducible in-process.",
+      "test_description": "Wire a real formula engine with cells A1=5, B1=A1*2, C1=B1+1. Evaluate all cells and assert C1==11. Then change A1 to 3 and re-evaluate; assert C1==7. This catches caching or evaluation-order bugs that only appear when the reference resolver and evaluator are both live.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.77,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The engine detects a circular dependency (A1 references B1, B1 references A1) and returns a circular reference error instead of looping.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Cycle detection requires the dependency graph to be built from real cell objects; the bug (infinite loop or missing error) only appears when the reference-tracking module correctly records and traverses edges between cell nodes. A pure unit test of the cycle-detection algorithm with a hand-built graph does not confirm the engine correctly populates that graph from formula parsing. REAL-INFRA: No real I/O. LLM-DEP: No. REJECTION-GATE for Unit: if the graph construction from cell formula parsing is mocked, the test becomes a graph-algorithm test that cannot catch bugs in how cell references are registered.",
+      "test_description": "Create a real engine. Assign A1=B1 and B1=A1. Attempt to evaluate either cell. Assert the engine returns/raises a circular reference error and does not hang or stack overflow. Also test a longer cycle: A1->B1->C1->A1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.68,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "VLOOKUP with an exact match returns the correct value from the lookup table, and returns an error when the key is not found.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in VLOOKUP's search and column-extraction logic — a self-contained function. Match-type handling, column indexing, and the not-found error path are all local to the function implementation. REAL-INFRA: No. LLM-DEP: No. REJECTION-GATE for Integration: the behavior is specifically about VLOOKUP's algorithm, not about cross-module data flow; populating a table array inline within one engine object is sufficient to exercise the failure mode.",
+      "test_description": "Set up a 4-row lookup table in a contiguous range. Assert VLOOKUP(key, range, col, 0) returns the correct row's value for a key that exists. Assert it returns an error value (e.g., #N/A) for a missing key. Test boundary: key matching the first and last rows.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.83,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The IF function correctly handles nested conditions (e.g., =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\")).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the IF function's recursive/nested argument evaluation — a parsing and evaluation algorithm local to the function. Incorrect short-circuit evaluation or argument binding only requires a single engine object with one formula cell and one data cell. REAL-INFRA: No. LLM-DEP: No. REJECTION-GATE for Integration: the bug does not require two modules to interact; nested IF is a single-expression parse tree that the evaluator walks.",
+      "test_description": "Set A1 to each of three boundary values (5, 15, 25). Evaluate =IF(A1>10, IF(A1>20, \"high\", \"medium\"), \"low\") and assert \"low\", \"medium\", \"high\" respectively. Also test that the false-branch is not evaluated when the condition is true (to catch eager-evaluation bugs).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "CONCATENATE joins cell values with the correct separator and handles empty cells by skipping them rather than inserting blank strings.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in CONCATENATE's argument-iteration logic — specifically the conditional skip for empty cells. This is a local algorithm. A single engine instance with a few cells (some empty, some not) is sufficient to expose the bug. REAL-INFRA: No. LLM-DEP: No. REJECTION-GATE for Integration: empty-cell skipping is a decision made entirely within the function body; no cross-module interaction is needed to observe the failure.",
+      "test_description": "Set A1=\"Hello\", A2=\"\", A3=\"World\". Assert CONCATENATE(A1, A2, A3) == \"HelloWorld\" (empty cell skipped). Assert CONCATENATE(A2, A2) == \"\" (all empty). Also verify separator handling if the function accepts a separator argument.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.16,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "A formula referencing a cell in a different sheet (=Sheet2!A1+1) resolves correctly when the referenced sheet exists.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in how the sheet-name parser, the sheet registry, and the cell resolver are wired together. Parsing 'Sheet2!A1' is trivial; the bug surfaces when the engine looks up 'Sheet2' in its sheet collection and retrieves the correct cell — a cross-module handoff. Mocking the sheet registry would bypass the exact wiring that can fail. REAL-INFRA: No filesystem needed; sheets are in-process objects. REJECTION-GATE for System: no real I/O is required; two in-process sheet objects suffice.",
+      "test_description": "Create a workbook with two in-process sheets. Set Sheet2.A1=10. In Sheet1, set B1=Sheet2!A1+1. Assert Sheet1.B1==11. Also assert a proper error is returned when referencing a non-existent sheet name.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.82,
+        "System": 0.11,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "When a referenced cell's value changes, all dependent formulas are recalculated in the correct topological order.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Topological recalculation requires the dependency graph, the change-notification mechanism, and the formula evaluator all to be wired together with real cell state. A bug in recalculation order (e.g., C1 is recalculated before B1 when C1 depends on B1 which depends on A1) only appears when the scheduler and evaluator operate on the live dependency graph. Mocking any of these components hides the ordering bug. REAL-INFRA: No real I/O. LLM-DEP: No. REJECTION-GATE for System: no subprocess or filesystem required; the scheduler and evaluator are in-process.",
+      "test_description": "Create a chain A1=2, B1=A1*3, C1=B1+1. Evaluate all. Mutate A1=5, trigger recalculation. Assert B1==15 and C1==16. Also create a diamond dependency (A1 feeds B1 and C1, D1 depends on both) and verify D1 is recalculated only after B1 and C1 are both updated.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.81,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "The undo operation after editing a formula restores both the formula text and all previously computed dependent values.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The bug (dependent values not fully restored) only appears when the undo stack, the formula store, and the dependency recalculator are all wired together. An undo that restores only the formula text but not re-propagated dependent cell values is invisible unless the full recalculation pipeline is live and dependent cells are actually inspected. REAL-INFRA: No real I/O; this is in-process state management. LLM-DEP: No. REJECTION-GATE for System: no filesystem or OS interaction is required; undo stack and cell state are fully in-process.",
+      "test_description": "Set A1=10, B1=A1*2 (computed: 20). Edit A1=99 (B1 now 198). Call undo. Assert A1==10 and B1==20 — both the formula text and the dependent computed value must be restored. Test a chain of two undo operations to ensure stack ordering is correct.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.79,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Saving a workbook to disk and loading it back produces identical cell values and formulas — no data loss or precision change in floating-point results.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior explicitly states 'saving to disk and loading it back' in a custom binary format. While the serialization/deserialization algorithm could be tested with an in-memory BytesIO buffer, the failure modes the behavior targets — floating-point precision loss, formula text encoding, and binary format integrity — must be verified against real file I/O to rule out buffering, file handle flushing, and OS-level byte-writing effects. A fake stream hides file-flushing and open/close lifecycle bugs. MOCK-HIDE: Using an in-memory buffer skips the file open/close/flush cycle where precision or encoding bugs can appear in practice. LLM-DEP: No. REJECTION-GATE for Integration: the description specifically names disk I/O ('saving a workbook to disk'), and the failure mode 'no precision change' requires verifying the full file write-read round-trip, not just an in-memory serialize-deserialize call.",
+      "test_description": "Create a workbook with cells containing: integer values, floating-point values with many significant digits (e.g., 1.23456789012345), formula text (e.g., =SUM(A1:A5)), and empty cells. Save to a real temp file using the engine's save API. Load the file into a fresh engine instance. Assert every cell's formula text and computed value are bit-for-bit identical to the original. Test round-trip for at least 10 floating-point values at the boundaries of IEEE 754 double precision.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.35,
+        "System": 0.59,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

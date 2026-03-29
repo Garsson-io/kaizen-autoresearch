@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Unit",
+      "justification": "This is a pure function boundary: signature validation takes raw body + X-Signature-256 header and returns a pass/fail decision using HMAC-SHA256. No module interaction needed to trigger the failure. If validation logic is wrong, it fails at that function boundary regardless of what calls it. The crypto algorithm is deterministic and requires no I/O.",
+      "test_description": "Test that a request with an invalid signature (mismatched X-Signature-256 header) is rejected with 401 status code. Verify that the handler does not call queue.enqueue() when signature validation fails. Test both correct and incorrect HMAC-SHA256 signatures with test vectors.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.95,
+        "Integration": 0.05,
+        "System": 0,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: A mocked queue always returns instantly. If we mock queue.enqueue(), the handler calls it, gets instant success, and returns 200. In reality, persisting to durable storage takes I/O time. To verify the ordering guarantee—that real queue writes complete before the response leaves—requires a real persistent queue. Without real queue, we miss bugs where queue I/O is slow or fails.",
+      "test_description": "Test that when a valid request is received, the handler returns HTTP 200, and immediately afterward querying the persistent queue confirms the event is stored. Verify both that (1) the event was actually written to durable storage and (2) the write completed before the HTTP response was sent. Use a real queue backend (e.g., SQLite, local file, or test MongoDB instance).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS & REAL-INFRA: A mocked downstream processor returns instantly, so the handler returns instantly regardless of whether it awaits downstream. To verify the handler truly does not block on downstream, we must run downstream slowly (real I/O or sleep) and measure that the response returns without waiting. Mocking hides whether there's an await statement that would block in production.",
+      "test_description": "Test that the handler returns an HTTP 200 response promptly even when downstream processing is slow. Simulate slow downstream work (e.g., 5-second delay), make a request, and verify the response is received within 100ms while downstream continues processing. Measure actual wall-clock time and confirm the handler does not block.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS & REAL-INFRA: Mocking the queue and downstream makes both instant, so response time is always <3 seconds regardless of real I/O performance. To catch a failure where real queue persistence or real downstream delays push response time over 3 seconds, we must use real queue I/O and actually run slow downstream work. Wall-clock timing requires real execution, not mocks.",
+      "test_description": "Test that the handler meets the 3-second response-time SLA under load. Configure slow downstream processors (2+ seconds each), send multiple concurrent webhook requests, and measure wall-clock time from request arrival to HTTP response. Verify all responses arrive within 3 seconds despite concurrent slow processing. Use a real persistent queue to measure actual I/O performance.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.85,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Mocking the idempotency check (e.g., an in-memory cache or database lookup) always succeeds. To verify that duplicate event IDs are truly not written to the persistent queue, we must query the real persistent storage and confirm only one copy exists. Mocking the check doesn't confirm that the real persistent queue enforces deduplication. Without real queue, we miss bugs in persistent idempotency logic.",
+      "test_description": "Test idempotency by sending the same event twice (same event ID). Verify that the first request succeeds with 200, the second request also returns 200 (accepted but not re-enqueued), and querying the persistent queue confirms exactly one copy of the event is stored. Use a real persistent queue to verify the deduplicated state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Unit",
+      "justification": "This is the handler's error-handling code path. The failure is structural: handler receives a queue-full error and must return 503 with Retry-After. No module interaction needed; the handler's exception-handling logic is local. Mocking the queue to throw 'QueueFullError' is appropriate here—we test the handler's response, not queue capacity enforcement (which is behavior #7).",
+      "test_description": "Test that the handler correctly handles queue-full errors. Mock the queue to throw a 'QueueFullError' when enqueue() is called. Verify that the handler catches the error and returns HTTP 503 status with a Retry-After header (e.g., 'Retry-After: 60'). Verify no partial state or stack traces leak into the response body.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue implementation itself, not the handler. The failure is: real queue does not enforce capacity. To catch this, we must use a real queue instance, configure it with a specific max capacity, fill it to that limit, and verify the next enqueue attempt fails. No mock can substitute for real queue behavior.",
+      "test_description": "Test that the persistent queue enforces its configured maximum capacity. Create a queue with max capacity N, enqueue N events successfully (verify each succeeds), then attempt to enqueue event N+1 and verify it is rejected or raises an error (e.g., QueueFullError). Inspect the queue and confirm it contains exactly N events, not N+1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.95,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

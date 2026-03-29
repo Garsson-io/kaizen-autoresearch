@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-32",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A static prompt-template lint check rejects phase-specific instruction leakage copied from SKILL.md.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within one function that reads a template string and checks it against a set of forbidden phrases. No module handoff is needed; the bug (forbidden text present in template) is detectable by inspecting a single string. REAL-INFRA: No OS, network, or subprocess. MOCK-HIDE: Nothing meaningful to mock. LLM-DEP: No model call. MULTI-STEP: No. REJECTION-GATE: Integration was considered but the failure mode — forbidden text present in the template — does not require multiple modules to interact; a single lint function with the template text as input is sufficient.",
+      "test_description": "Write a pure function `lint_template(template: str, forbidden_phrases: list[str]) -> list[str]` (or test the existing one). Pass it a template string containing a copied SKILL.md phase instruction and assert it returns a non-empty violation list. Pass it a clean template and assert it returns an empty list. The forbidden phrase list is constructed by extracting known phase-instruction sentences from SKILL.md at test-definition time, not at lint time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The fully assembled prompt produced by the real test harness (after interpolation/fixtures) still contains no phase-instruction leakage.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears only after the template engine, fixture loader, and interpolation pipeline are wired together. A template may be clean, but post-interpolation a fixture could inject a phase instruction. A Unit test on the template alone would miss this. REAL-INFRA: Local files and code only; no network. MOCK-HIDE: Mocking the interpolation engine would prevent observing the actual assembled output. LLM-DEP: No model call needed; the check is on the assembled prompt text before any model invocation. MULTI-STEP: No. REJECTION-GATE: System was considered but no subprocess or real HTTP is required — the harness assembles the prompt locally.",
+      "test_description": "Invoke the real test harness's prompt-assembly pipeline (with actual fixture loaders and interpolation engine) against a reference test case. Capture the assembled prompt string before it would be sent to any model. Assert that no phrase matching known SKILL.md phase-instruction patterns appears in the assembled string. Run this for every test case in the smoke-test suite.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The test invocation loads skill context from the plugin/skill files and validates behavior from that context rather than from hard-coded prompt rules.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The loading boundary (skill files → harness) could be tested at Integration, but 'validates behavior from that context' requires the model to actually exhibit the behavior. Without a real model call you cannot distinguish whether observed behavior came from skill context vs. a prompt remnant. LLM-DEP: Correctness depends on whether the real LLM produces output consistent with skill-driven context on a user-style prompt containing no explicit phase instructions. Mocking the model would always return the same canned response regardless of context source, hiding the real failure. MULTI-STEP: Single model invocation. REJECTION-GATE: Integration was considered for checking that the assembled prompt was built from skill files. That check is necessary but not sufficient — the behavior explicitly says 'validates behavior,' which requires observing real model output, not just prompt structure.",
+      "test_description": "Configure the test harness to load skill context exclusively from real plugin/skill files (no hard-coded phase instructions). Submit a neutral user-style prompt that provides no explicit phase guidance. Call the real model API. Assert that the response exhibits the expected skill-driven structural behavior (e.g., correct phase sequencing or field ordering) without any phase instruction having been present in the assembled prompt.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.28,
+        "System": 0.05,
+        "Agentic": 0.58,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the relevant SKILL.md section is removed or degraded, the behavioral test fails with the same user-style prompt.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure requires the real model to respond differently when skill context is absent. Only a live model call can confirm this — a mocked model would return the same output regardless of what skill content was loaded. LLM-DEP: The entire point is that the model's output changes (degrades) when SKILL.md regresses; this is inherently dependent on real LLM behavior. Running 100 times with a degraded skill against a real model would consistently fail to exhibit expected behavior, but a mock would never show this. MULTI-STEP: Single test invocation. REJECTION-GATE: Workflow was considered but only one agentic step is involved. System was considered but there is no OS/subprocess dependency beyond the model API call, which is the definition of Agentic.",
+      "test_description": "Create a fixture that replaces or empties the relevant SKILL.md section. Run the exact same behavioral test (same user-style prompt, same harness, no hard-coded phase instructions) against the real model with the degraded skill context loaded. Assert the test fails — i.e., the model's response does not exhibit the expected structural behavior. Also assert the same test passes with the intact SKILL.md, confirming the test is sensitive to skill content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.04,
+        "Agentic": 0.78,
+        "Workflow": 0.11
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Raw model output is captured to a diagnostic artifact before any JSON parsing or extraction logic runs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is an ordering bug in the harness pipeline (capture happens after parsing, or not at all). This spans the model-call module, the artifact-writer module, and the parser module — a Unit test on any one alone cannot catch a misordering between them. REAL-INFRA: Writing to a local filesystem artifact is local I/O, not OS/network/subprocess in the System sense. MOCK-HIDE: The model itself can be stubbed with a fixed raw string; what matters is whether that string reaches the artifact file before the parser runs. Mocking the model response does not hide the ordering failure. LLM-DEP: No; the bug is in pipeline ordering, not in what the model produces. REJECTION-GATE: System was considered for filesystem access, but local file I/O does not require real network or subprocess and is standard in Integration tests.",
+      "test_description": "Stub the model API to return a fixed raw string containing both valid JSON and extra surrounding text. Wire the full harness pipeline (model call → artifact writer → parser). Assert that the artifact file exists and contains the complete raw string before any parsing transform is applied. Verify by intercepting or ordering the artifact write and parse calls — e.g., using a spy on the parser that checks the artifact was already written with the correct raw content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.67,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Assertions verify structured behavior (for example field placement or schema shape), not mere keyword presence that could come from prompt echoing.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is that keyword-matching assertions pass on prompt-echoed output. Testing this requires the assertion layer to run against a crafted model output fixture — the assertion module and the fixture-loading/output-capture module must be wired together. A Unit test on an assertion function alone with a hard-coded string is close, but the real risk is the assertion being called via the harness integration point. REAL-INFRA: No. MOCK-HIDE: The model can be stubbed with a prompt-echoed response; what matters is whether the harness assertions reject it. LLM-DEP: No real model call needed — the fixture simulates the failure case deterministically. REJECTION-GATE: Agentic was considered because the original bug involved real model behavior. However, the failure being guarded here is assertion logic quality, not model output quality; a crafted fixture is sufficient and more reliable for this check.",
+      "test_description": "Construct two fixture responses: one that echoes prompt keywords but lacks correct structural properties (wrong field positions, missing schema fields), and one that satisfies the schema correctly. Run the harness assertion suite against each fixture. Assert the first fixture causes assertions to fail and the second causes them to pass. This confirms assertions gate on structure, not on keyword presence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.62,
+        "System": 0.04,
+        "Agentic": 0.18,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Whether a filesystem watcher propagates events for subdirectory contents depends on OS-level watcher configuration (e.g., inotify recursive watches, FSEvents, chokidar's `recursive` flag). An in-process mock that simply emits events for any path would pass regardless of whether the real watcher is configured for recursive watching. The failure only surfaces when real OS filesystem events are generated from a subdirectory write and the watcher either receives or drops them. MOCK-HIDE: A fake event emitter seeded with subdirectory paths bypasses the actual watcher setup, hiding this class of bug entirely. Considered Integration (path-filter logic is in-process), but rejected: the correctness of subdirectory event propagation cannot be verified without real OS watcher infrastructure.",
+      "test_description": "Start the daemon against a real temp directory. Create a nested subdirectory (e.g. `watched/subdir/`). Write a file into that subdirectory. Assert the transformation output appears in the output directory. Verify no output is produced when recursive watching is disabled, to confirm the test is sensitive to the configuration flag.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the deduplication algorithm: wrong time comparison, incorrect state mutation, or a misconfigured window parameter. No module handoff is required to reproduce this. REAL-INFRA: No OS, network, or subprocess involvement — the deduplication check is an in-process function that receives a file path and a timestamp and decides whether to accept or discard. Fake time (e.g., injecting a clock or advancing a mock timer) is sufficient to exercise the window boundary. Considered Integration to wire the event queue with the deduplication module, but rejected: the behavior targets the algorithm's correctness, not a cross-module state propagation failure.",
+      "test_description": "Instantiate the deduplication module directly with a small time window (e.g., 500 ms). Call `shouldProcess(filePath, t0)` — assert it returns true. Immediately call `shouldProcess(filePath, t0 + 100ms)` — assert it returns false. Advance the clock past the window and call again — assert it returns true. Verify the configurable window parameter is honored by repeating with a different window value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The trigger condition is explicitly 'the operating system emits multiple filesystem events.' On Linux (inotify) and macOS (FSEvents), a single `write()` syscall can generate MODIFY, CLOSE_WRITE, and ACCESS events in rapid succession. An in-process fake that fires a single event per write cannot reproduce this burst pattern; it would always pass regardless of whether the daemon's debouncing is correctly integrated into the real watcher pipeline. MOCK-HIDE: Simulating two injected events in Integration catches logic bugs in isolation but does not verify that the real watcher-to-pipeline binding tolerates OS-level event flooding. Behavior 2 (Unit) covers the deduplication algorithm in isolation; Behavior 3 specifically tests that it is wired into the real event stream and functions end-to-end under real OS burst conditions. Rejected Integration: the failure requires real OS multi-event emission to be observable.",
+      "test_description": "Start the daemon watching a real temp directory. Write a single file using a real write syscall (e.g., via `fs.writeFile`). Instrument the transformation pipeline to count invocations. Assert the pipeline is called exactly once for that file path, regardless of how many raw inotify/FSEvents events the OS emitted. Run the assertion after a debounce settling period.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.22,
+        "System": 0.7,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This behavior is entirely about OS-level watcher lifecycle. When a watched directory is deleted, the OS invalidates the watch descriptor (inotify's `IN_DELETE_SELF` / FSEvents' kFSEventStreamEventFlagRootChanged). The daemon must detect this, clean up the stale handle, and re-attach a new watch on the recreated directory — all of which involve real OS primitives. An in-process mock that accepts arbitrary watch registrations cannot reproduce the invalidation semantics. MOCK-HIDE: A fake watcher that simply re-emits events from the new path would pass even if the real daemon holds a dead OS watch descriptor and never re-attaches. There is no plausible in-process abstraction that faithfully models OS watch invalidation. Rejected Integration with no viable demote path.",
+      "test_description": "Start the daemon watching a real temp directory. Verify event delivery by writing a sentinel file and confirming output. Delete the entire watched directory with `fs.rmdirSync`. Recreate it with `fs.mkdirSync`. Write a new file to the recreated directory. Assert the new file is transformed and the output appears — without restarting the daemon process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.9,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the event collection module and the processing queue: the queue must sort by `birthtime`/`mtime` before dispatching. This requires wiring the event intake with the ordering/scheduling module. A single-function Unit test cannot catch a case where the queue receives events in OS-arrival order and ignores the timestamp field. REAL-INFRA: Local filesystem timestamp reads are explicitly included in the Integration level definition ('local DB or filesystem'). Reading `stat().birthtime` values does not require subprocess, real network, or OS-level infrastructure beyond local file I/O. Considered System for timestamp precision on high-resolution filesystems, but rejected: the ordering invariant can be verified by creating files with a controlled gap (e.g., 10 ms apart via `setTimeout`) on a local filesystem — no OS infrastructure boundary is crossed. LLM-DEP / MULTI-STEP: not applicable.",
+      "test_description": "Create three files in the watched directory with a deliberate 10 ms delay between each write, recording expected creation order. Trigger simultaneous delivery by dropping all three into the daemon's queue at once (or by starting the daemon after all files exist). Assert the transformation pipeline receives the files in ascending creation-timestamp order, not in arbitrary intake order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.55,
+        "System": 0.24,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Still being written to' is an OS-level concept: an open file descriptor held by a writer process, file size not yet stable, or no `CLOSE_WRITE` event yet emitted. The common strategies — polling for size stability, waiting for a close event, checking open file handles — all depend on real OS file state. An in-process mock that marks a file as 'ready' after a flag flip cannot reproduce the race condition where the daemon receives a CREATE/MODIFY event while the writer process still holds the fd open. MOCK-HIDE: A fake write-completion signal always settles cleanly, hiding partial-read bugs that only appear when the daemon's file-ready check races against a real concurrent writer. The failure only becomes observable when a real process writes slowly to a real file while the daemon's event handler is simultaneously attempting to open and read it. Rejected Integration: no in-process abstraction can faithfully simulate a concurrently-open file descriptor from a separate writer.",
+      "test_description": "Start the daemon against a real temp directory. Open a file for writing using a low-level fd, write partial content, then pause. Assert the daemon has not yet forwarded the file to the transformation pipeline. Complete the write and close the fd. Assert the pipeline is invoked exactly once with the complete file content. Use a real write stream with a deliberate delay (e.g., `setTimeout`) between chunks to ensure the race condition is exercised.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

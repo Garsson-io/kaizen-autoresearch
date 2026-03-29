@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-20",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "All direct and transitive dependencies are extracted from the manifest and included in the vulnerability check.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Transitive dependency resolution requires reading multiple files (e.g., package.json + package-lock.json, or requirements.txt + pip freeze output) and following dependency chains across them. A unit test on a single parsing function cannot reveal whether the handoff from manifest parsing to lock-file traversal actually captures all transitive nodes. The failure mode lives at the boundary between these two stages. REAL-INFRA: Only local filesystem, so System is not required. LLM-DEP: No.",
+      "test_description": "Write integration tests that place a realistic manifest file and its corresponding lock file (e.g., package.json + package-lock.json) on a temp filesystem, run the extraction pipeline against them, and assert that both direct deps and at least two levels of transitive deps appear in the returned dependency set. Include a case where a transitive dep is absent from the direct list to confirm it is not silently dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The vulnerability database query returns results that match the exact version ranges in the manifest, not just the package name.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is whether version-range information is actually transmitted to and honored by the external vulnerability API. An integration test that mocks the HTTP client can verify the request is constructed correctly, but cannot reveal whether the live API silently ignores the range parameter and returns all CVEs for the package. REAL-INFRA: Requires a real HTTP call to the vulnerability database. MOCK-HIDE: Mocking the API response always passes the assertion regardless of what range string was sent, hiding the key failure. The only way to confirm range-filtered results is a real API call with a known package/version fixture.",
+      "test_description": "Write a system test that queries the real vulnerability database API with a specific package at a version known to be vulnerable under one range but patched in another. Assert that the response contains CVEs for the vulnerable range and does not include CVEs already fixed before the pinned version. Run against a sandboxed or staging endpoint if available; skip with a clear marker when no network access is present.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.7,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The severity sorting places Critical above High above Medium above Low, with CVEs of the same severity sorted by CVSS score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is pure ordering logic operating on an in-memory list of vulnerability objects. The failure mode (wrong sort key, reversed order, ties broken incorrectly) is fully contained in a single sorting function and is not a module-boundary issue. REAL-INFRA: No filesystem, network, or subprocess needed. LLM-DEP: No. A unit test with a hand-crafted list of CVE objects covering all severity tiers and same-severity CVSS tie-breaking is sufficient.",
+      "test_description": "Unit test: construct a list of CVE objects covering all four severity labels with deliberate CVSS values that are out of order (e.g., two Critical entries at 9.1 and 9.8, a High at 7.5, two Medium entries at 5.0 and 5.5, a Low at 2.0). Call the sort function and assert the exact resulting order: Critical 9.8, Critical 9.1, High 7.5, Medium 5.5, Medium 5.0, Low 2.0.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The manifest modification changes only the affected dependency's version, leaving all other entries unchanged.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure (touching unrelated deps, corrupting formatting, shifting keys) is entirely in the parse-modify-serialize logic of a single function. The transformation can be exercised by passing manifest content as a string or object; no real filesystem or cross-module handoff is required for this specific failure mode. REAL-INFRA: No. LLM-DEP: No. The mutation logic is self-contained.",
+      "test_description": "Unit test: supply a realistic manifest string (e.g., a JSON package.json with five dependencies, or a requirements.txt with five pinned packages). Call the manifest-modification function targeting only one dependency's version. Assert that (a) the target dependency version changed to the expected value, (b) every other dependency version is byte-for-byte identical to the original, and (c) the overall structure/format of the manifest is preserved (no spurious key reordering or whitespace changes).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The auto-generated pull request is created on the real repository with the correct single-dependency diff.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: PR creation requires real git operations (branch creation, commit, push) and a real VCS API call (GitHub/GitLab). MOCK-HIDE: Mocking the VCS API client always returns success regardless of what diff was submitted, so the assertion that 'exactly one dependency changed' cannot be verified without inspecting the real PR on a real repo. The failure mode (wrong diff, multiple deps changed, wrong branch, malformed PR body) is only observable via the actual hosted repository state.",
+      "test_description": "System test against a real test repository (e.g., a dedicated GitHub repo used for CI integration tests): run the scanner end-to-end on a fixture manifest with one known-vulnerable dependency, let it create the PR, then use the VCS API to fetch the PR diff and assert it touches exactly one file and exactly one version string. Also assert the PR title references the correct package and CVE. Tear down the branch after the test.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.88,
+        "Agentic": 0.04,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A major version bump is correctly identified as a breaking change based on semver comparison.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Semver comparison is a pure function: given two version strings, determine whether the major component changed. The failure mode (wrong field compared, pre-release handling, leading-zero edge cases) lives entirely inside this one function. No I/O, no module handoffs. LLM-DEP: No. REAL-INFRA: No.",
+      "test_description": "Parametrized unit tests covering: (a) major bump 1.2.3 → 2.0.0 returns breaking=True, (b) minor bump 1.2.3 → 1.3.0 returns breaking=False, (c) patch bump 1.2.3 → 1.2.4 returns breaking=False, (d) pre-release to stable (1.0.0-beta → 1.0.0) returns breaking=False, (e) 0.x to 0.y (0.1.0 → 0.2.0) returns breaking=False unless policy treats 0.x differently — document and assert the chosen policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When a breaking change is detected, PR creation is skipped and a review flag is surfaced in the scanner output.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not in the breaking-change detection function alone (covered by behavior 6) nor in PR creation alone (behavior 5). It is in the control-flow handoff: does the scanner correctly read the breaking-change signal and gate the PR creation call? A unit test on either module in isolation cannot reveal whether the conditional branch is wired up. The bug lives at the module boundary between the semver checker, the orchestrator, and the PR creation module. REAL-INFRA: No real VCS call needed — PR creation can be stubbed at its boundary. LLM-DEP: No.",
+      "test_description": "Integration test: wire together the real semver-checker, the real scanner orchestrator, and a stubbed PR-creation boundary. Supply a fixture that triggers a major-version bump. Assert that (a) the stub for PR creation is never called, and (b) the scanner's returned report object contains a review flag with the affected package name and reason. Also test the inverse: a patch-only bump does not set the flag and does invoke the PR-creation stub.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

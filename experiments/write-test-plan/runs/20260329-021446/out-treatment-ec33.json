@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a missing cross-check between two storage operations — writing a summary and reading existing findings for the same round. A Unit test on the validation function alone could pass with injected data but would not catch a bug where the storage query returns the wrong round's findings or uses the wrong key. REAL-INFRA: No OS/network needed; an in-process fake DB is sufficient to reproduce the bug. LLM-DEP: No LLM involved. REJECTION-GATE: Unit rejected because the enforcement logic spans at least two module boundaries (summary writer + findings reader); a single-function unit test cannot verify that the correct stored findings are fetched and compared before the write is allowed.",
+      "test_description": "Using an in-process fake store, insert two dimension findings for round R — both with FAIL verdicts — then invoke the summary-store API with a PASS verdict for round R. Assert the call raises a validation error or returns a rejection response. Also verify a PASS summary CAN be stored for round R when all dimension findings for that round carry PASS verdicts, confirming the guard is conditional on actual stored state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.76,
+        "System": 0.06,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The specific failure is a gate that reads summary text instead of stored findings. A Unit test that takes both as arguments cannot verify the gate actually queries the findings store at runtime rather than the summary field. The failure only surfaces when the gate is wired to a real or fake store and given a case where the two disagree. REAL-INFRA: An in-process fake store reproduces the disagreement scenario exactly. LLM-DEP: No LLM involved. REJECTION-GATE: Unit rejected because the bug is precisely at the module wiring boundary — the gate reading from the wrong data source — which only manifests when the gate is connected to both a summary object and a findings store with conflicting content.",
+      "test_description": "Populate the fake findings store with FAIL verdicts for round R across all dimensions, then set the summary text for round R to 'all dimensions PASS'. Invoke stop-gate verdict computation for round R and assert the returned verdict is FAIL. As a contrast case, update the stored findings to PASS and confirm the gate now returns PASS, proving it tracks findings state, not summary text.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two sub-behaviors must hold together — the flag gate (rejecting override without the flag) and the audit record write (persisting a warning when the flag is present). A Unit test on the flag-check function alone cannot verify that a warning record is actually persisted to the audit store after a successful override. REAL-INFRA: An in-process fake audit store is sufficient. LLM-DEP: None. REJECTION-GATE: Unit rejected because the audit record production requires the override handler to interact with a persistence layer; verifying it was written requires querying that layer, which is an Integration concern.",
+      "test_description": "Attempt a manual summary override without the override flag set; assert the operation is rejected with an appropriate error and no audit record is written. Then attempt the same override with the flag explicitly set; assert the operation succeeds and exactly one warning record exists in the fake audit store, containing at minimum the round ID, the actor, and a timestamp. Verify the audit record is queryable after the fact.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.72,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: The failure mode requires the full Phase 4 → finalization path: the loop receives fixes, skips re-invoking agents, and emits PASS using stale prior-round results. REAL-INFRA: No OS/network needed. LLM-DEP: The review-agent round is by definition an AI/ML agent call; mocking it would always pass (a stub trivially records that it was called), hiding whether the loop actually gates on a real new-round signal with real content. MULTI-STEP: This behavior requires multiple agentic steps in sequence — initial review round producing FAIL findings, a fix phase, then a mandatory new review-agent round before PASS can be declared — making Workflow the correct floor. REJECTION-GATE: Integration rejected because a stubbed agent cannot reveal whether the loop enforces a fresh round with genuine updated-diff content; only a real agent running on the changed diff produces the non-deterministic signal that distinguishes a fresh round from a replayed one.",
+      "test_description": "Run a full review loop with a real LLM-backed review agent against a diff that contains a deliberate flaw. After the agent returns FAIL findings, simulate Phase 4 fixes by modifying the diff. Without triggering a new agent round, attempt to finalize the loop as PASS and assert this is rejected. Then trigger a fresh agent round on the updated diff and assert that finalization can proceed only after the agent produces new findings for the updated content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.05,
+        "Agentic": 0.2,
+        "Workflow": 0.55
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the flow returning PASS when round capacity is exhausted instead of escalating. This requires the round counter, findings store, and outcome emitter to interact — a Unit test on any one of them cannot catch a wiring bug where the exhaustion check does not consult stored findings. REAL-INFRA: An in-process fake store and a configurable round limit are sufficient to reproduce this scenario exactly. LLM-DEP: We are testing control-flow logic — what the flow does GIVEN unresolved MUST-FIX findings — not whether real agents produce MUST-FIX verdicts. Stubbed findings injected into the store are sufficient; no LLM non-determinism is involved. REJECTION-GATE: Agentic/Workflow rejected because the correctness criterion is the escalation path being taken, not the quality of findings produced by a model; deterministic stubs fully exercise the failure boundary.",
+      "test_description": "Configure a review flow with max_rounds = 2 using a fake findings store and a stubbed review agent that always returns one MUST-FIX finding. Run the loop to round exhaustion (2 rounds), then invoke the outcome computation. Assert the returned outcome is an escalation object (not PASS) and that it references the unresolved MUST-FIX findings from the store. As a contrast, configure the stub to resolve all MUST-FIX findings by round 2 and verify the outcome is PASS.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The validation logic itself (checking required fields) is a single-function concern and testable at Unit. However, the critical claim is the ordering guarantee — validation must fire *before* the entry module is imported/required. That ordering only fails at the boundary between the manifest validator and the module loader/importer. A unit test of the validator in isolation cannot prove the loader never calls require() on an invalid plugin. REAL-INFRA: No real filesystem, subprocess, or network is required — the manifest can be an in-memory object or a temp fixture. A fake/spy on the module importer is sufficient to assert the module was never loaded. REJECTION-GATE: System is disqualified because the failure mode (wrong ordering of validate vs. import) is reproduced entirely in-process with a spy on require; no real OS behavior is needed.",
+      "test_description": "Wire the full loader with a stub module importer that records all require() calls. Feed the loader a plugin directory (or in-memory manifest map) containing one plugin with a missing required field. Assert: (a) the loader returns a validation error naming the plugin, and (b) the stub importer recorded zero calls for that plugin's entry path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The topological sort algorithm that computes load order is unit-testable in isolation, but the failure mode described is about hook *invocation* order — which requires the resolver and hook-caller to be wired together. A unit test of the sort function only confirms the returned order array, not that hooks are actually invoked in that order. The real failure appears at the boundary between the dependency resolver and the plugin executor. REAL-INFRA: No real filesystem or subprocess is needed. Both plugins can be in-memory stubs with spy onLoad functions; the loader is the only module under test. REJECTION-GATE: System is disqualified — no real OS or network behavior governs call ordering; an in-process spy captures it exactly.",
+      "test_description": "Create two in-memory plugin stubs: plugin A with a dependency on B, plugin B with no dependencies. Both expose onLoad spies that record their call timestamp (or push to a shared order array). Load the plugin set through the full loader. Assert that plugin B's onLoad spy was invoked before plugin A's.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Cycle detection (e.g., DFS back-edge) is a pure algorithm and unit-testable in isolation. But the behavior states two things: the cycle is *reported* (an error is surfaced) AND *neither plugin is loaded* (no onLoad called). The 'loads neither' assertion requires the cycle detector's output to be consumed by the executor and result in no hook invocations. That failure only appears at the boundary between the resolver and the executor — a unit test of the cycle detector cannot prove the loader acts on its result. REAL-INFRA: No real I/O needed; in-memory plugin stubs with onLoad spies are sufficient. REJECTION-GATE: System is disqualified because no OS, network, or subprocess behavior is involved in cycle detection or hook suppression.",
+      "test_description": "Create two in-memory plugin stubs: plugin A depending on B, plugin B depending on A. Both expose onLoad spies. Invoke the full loader. Assert: (a) the loader returns an error that identifies the cycle (naming both plugins or the edge), and (b) neither onLoad spy was called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.6,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This is an ordering invariant between two distinct subsystems: the module importer (require/import) and the hook dispatcher. A unit test of either in isolation cannot catch the failure; the bug only surfaces when the loader wires them in the wrong order. REAL-INFRA: In Node.js, `require()` executes the module's top-level code as a side effect. To observe 'has been executed,' a stub module that pushes to a shared execution-order log is sufficient — no real subprocess or filesystem event is required. A spy-wrapped require or a minimal real temp module both work in-process. Demoting to System is not needed because no OS-level event ordering (filesystem watchers, real subprocess lifecycle) is involved — the question is purely about the sequencing of two in-process calls. REJECTION-GATE: System would be required if the failure only appeared under real Node.js module caching or real filesystem I/O latency; the behavior's failure mode (hook called before module body runs) is reproducible with a synchronous in-process stub.",
+      "test_description": "Set up a plugin stub whose entry module, when required, appends 'module-executed' to a shared event log. Its onLoad hook appends 'hook-called'. Load the plugin through the full loader. Assert the event log is ['module-executed', 'hook-called'] in that order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.21,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Error recovery and continuation require the full loader's control flow to be exercised across multiple plugins. The failure (loader halts on first error instead of continuing) only appears when the hook executor, the error handler, and the dependency graph are wired together. A unit test of any one piece cannot expose the bug. REAL-INFRA: No real filesystem, subprocess, or network is needed; all plugins are in-memory stubs. REJECTION-GATE: System is disqualified — no OS or external infrastructure governs whether the loader iterates to the next plugin after catching an error; in-process stubs reproduce the failure exactly.",
+      "test_description": "Create three in-memory plugin stubs with no dependency relationships: plugin X whose onLoad throws an Error, plugin Y and plugin Z whose onLoad spies record their invocation. Load all three through the full loader. Assert: (a) the loader reports an error for plugin X, (b) plugin Y's and plugin Z's onLoad spies were both invoked exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.76,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

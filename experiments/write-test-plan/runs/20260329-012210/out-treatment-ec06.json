@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Files in subdirectories of the watched root are processed, not only files in the root itself.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Whether subdirectory events are emitted depends entirely on whether the OS watcher was opened with a recursive flag (e.g., inotify `IN_CLOSE_WRITE` with `inotifywait -r`, or FSEvents with kFSEventStreamCreateFlagFileEvents). Mocking the watcher always hides this failure — you would mock in the recursive events you expect, never discovering the watcher was opened non-recursively. Only a real OS filesystem hierarchy can expose this.",
+      "test_description": "Start the daemon against a real temporary watched directory. Create a nested subdirectory path at least two levels deep. Write a file into the leaf subdirectory. Assert the daemon's processing callback is invoked with the correct absolute file path, and that a result artifact appears in the output directory — with no manual restart between directory creation and file placement.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.13,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The deduplication filter is a self-contained algorithm: given a path and a timestamp, it checks an in-memory map keyed by path with time-windowed expiry. The failure mode — accepting a duplicate within the window, or incorrectly rejecting a request outside the window — lives entirely inside this one function/class. No real I/O, no cross-module handoff is required to expose it. A unit test with a controllable clock is sufficient and complete.",
+      "test_description": "Instantiate the deduplication filter directly with a window of, say, 500 ms and a fake/mock clock. Submit the same path three times: first at t=0 (expect: accepted), second at t=200 ms (expect: rejected), third at t=600 ms (expect: accepted again). Also submit a different path at t=200 ms to verify path-key isolation. Assert the filter's pass/reject decisions match expectations in all cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.23,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the OS emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the event-listener module (which receives raw watcher events) and the deduplication+processing pipeline. The event listener may forward every raw event before the deduplication filter is applied; if deduplication is wired after a fanout or if event batching logic is separate from behavior-2's filter, this wiring gap only appears when events flow across modules. A unit test of deduplication alone (behavior 2) does not exercise whether the event listener correctly routes all duplicates through that filter. REAL-INFRA: The test does not need real OS events — a test double watcher that fires N events for the same path is sufficient to expose this integration gap.",
+      "test_description": "Wire the real event-listener module to the real deduplication filter and a spy on the processing stage, substituting only the underlying OS watcher with a controllable test double. Have the test double emit three rapid 'change' events for the same file path. Assert the processing spy is called exactly once with that path, and that no duplicate transform is attempted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.55,
+        "System": 0.32,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and recreated while the daemon is running, it resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This behavior is purely about OS-level inode semantics. When a watched directory is deleted, the OS watcher's kernel handle becomes invalid; re-attaching to the newly created directory (a new inode, even at the same path) requires the daemon to detect the deletion event, wait for the recreation event, and re-register a watch on the new inode. This sequence of OS signals cannot be simulated by a test double: a mock that 'raises a delete event' will never exercise whether the watcher library correctly invalidates its handle and re-opens it on the real inode. Only real `rm -rf` and `mkdir` calls against a live OS expose this.",
+      "test_description": "Start the daemon watching a real temporary directory. Forcibly delete the directory tree with the OS (`fs.rmSync` / shell). Wait for the daemon's 'directory-lost' internal state (or a short polling interval). Recreate the directory at the same path. Drop a new file into the recreated directory. Assert within a timeout that the daemon emits a processing result for the new file — without any signal or restart sent to the process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.07,
+        "System": 0.87,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive simultaneously, they are processed in the order of their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the event-ingestion module and the processing queue: the queue must receive events, extract or carry their creation timestamps, and yield items in sorted order. The sorting predicate alone is unit-testable, but the bug could instead be that timestamps are not propagated through the event object, or that the queue pops in insertion order rather than priority order. Those wiring bugs only appear when the event objects flow from the listener through the queue to the processor. REAL-INFRA: Real OS timestamps are not needed — synthetic event objects with distinct mtime values can be injected directly.",
+      "test_description": "Construct a set of synthetic file-arrival event objects with explicitly set creation timestamps in a scrambled order (e.g., t=300, t=100, t=200). Inject them concurrently into the real ingestion queue. Capture the order in which the real processing stage receives them via a spy. Assert the processing spy was called in strict chronological timestamp order (t=100, t=200, t=300), regardless of injection order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.57,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file still being written when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Write-completion detection strategies (polling file size stability, waiting for a close event, attempting an exclusive open, or checking OS file locks) all depend on actual OS file-handle semantics. A mock that 'pretends the file is still open' does not exercise whether the daemon correctly calls the right OS API to detect readiness — it would pass even if the implementation were entirely absent. Only a real background writer holding an OS file handle and then releasing it can prove the detection fires at the right moment and not before.",
+      "test_description": "In a background OS process (or Node.js worker), open a real file in the watched directory for writing but do not close it. Trigger or wait for the watcher to emit its arrival event. Assert the processing pipeline does NOT invoke the transformer during this window (e.g., wait 200 ms and verify the spy has zero calls). Then close the file from the background writer. Assert the processing pipeline invokes the transformer exactly once within a reasonable timeout after the file handle is released.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.13,
+        "System": 0.78,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

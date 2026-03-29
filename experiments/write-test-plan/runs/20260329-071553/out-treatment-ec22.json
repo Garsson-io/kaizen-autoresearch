@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-22",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Cache keys generated from identical query parameters are always identical, and keys from different parameters never collide.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within a single key-generation function — deterministic hashing or serialization of query parameters. No module boundary is involved; the bug (e.g., non-canonical parameter ordering, missing normalization) is visible by calling the function directly. REAL-INFRA: No OS, network, filesystem, or subprocess needed. MOCK-HIDE: No dependency to mock; inputs and outputs are pure values. LLM-DEP: No AI/ML. MULTI-STEP: No. REJECTION-GATE: Integration was considered but the failure does not require two modules to hand off data — the function under test is self-contained.",
+      "test_description": "Call the key-generation function with (a) two identical parameter sets in different insertion orders and assert the keys are equal, and (b) a battery of distinct parameter sets and assert no two keys collide. No mocking, no I/O — exercise the pure function directly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The TTL for a cache entry is computed correctly based on the data category's configured freshness rule (e.g., user profiles = 5 minutes, product catalog = 1 hour).",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: TTL computation is a mapping from (data category, config) → duration. The failure (wrong TTL returned for a category) is fully observable by calling the computation function with a controlled config object — no module handoff is necessary. REAL-INFRA: No OS or network dependency. MOCK-HIDE: The config can be constructed in-process as a plain object; no real config store is needed to catch wrong TTL logic. LLM-DEP: No AI/ML. MULTI-STEP: No. REJECTION-GATE: Integration was considered if config were loaded from an external file or DB, but the behavior describes a computation rule, not a config-loading path.",
+      "test_description": "Instantiate a freshness-rule config with known category-to-TTL mappings (e.g., user_profile=300s, product_catalog=3600s). Call the TTL computation function for each category and assert the returned duration matches the configured value. Also assert that an unknown/default category returns the fallback TTL. Pure in-process test, no I/O.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When memory usage exceeds the configured threshold, the eviction strategy switches from LRU to LFU as specified in the configuration.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the strategy-selection function's conditional logic: given a (memory_usage, threshold, config) triple, does it return the right strategy? This is not a module-boundary failure — it is a branch-condition bug. REAL-INFRA: Real OS memory readings are not needed; the memory usage value can be injected as a parameter or a simple stub metric. If the design couples the selector tightly to OS memory APIs, the selector should expose an injectable memory-usage seam; if it does not, Integration is appropriate — but the canonical design for this logic is injectable. MOCK-HIDE: Injecting a fake memory value does not hide the failure because the failure is in the conditional branch, not in the measurement path. LLM-DEP: No. REJECTION-GATE: System was considered for real OS memory reads, but the behavior describes the switching decision, not memory measurement accuracy. Integration was considered if the cache module must be wired to a memory monitor, but the switching logic itself is a single conditional that can be unit-tested with a stubbed metric value.",
+      "test_description": "Call the eviction-strategy selector with (a) memory_usage < threshold → assert LRU is returned, (b) memory_usage == threshold → assert boundary behavior per spec, (c) memory_usage > threshold → assert LFU is returned. Use an injectable or in-process memory-usage value; no real OS memory reads.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A write to the underlying PostgreSQL table invalidates all cache entries whose keys match the affected rows.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a module-boundary failure: the DB-write path must notify or invoke the cache-invalidation path, and that handoff could silently break (wrong key computed for affected rows, invalidation not called, partial invalidation). A unit test of either module alone cannot catch this coordination bug. REAL-INFRA: If invalidation is application-level (the write repository calls the cache manager after a DB write), an in-process fake DB client can reproduce the failure — the real PostgreSQL wire protocol is not load-bearing. INTEGRATION-BRAKE: (a) Real OS/network/subprocess? Only if PostgreSQL LISTEN/NOTIFY or WAL replication is the invalidation mechanism; the behavior describes application-level write→invalidate coupling, so a stub DB suffices. (b) AI/ML? No. (c) Multiple agentic steps? No. System was considered for PostgreSQL-native trigger/notify mechanisms, but the behavior text describes the application-level invariant ('a write … invalidates'), not a DB-internal mechanism. REJECTION-GATE: If the implementation were revealed to use pg_notify or triggers, System would be required — but no such mechanism is stated.",
+      "test_description": "Wire the DB write handler and the cache manager together using an in-process fake DB client. Pre-populate the cache with entries keyed to specific rows. Perform a write through the repository layer for a known set of rows. Assert that all cache entries whose keys correspond to the affected rows are removed, and that unrelated entries are untouched.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.68,
+        "System": 0.27,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The eviction policy removes the correct entries — least-recently-used under LRU, least-frequently-used under LFU — when the cache is full.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Eviction-order correctness is purely an algorithmic/data-structure property of the eviction policy object. The failure (wrong entry evicted) is fully observable by driving the eviction structure with a controlled sequence of puts and gets and then triggering eviction. No module boundary is involved. REAL-INFRA: No OS, network, or subprocess needed — the eviction structure is in-process. MOCK-HIDE: Nothing to mock; the eviction object tracks its own state. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE: Integration was considered in case the eviction structure is tightly coupled to the broader cache manager, but the behavior targets the correctness of the eviction algorithm itself, which is testable in isolation.",
+      "test_description": "For LRU: fill the cache to capacity with N entries, access all but the least-recently-used entry, then add a new entry and assert the LRU entry was evicted. For LFU: fill the cache to capacity, access entries with differing frequencies, then add a new entry and assert the least-frequently-accessed entry was evicted. All state is in-process; no external dependencies.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.91,
+        "Integration": 0.07,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

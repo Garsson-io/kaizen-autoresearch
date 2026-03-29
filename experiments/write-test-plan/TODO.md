@@ -52,28 +52,29 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] LOG — appended iteration 36 with model + metrics; marked idea rejected
 - [x] → Next iteration (refresh tasks)
 
-### Iteration 3/5 (current, reference loss: 390.59)
+### Iteration 3/5 (reference loss at start: 390.59)
 - [x] MINE
 - [x] DIAGNOSE
 - [x] META
-- [ ] IDEATE
-- [ ] EDIT + RUN + SCORE
-- [ ] LOG
-- [ ] → Next iteration (refresh tasks)
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE — `mock-miss-floor-not-ceiling` tweak applied to `MOCK-MISS`, run `20260329-002612`, loss `390.23` vs reference `390.59` (kept)
+- [x] LOG — appended iteration 37 with model + metrics
+- [x] → Next iteration (refresh tasks)
 
-### Iteration 4/5
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EDIT + RUN + SCORE
-- [ ] LOG
-- [ ] → Next iteration (refresh tasks)
+### Iteration 4/5 (current, reference loss: 390.23)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE — `self-check-hypothetical-wiring-guard` tested, run `20260329-004233`, loss `453.53` vs reference `390.23` (reverted)
+- [x] LOG — appended iteration 38 with model + metrics
+- [x] → Next iteration (refresh tasks)
 
-### Iteration 5/5
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EDIT + RUN + SCORE
-- [ ] LOG
+### Iteration 5/5 (current, reference loss: 390.23)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE
+- [x] EDIT + RUN + SCORE — `mock-miss` evidence-text escalation gate tested, run `20260329-004857`, loss `404.78` vs reference `390.23` (reverted)
+- [x] LOG — appended iteration 39 with model + metrics
+- [x] → Experiment loop complete (5/5)

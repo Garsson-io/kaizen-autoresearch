@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-10",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The review input is scoped to the lines that changed, not the full content of each modified file.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely algorithmic — does the diff-parsing or input-preparation code filter to changed lines only? This is a single function's transformation logic (raw diff → scoped input), not a module-boundary interaction. REAL-INFRA: No OS, network, or subprocess needed; a synthetic diff string suffices. MOCK-HIDE: No external dependency to mock — the input is a string and the output is a filtered representation. LLM-DEP: What the LLM receives is determined before any model call; this is pre-processing logic. REJECTION-GATE: Integration was considered but rejected because the bug (passing full file content instead of diff lines) is catchable by asserting on the constructed prompt/context object in isolation, before any module handoff.",
+      "test_description": "Construct a synthetic unified diff with a multi-line file where only a few lines are marked as added/removed. Feed it to the diff-scoping function and assert that the resulting review context contains only the changed-line content, not unchanged surrounding lines. Include a file where none of the lines changed and verify it is excluded entirely.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Inline comments are attached to the correct positions in the diff view on the pull request.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Position numbers in GitHub's review API are computed by walking the diff hunk structure — the mapping from (file, line) → position index must be correct AND the API call must carry that value. The bug lives at the boundary between the position-calculator module and the comment-posting module. REAL-INFRA: A real GitHub API call is not required to catch a wrong position number — asserting on mock call args catches it. MOCK-HIDE: The mock must assert the exact position value; a mock that ignores call args would hide the failure, but a spy/assert-on-args mock does not. LLM-DEP: No — position values are deterministic from the diff structure. REJECTION-GATE: System was considered (real GitHub to verify visual rendering) but rejected because the verifiable failure mode — wrong position number sent to the API — is fully observable by inspecting the captured HTTP request without hitting real GitHub.",
+      "test_description": "Wire the diff-parser, position-mapper, and comment-posting client together against a fixed synthetic diff. Stub the HTTP client with a spy. Submit a known (file, line) target and assert that the spy captures a create-review-comment call with the exact position integer that corresponds to that line's offset in the diff hunk, per GitHub's diff-position spec.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.55,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The agent identifies at least one real defect in a pull request that contains a known introduced bug.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior asserts that the model correctly classifies/detects a specific bug. No deterministic logic produces this result — it depends entirely on what the real LLM generates in response to the diff. Running this 100 times with a mocked LLM would always pass trivially; running with the real model is what validates the claim. MOCK-HIDE: Any mock that returns a canned finding would make this test meaningless — it would prove only that the pipeline formats output, not that the model detects the bug. REAL-INFRA: Does not need real GitHub; the diff can be supplied as a fixture. MULTI-STEP: Detection is a single agentic inference step, not a multi-step pipeline. REJECTION-GATE: Integration was considered but rejected because no amount of module wiring without a real model call can validate that a defect is actually identified.",
+      "test_description": "Prepare a synthetic diff fixture that introduces a known bug (e.g., an off-by-one error or an unchecked None dereference). Feed it through the real review pipeline with a live LLM call. Assert that the returned findings list contains at least one comment whose body references the introduced defect's location or nature. Mark the test as Agentic/flaky-tolerant with a retry budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.83,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Every finding listed in the top-level summary corresponds to an inline comment that was also posted — no findings appear in the summary without a matching inline comment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a coordination bug between two output-generation steps: the inline-comment collector and the summary-generator. If summary content is derived from the collected inline findings (not independently generated), the bug is a missed or extra item in the data passed between modules — a module-boundary failure, not a single-function logic failure. REAL-INFRA: No OS or network needed. LLM-DEP: If the summary is produced by the LLM independently re-enumerating findings, consistency depends on LLM behavior → Agentic. But if the system is designed to derive the summary deterministically from already-collected inline findings, the coordination logic is testable with deterministic stubs. Given that the behavior is framed as an invariant the system must enforce, a well-designed implementation makes this Integration-testable. REJECTION-GATE: Agentic was considered but rejected under the assumption that the summary should be built from the collected findings list, not re-generated independently — a design that makes the invariant verifiable without a real model. If implementation uses independent LLM generation for both, the level should be raised to Agentic.",
+      "test_description": "Stub the LLM to return a fixed list of N findings (each with file, line, message). Run the full comment-posting and summary-generation pipeline against a mocked GitHub API spy. After the run, collect all inline comment calls and the summary comment call from the spy. Assert that every finding mentioned in the summary body has a corresponding inline comment call with matching location and content — and that no extra findings appear in the summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test_description is consistent with Integration, but note: if the actual implementation has the LLM generate the summary independently (not from collected findings), the minimum level rises to Agentic.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.5,
+        "System": 0.08,
+        "Agentic": 0.28,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full sequence — reading the diff, posting inline comments, posting the summary comment — completes correctly for a real pull request without manual intervention.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names three sequential steps that must all complete correctly: (1) read the diff from a real PR, (2) post inline comments, (3) post the summary comment. Each step depends on the output of the previous. REAL-INFRA: 'real pull request' means real GitHub API calls — System-level at minimum. LLM-DEP: The review step between reading the diff and posting comments involves a real LLM call — Agentic at minimum. Combining real sequential agentic inference with real external API I/O across multiple steps makes this Workflow. REJECTION-GATE: System was considered but rejected because the pipeline includes a real LLM inference step between diff reading and comment posting — not just I/O against an external service. Agentic was considered but rejected because the behavior requires multiple distinct agentic-plus-I/O steps in sequence, not a single model call.",
+      "test_description": "Create a real test pull request in a dedicated test repository with a known change. Trigger the full automation end-to-end. After completion, query the GitHub API to retrieve all review comments and the PR-level comment. Assert: (a) the run completed without exception, (b) at least one inline review comment exists, (c) a top-level summary comment exists, and (d) the summary references at least one finding that matches an inline comment. Use a real LLM and real GitHub credentials (from CI secrets).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.08,
+        "Agentic": 0.1,
+        "Workflow": 0.78
+      }
+    }
+  ]
+}

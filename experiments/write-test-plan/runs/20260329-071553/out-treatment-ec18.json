@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is in the grouping algorithm itself — does it key on trace ID correctly, ignoring service name? This is a pure data transformation over an in-memory list. No module boundary handoff is required to expose a bug. REAL-INFRA: No OS/network/subprocess needed; inputs are structs with a trace_id field. MOCK-HIDE: Nothing to mock — test with real data structures. LLM-DEP: Deterministic. MULTI-STEP: No. REJECTION-GATE for Integration: the behavior says 'grouped together regardless of which microservice emitted them' — the microservice field is just an attribute on the entry, not a live service call, so wiring real modules together adds nothing.",
+      "test_description": "Construct a list of log entry objects with three distinct trace IDs, each entry having a different 'service' field. Pass the list to the grouping function and assert that the returned map has exactly three keys, each key's list contains only entries matching that trace ID, and no entry appears in the wrong group.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Clock skew tolerance is a deterministic sorting/normalization algorithm — the failure is a wrong sort order given skewed timestamps, not a module handoff bug. REAL-INFRA: No real clocks, OS, or network needed; craft timestamps with known offsets. MOCK-HIDE: Nothing hides; the sort function's behavior is fully observable with controlled inputs. LLM-DEP: Deterministic. MULTI-STEP: No. REJECTION-GATE for Integration: the 'clock skew' concern is about offsetting timestamps in input data, not about synchronising real clocks across processes.",
+      "test_description": "Build a set of log entries with timestamps deliberately out-of-order by up to 450ms (within skew budget) across two synthetic services. Call the timeline-sort function and assert the output is in strictly ascending causal order. Also assert that entries differing by exactly 500ms are handled without swapping incorrectly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.21,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a statistical computation bug — wrong p99 calculation, wrong baseline, wrong 3x threshold comparison. All of these live inside a single detection function over a numeric dataset. REAL-INFRA: No I/O needed; latency values are plain numbers. MOCK-HIDE: Nothing to mock. LLM-DEP: Deterministic math. MULTI-STEP: No. REJECTION-GATE for Integration: 'flagged in the anomaly report' is an output step, but the core failure (undetected spike) lives in the detector, not in the report formatter; a unit test can assert the detector returns a flagged result.",
+      "test_description": "Provide two datasets: a baseline distribution and a spike distribution where the p99 is exactly 3.1x the baseline p99. Call the anomaly detector with both and assert it returns a flag. Then provide a dataset where p99 is 2.9x baseline and assert no flag is raised. Edge-case: verify the threshold is inclusive (exactly 3.0x triggers a flag).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.65,
+        "Integration": 0.3,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is not in the parser alone — it is whether the exception from parsing propagates up and crashes the pipeline, and whether the skip count is correctly accumulated and surfaced in the final report. This is a module-boundary failure: parser → pipeline orchestrator → report emitter. A unit test on the parser returning None does not verify the pipeline survives or that the count reaches the report. REAL-INFRA: No OS/network needed; in-process module wiring suffices. MOCK-HIDE: Mocking the parser would hide whether the real parser exception is caught upstream. LLM-DEP: Deterministic. MULTI-STEP: No. REJECTION-GATE for System: no subprocess, real filesystem, or network I/O is required to expose this failure.",
+      "test_description": "Wire the real parser, pipeline orchestrator, and report emitter together in-process. Feed a stream of 10 entries where 3 are invalid JSON strings. Assert the pipeline returns normally (no exception), the output report contains exactly 7 processed entries, and the skipped-entry count in the report equals 3.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Throughput failures (dropped entries, queue overflow, backpressure breakdown) emerge from real I/O and OS scheduling, not from in-process data structure logic alone. REAL-INFRA: The tool 'ingests' logs — in a real deployment this means reading from files, stdin, or a stream. True burst behavior (OS buffer limits, file descriptor scheduling, real timer resolution) only manifests with actual I/O. An in-process test injecting a list at unbounded speed measures data structure speed, not real ingestion throughput. MOCK-HIDE: A mocked I/O layer always delivers entries instantly, hiding real backpressure failures. LLM-DEP: Deterministic. MULTI-STEP: No. REJECTION-GATE for Agentic: no AI/ML output involved. REJECTION-GATE for Workflow: single pipeline pass, not multiple agentic steps.",
+      "test_description": "Spawn the tool as a real subprocess (or invoke it against a real file/pipe). Feed a pre-generated file of 50,000 well-formed JSON log entries and time the ingestion. Assert that all 50,000 entries appear in the output (zero dropped), total wall-clock time stays within the 5-second budget implied by the 10k/s spec, and no error or warning about falling behind is emitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.3,
+        "System": 0.62,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

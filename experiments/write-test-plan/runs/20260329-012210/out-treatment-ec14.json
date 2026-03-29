@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Speech-to-text output preserves speaker labels for attendee attribution",
+      "minimum_level": "Integration",
+      "justification": "The failure mode is not just 'does parsing logic work in isolation' — it is whether the service correctly requests speaker diarization from the STT API and then wires those labels through to the downstream summarization module. A unit test on the parser alone, using a hand-crafted dict, would pass even if the service never enables diarization in the API call. The real bug surface lives at the boundary between the HTTP client and the transcript parser: wrong API flags → no speaker segments in response → attribution silently disappears. Mocking the STT response at the integration seam catches whether the service correctly handles labeled vs. unlabeled responses, but a real STT API call (System) is needed to confirm diarization is actually requested. Integration is the minimum that can expose the label-stripping bug; System covers the API flag misconfiguration.",
+      "test_description": "Wire the STT client module together with the transcript parser. Stub the STT HTTP response with two variants: one that includes speaker-labeled segments and one that lacks them. Verify that (a) when speaker labels are present, each transcript segment carries a non-empty speaker identifier, and (b) when the service calls the STT API in the integration harness, the outgoing request includes the diarization/speaker-labeling flag. Assert the parsed transcript object exposes per-speaker turn boundaries that downstream code can consume.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.45,
+        "System": 0.4,
+        "Agentic": 0.06,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Structured summary contains at least one action item for every attendee assigned a task",
+      "minimum_level": "Agentic",
+      "justification": "Correctness here is defined entirely by whether the LLM correctly identifies task assignments and maps them to the right attendee names. A mocked LLM would return a pre-written response that always passes. The actual failure mode is that the model misses a task, merges two attendees' items, or attributes work to the wrong person — all of which are properties of real LLM output. Running this 100 times with a real model could produce different results. No amount of integration wiring can expose this class of failure; only a real model call against a known transcript can validate the coverage invariant.",
+      "test_description": "Feed a realistic synthetic transcript — containing explicit task assignments to at least three named attendees — to the real LLM summarization step with the production prompt. Parse the structured output and assert that for every attendee who was assigned at least one task in the transcript, the 'action_items' list contains at least one item attributed to that attendee. Run across several representative transcript fixtures covering different task-assignment phrasings to guard against prompt fragility.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.72,
+        "Workflow": 0.16
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Key decisions appear in the 'decisions' section, not buried in the narrative",
+      "minimum_level": "Agentic",
+      "justification": "This is a structural correctness property of LLM output: does the model route 'we decided X' statements into the decisions field rather than the narrative field? A mocked LLM trivially produces whatever structure you write; it cannot reveal whether the real model misclassifies decision statements as background narrative. The failure is a prompt-following and classification failure that only manifests with a live model. MOCK-HIDE applies: any stub always passes. The test must call the real LLM with a transcript containing identifiable decision statements and assert their placement.",
+      "test_description": "Construct a transcript containing several clearly framed decisions (e.g., 'The team agreed to adopt X', 'It was decided that Y'). Pass it through the real LLM summarization step. Assert that each decision statement appears verbatim or paraphrased in the 'decisions' array, and that the 'narrative' field does not contain the same decision content as its primary location. Include at least one edge case where a decision is mentioned indirectly to probe classification robustness.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.04,
+        "Agentic": 0.76,
+        "Workflow": 0.14
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Audio longer than 60 minutes is split into segments, processed sequentially, and merged into a single coherent summary",
+      "minimum_level": "Workflow",
+      "justification": "This behavior has three distinct sub-failures across multiple pipeline stages: (a) the splitting logic — detectable at Integration; (b) per-segment LLM summarization — requires Agentic; (c) the final merge producing a coherent, non-duplicated, cross-segment summary — requires the real LLM to produce real segment summaries first, then another real LLM call to merge them. The coherence check on the merged output depends on what the real model produced for each segment. MULTI-STEP applies: the merge LLM call depends on outputs from N prior agentic STT+summarize steps. A failure could appear only when segment boundaries cut through a topic mid-sentence and the merge prompt must bridge them — invisible with stubs.",
+      "test_description": "Use a synthetic audio file or a mock audio source that reports duration > 60 minutes, with the STT layer stubbed to return realistic labeled transcript chunks per segment. Run the real LLM summarization for each segment sequentially, then run the real merge step. Assert: (1) the number of segments is ceil(duration / segment_size); (2) the merged summary's decisions and action items are non-duplicated across what appeared in per-segment summaries; (3) topics that span a segment boundary appear as a single unified entry in the final output rather than two truncated entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.08,
+        "System": 0.06,
+        "Agentic": 0.18,
+        "Workflow": 0.64
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Full pipeline completes without manual intervention for a real meeting recording",
+      "minimum_level": "Workflow",
+      "justification": "This is explicitly an end-to-end property: real audio upload, real STT API call, real LLM summarization, real structured output delivery. Each stage hands off to the next, and the failure may appear only at handoff points: auth failures, malformed payloads crossing service boundaries, webhook delivery errors, or timeout cascades. REAL-INFRA applies (real network, real subprocess for audio handling). MULTI-STEP applies (upload → transcribe → summarize → deliver is four distinct agentic/external steps). No lower level can reproduce the full handoff chain.",
+      "test_description": "Using a short but real meeting recording (5–10 minutes to minimize cost), exercise the complete pipeline end-to-end against live services: upload the audio file, trigger transcription, await the structured summary, and assert delivery of a non-empty output containing at least one action item, one decision, and speaker attributions — all without any manual step. Assert the pipeline terminates within a configured timeout and that the delivered payload validates against the output schema.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.05,
+        "Agentic": 0.06,
+        "Workflow": 0.87
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "The signature validation failure occurs at the module boundary where the HTTP request's raw body must be extracted and compared against the HMAC-SHA256 digest before any JSON parsing occurs. The failure mode is wiring: if the handler parses the body before computing the signature check, or uses the wrong secret/algorithm, this only appears when HTTP request handling, raw body extraction, signature validation, and enqueue decision interact. Mocking the signature validator alone would hide bugs in how raw bytes are passed to it (e.g., parsing before validation). MOCK-MISS applies: the raw-body bug is a multi-module interaction failure.",
+      "test_description": "Send an HTTP request with body (e.g., JSON) and X-Signature-256 header containing an invalid HMAC-SHA256 digest. Verify the handler returns 401 Unauthorized and does not write the event to the queue.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "The failure is in the ordering of async operations: queue.write() must complete and be persisted before the response is sent. If the handler writes `queue.write(event); res.send(200);` without awaiting, or if it does `queue.write(event).catch(...); res.send(200);` without awaiting, the response goes back before persistence, risking data loss. Mocking the queue would hide this failure: the mock returns immediately, so both paths (awaited and not awaited) appear fast. MOCK-HIDE applies. A real persistent queue is needed to expose the timing failure where the response is sent before durability is guaranteed.",
+      "test_description": "Call the handler with a valid signed request. Intercept the response being sent to the client and verify that the event has already been written and persisted to the queue before the HTTP 200 response is returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Unit",
+      "justification": "The failure is in the handler function's control flow: it must enqueue and return immediately without awaiting downstream.process(). This is a local decision in one function, not a module interaction. A unit test can set downstream to return a promise that resolves in 1+ seconds, call the handler, and measure response time. If the handler awaits downstream, the response is delayed; if not, it returns immediately. Mocking downstream is appropriate here because we only care about the handler's control flow, not downstream's actual behavior.",
+      "test_description": "Mock the downstream processing to return a promise that resolves after 1 second. Call the handler with a valid signed request. Measure the time until the HTTP 200 response is returned. Verify it is returned within 100 milliseconds (not waiting for the downstream delay).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "Integration",
+      "justification": "This failure only appears under concurrent load: if one request's downstream processing is slow (10+ seconds), does another request's response still arrive within 3 seconds? A single handler invocation cannot test concurrency. The failure boundary is at the concurrency level: multiple requests must be processed simultaneously, with one being slow. Testing requires sending concurrent requests and measuring response times. MOCK-MISS applies: testing one request in isolation cannot expose the bottleneck that blocks later requests.",
+      "test_description": "In a loop or concurrently: (1) Send HTTP request A with a valid signature. Start slow downstream processing of A (10+ seconds). (2) Immediately send HTTP request B with a valid signature. Measure the time until B receives HTTP 200. Verify it arrives within 3 seconds wall-clock time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency is vulnerable to race conditions. If requests with the same event ID arrive concurrently, both might check the dedup store (finding no entry), then both write the event, causing duplication. This race condition only appears with real concurrent access to persistent dedup storage; mocking the store hides it. REAL-INFRA applies: the failure depends on transaction isolation and concurrency in the persistent store. MOCK-MISS applies: mock checks are too fast to expose the window where both requests see 'not found' before either writes.",
+      "test_description": "Send two HTTP requests with the same event ID in quick succession or concurrently. Verify the event is persisted to the queue exactly once (not twice).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Unit",
+      "justification": "The handler's responsibility is to catch queue-full errors and respond with 503 and Retry-After. This is error-handling logic in the handler function, testable by mocking the queue to throw a queue-full error and verifying the response. The queue's responsibility to actually enforce capacity is tested separately in behavior 7. Mocking the queue error is appropriate here because we are testing the handler's response logic, not the queue's enforcement.",
+      "test_description": "Mock the queue to throw a queue-full error when write() is called. Call the handler with a valid signed request. Verify the response is HTTP 503 Service Unavailable with a Retry-After header present.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.6,
+        "Integration": 0.35,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This tests the queue's own implementation, not the handler. The failure is in the queue: it may not enforce capacity limits, or it may silently drop events instead of rejecting them. Testing requires a real (or realistically simulated) persistent queue that can be filled to capacity and verified to reject writes beyond the limit. MOCK-MISS applies: mocking the queue hides the enforcement logic entirely. REAL-INFRA applies: capacity enforcement depends on the real queue's storage and constraint implementation.",
+      "test_description": "Create a persistent queue with a configured capacity limit (e.g., 100 events). Write events until the capacity is reached. Attempt to write one more event that would exceed the limit. Verify the write is rejected.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.5,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

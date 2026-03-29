@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode is that the AI vision model fails to classify explicit content correctly. LLM-DEP: A mocked model always returns whatever the test author hardcodes — it cannot reveal whether the real model actually flags explicit images. The classification correctness is the whole point of this behavior. INTEGRATION-CHECK does not apply because the failure is not at a module boundary; it is inside the AI model's judgment. MULTI-STEP: Only one AI step, so Workflow is not needed.",
+      "test_description": "Submit a set of known-explicit reference images (curated ground-truth corpus) to the full moderation pipeline backed by the real AI vision model. Assert that each image results in a 'held for review' decision and that no explicit image reaches 'published' state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.06,
+        "Agentic": 0.8,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Robustness to obfuscation is a property of the real AI text model's generalization, not of any pipeline wiring. A mocked classifier will trivially 'detect' whatever strings the test author lists, hiding the real failure — that the model may not generalize to novel obfuscation variants. MOCK-HIDE: mocking always passes here. The behavior is testing AI model capability, not control-flow correctness.",
+      "test_description": "Construct a suite of hate-speech payloads with systematic obfuscations (unicode homoglyphs, leet-speak, zero-width characters, mixed-script substitution). Send each through the pipeline with the real AI text classifier active. Assert every variant receives a 'flagged' classification and is held for review.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.84,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a routing or state-machine bug — the pipeline drops or mis-routes a post after both models return 'pass'. This is a cross-module wiring defect, not an AI classification defect. INTEGRATION-CHECK Down-test: if the publish decision lives in a single function taking two boolean results, Unit suffices; but the behavior explicitly frames the failure as the combined outcome of both checks feeding into a publish decision, which requires the two module boundaries to be wired. MOCK-HIDE: mocking both AI models to return 'clean' is correct here — the failure being tested is in the routing logic, not the model output. Real AI is not needed.",
+      "test_description": "Wire the image-classification module and text-classification module together with in-process fakes that return 'approved'. Submit a post through the combined pipeline and assert the post transitions to 'published' state, that no hold event is emitted, and that the post is not silently absent from the output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.57,
+        "System": 0.08,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline completes within 5 seconds of submission.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The 5-second SLA is a wall-clock latency requirement over the full pipeline. Latency depends on OS scheduling, real network I/O to the AI model endpoints, queue implementation, and concurrency behavior under load. In-process fakes eliminate the network and scheduling effects that are the primary failure mode. LLM-DEP: The SLA test does not need real AI classification correctness — a stub service with realistic response-time characteristics (e.g., 200–800 ms per call) is sufficient and avoids non-determinism. Therefore System is the minimum; Agentic is not required.",
+      "test_description": "Deploy the moderation service as a real subprocess against stub AI model endpoints (controllable latency injection, e.g., 400 ms per call). Submit a batch of posts and measure wall-clock time from submission acknowledgement to final decision emission. Assert the 99th-percentile latency is under 5 seconds. Parameterize stub latency to confirm the SLA holds even at the high end of expected model response time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.62,
+        "Agentic": 0.25,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is an error-handling and routing defect — the pipeline auto-approves or drops a post when the model client throws a connection/timeout error, instead of enqueuing it. This is a cross-module defect: the model client, the error handler, and the retry queue must all interact correctly. INTEGRATION-CHECK Down-test: cannot reproduce by calling one function, because the failure appears only when the model client error propagates through the pipeline to the queue writer. Up-test: no real OS/network behavior is needed — a fake model client that raises a connection error is sufficient to trigger the real failure path. Real AI is irrelevant (LLM-DEP: no).",
+      "test_description": "Configure the vision model client with an in-process fake that raises a connection error on every call. Submit an image post through the moderation pipeline. Assert that no 'approved' or 'published' event is emitted, that the post appears in the retry queue with correct metadata, and that no exception escapes the pipeline boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.68,
+        "System": 0.13,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Consistency for borderline cases is a property of real AI model non-determinism — temperature, sampling, and model versioning can cause different decisions on repeated calls for ambiguous inputs. A mocked model is always deterministic by construction and will trivially pass, hiding the real failure. MOCK-HIDE: any mock always agrees with itself, so the test would never catch genuine flip-flopping. MULTI-STEP: While this requires multiple pipeline submissions, all steps are the same (repeated classification of one image), not distinct sequential agentic steps in a workflow, so Workflow is not the minimum level.",
+      "test_description": "Select a set of images that have been empirically identified as borderline (near the model's decision boundary, previously causing inconsistent outputs). Submit each image to the moderation pipeline backed by the real AI vision model at least 5 times in rapid succession. Assert that all decisions for a given image agree (all 'flagged' or all 'approved'). Flag any image where decisions diverge as a consistency violation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.04,
+        "Agentic": 0.67,
+        "Workflow": 0.25
+      }
+    }
+  ]
+}
