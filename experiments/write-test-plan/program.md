@@ -156,10 +156,14 @@ LOOP:
   10.5. COMMIT STATE — commit all remaining dirty files so the working tree is clean:
       ```bash
       git add experiments/write-test-plan/autoresearch-results.jsonl \
+              experiments/write-test-plan/run-stats.jsonl \
+              experiments/write-test-plan/explore-log.jsonl \
               experiments/write-test-plan/ideas/ \
               experiments/write-test-plan/taxonomy/ \
+              experiments/write-test-plan/justification-taxonomy.md \
               experiments/write-test-plan/leaderboard.md \
-              experiments/write-test-plan/meta-failures.md
+              experiments/write-test-plan/meta-failures.md \
+              experiments/write-test-plan/TODO.md
       git status  # verify nothing else is dirty before committing
       git commit -m "experiment(state): iter <N> — update results, ideas, taxonomy, leaderboard"
       ```
