@@ -290,6 +290,24 @@ and treatment ideas.
 
 ---
 
+### INTEGRATION-BRAKE is load-bearing despite side effects
+
+**Status**: confirmed (1 removal = +31.74 regression)
+
+**What happened**:
+- INTEGRATION-BRAKE was added in iter 46 as part of a two-change edit (with LLM-DEP burden flip). Combined delta: -2.92.
+- It caused Unit→Integration to grow from 5→12 (side effect).
+- Attempted removal in iter 47 to fix the Unit→Integration regression.
+- Removal caused loss 416.21 vs 384.47 (+31.74 regression) — far worse than expected.
+
+**Lesson**:
+- INTEGRATION-BRAKE prevents ~30 loss worth of Integration→System/Agentic/Workflow errors.
+- The Unit→Integration side effect (impact ~14) is far smaller than the benefit.
+- Do NOT remove load-bearing sections even when they have known side effects.
+- Test subtractive changes cautiously — removal of a section that improves by -3 on addition can regress by +30 on removal (non-linear interaction with other sections).
+
+---
+
 ### Requiring explicit handoff text under-calls true Integration
 
 **Status**: supported (1 disconfirming run)

@@ -48,6 +48,8 @@ For failure analysis see [justification-taxonomy.md](justification-taxonomy.md).
 | 43 | treatment | **400.03** | 89.3% | **-12.45** | sonnet | 6a7f89b | infra-probe-question: Think probe + contrastive Int/Sys examples under REAL-INFRA |
 | 44 | treatment | **387.39** | 89.6% | **-12.64** | sonnet | 3115841 | system-default-infra-keywords: burden-of-proof flip for System in REAL-INFRA |
 | 45 | treatment | 389.68 | 90.9% | +2.29 | sonnet | — | external-command-is-system: bright-line CLI tool rule — errors ↓ but loss ↑, REVERTED |
+| 46 | treatment | **384.47** | 89.0% | **-2.92** | sonnet | 89f7bed | LLM-DEP burden flip + INTEGRATION-BRAKE checkpoint |
+| 47 | treatment | 416.21 | 88.2% | +31.74 | sonnet | — | remove INTEGRATION-BRAKE: massive regression, BRAKE is load-bearing — REVERTED |
 
 **[Autoresearch run 2 report](https://github.com/Garsson-io/kaizen-autoresearch/discussions/1#discussioncomment-16356414)** — 5 iterations, 2 keeps, baseline loss 454.16 → best 368.08 (-19%). Largest gain: concrete-agentic-example (-79.84 loss). Unit def changes cause O1/U2 explosion — avoid.
 
