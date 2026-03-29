@@ -17,7 +17,6 @@ a real failure — not just to verify happy-path logic.
     Default: if the behavior's failure mode involves real HTTP responses, real subprocess behavior, real filesystem events, real network conditions, or real OS primitives, start at System and demote to Integration only if the test truly needs nothing beyond in-process module wiring.
     - Integration: "service layer calls repo layer and rollback state propagates correctly" — an in-process fake DB catches this.
     - System: "API handles real HTTP timeouts under load" / "CLI behaves correctly on real subprocess exit codes" / "file watcher detects real OS filesystem events" — in-process fakes hide these failures.
-    Bright-line: if the behavior's correctness depends on executing an external command or CLI tool (e.g., git, docker, curl, package manager, OS utility), it is System. These cross process boundaries — mocking them hides exit-code semantics, output-format variance, and environment-dependent behavior that only real execution exposes.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
     Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
