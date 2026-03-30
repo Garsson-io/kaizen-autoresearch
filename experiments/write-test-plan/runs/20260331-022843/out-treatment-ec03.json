@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-03",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Renamed files appear in their own category and are not also counted as a deletion plus an addition.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in categorization logic — the parser sees git's 'R100\\told.py\\tnew.py' status entry and incorrectly counts it as both a deletion and an addition. This is a pure algorithmic classification bug inside a single parsing/categorization function, not a module-boundary interaction. REAL-INFRA: No subprocess or network needed; git's rename status format is well-defined and stable, so a fixture string exercises the exact failure. MOCK-HIDE: A well-constructed fixture ('R100\\told.py\\tnew.py') fully represents the real git output; no behavior is hidden by using it. REJECTION-GATE for Integration: There is no text in the behavior description requiring multiple modules to interact for the bug to surface — the failure lives entirely in the rename-vs-delete-plus-add classification decision, testable with injected input.",
+      "test_description": "Given a list of parsed git diff status entries that includes one entry with status 'R100' and two filenames (old and new path), pass it to the categorization function and assert the entry appears exactly once in the 'renamed' bucket and does not appear in either 'added' or 'deleted'.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.5,
+        "Integration": 0.35,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Diffs that include binary files do not cause the tool to crash; binary files are counted in the output.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The crash originates in the diff-line parser when it encounters the binary sentinel string ('Binary files a/x and b/x differ' instead of a normal unified-diff header). This is a parsing/error-handling bug in a single function. REAL-INFRA: Binary diff output format is fixed and well-known; a fixture string is a perfect stand-in for the real subprocess output. MOCK-HIDE: The exact string that triggers the crash is knowable in advance; injecting it as a fixture fully exercises the failure path. REJECTION-GATE for Integration: The behavior says nothing about detecting binary-ness from the filesystem or git attributes — the tool receives the binary sentinel in the diff stream and must handle it gracefully, which is a self-contained parsing concern.",
+      "test_description": "Feed a diff output string containing the line 'Binary files a/logo.png and b/logo.png differ' (alongside normal diff entries) to the diff-parser function; assert no exception is raised and that 'logo.png' appears in the modified/counted category of the returned report.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.44,
+        "Integration": 0.4,
+        "System": 0.14,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Running the tool on a repository that has no commits yet produces an empty report rather than an error.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure occurs when the tool invokes a git command (e.g., 'git log' or 'git rev-parse HEAD') against an empty repo and git responds with a non-zero exit code and a fatal error message ('fatal: your current branch does not have any commits yet'). The tool must detect this and return a graceful empty report instead of propagating the error. REAL-INFRA: Git's exact exit-code and error-message behavior on a zero-commit repo is the specific thing under test; mocking subprocess here means substituting the actual OS behavior with an assumption about it, which defeats the purpose. MOCK-HIDE: If we mock subprocess, we are testing our assumption about what git returns — not whether the tool actually handles what git actually returns. REJECTION-GATE for Integration: The behavior's failure mode is a real subprocess exit code and stderr message from git on an edge-case repo state; no in-process fake can reproduce that without assuming what we are supposed to be verifying.",
+      "test_description": "In a temp directory, run 'git init' but make no commits; invoke the CLI tool pointing at that directory; assert the process exits with code 0 and that the structured output contains zero entries in every category (added, deleted, renamed, modified) rather than a stack trace or non-zero exit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The counts in the report match the actual change history of the repository being analyzed.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Count accuracy must be verified against ground truth that comes from real git history, not a fixture we define ourselves. If we mock git output, the test only proves our mock matches our expectation — not that the tool correctly processes real git output for arbitrary histories. REAL-INFRA: The tool reads real git history via subprocess; the test must set up real commits with known operations (add 3 files, delete 1, rename 1, modify 2) and then run the tool against that real repo. MOCK-HIDE: A mocked subprocess would always pass trivially — the assertion would be validating our own fixture, not the tool's accuracy. REJECTION-GATE: 'Actual change history' is explicit in the behavior text — the word 'actual' disqualifies any fixture-based approach and mandates real git state.",
+      "test_description": "Create a real temp git repo via subprocess; make a scripted sequence of commits that adds 3 files, modifies 2, renames 1, and deletes 1; run the CLI tool; assert the output report shows exactly those counts per category.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.22,
+        "System": 0.7,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The output is identical whether the changes being analyzed are staged or unstaged.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is that the tool produces different results depending on whether it queries the git index ('git diff --cached') vs the working tree ('git diff'), meaning the two code paths diverge. REAL-INFRA: Git staging is an OS-level filesystem/index operation; 'git add' updates the index on disk and the resulting difference between staged and unstaged state is a real subprocess/OS behavior that cannot be faithfully reproduced by an in-process fake. MOCK-HIDE: Mocking both subprocess calls would force them to return identical output trivially — the test would always pass regardless of whether the tool actually uses different git flags for staged vs unstaged. REJECTION-GATE: The behavior's failure mode (divergent output between staged and unstaged) only appears when both real git index state and real git working-tree state are populated and the tool runs real queries against both; no in-process stub can expose that divergence.",
+      "test_description": "Create a real temp git repo with an initial commit; make a set of file changes and 'git add' them (staged); run the tool in staged mode; then make the same changes from a fresh checkout but do NOT stage them (unstaged); run the tool in unstaged mode; assert the two output reports are byte-for-byte identical.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.81,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

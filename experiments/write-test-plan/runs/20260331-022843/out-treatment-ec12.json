@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans two modules — the validator that detects missing fields and the DLQ writer that receives the rejected row with its row number. A Unit test of the validator alone cannot verify that the row number is correctly threaded through and appears in the DLQ output; that handoff is where bugs hide. REAL-INFRA: The DLQ does not need to be a real external message queue — an in-process fake (list, in-memory queue) can catch whether the right payload arrives at the right destination. No OS/network/subprocess needed. LLM-DEP: No LLM involved. MULTI-STEP: No agentic steps. REJECTION-GATE: Escalating to System would require the DLQ to be a real external service (e.g., SQS); the behavior text does not specify this, so Integration suffices.",
+      "test_description": "Wire the validation stage and DLQ writer together with a fake in-memory DLQ. Feed a CSV with rows missing required fields (e.g., missing 'id', missing 'amount'). Assert that each rejected row is recorded in the fake DLQ with its exact 1-based row number and the original field values, and that no rejected row appears in the output dataset.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.65,
+        "System": 0.18,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This describes the logic of a single transformation function. The failure mode is an incorrect parse or incorrect output format — entirely deterministic per-row logic. No module boundary handoff is required to expose a bug here. REAL-INFRA: No OS, network, filesystem, or subprocess needed. MOCK-HIDE: No external dependency to mock. LLM-DEP: No LLM involved. MULTI-STEP: No agentic steps. REJECTION-GATE: Escalating to Integration would require the bug to appear only when the transformation is wired into the broader pipeline, which is not the case — the failure is in the parsing/formatting logic itself.",
+      "test_description": "Parametrize a unit test over a matrix of input strings covering ISO 8601 ('2024-03-15'), US format ('03/15/2024'), and European format ('15.03.2024'), plus edge cases (single-digit month/day, leap day, year boundaries). For each input assert the transformation function returns the exact expected canonical string and raises an appropriate error for unparseable inputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.09,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode is OOM or timeout under real load — this only manifests when the full pipeline processes a real large dataset at real speed. REAL-INFRA: Memory pressure and wall-clock time are OS-level phenomena. An in-process fake cannot simulate heap growth, page swapping, or GC pressure that emerge from streaming 500K rows through the real pipeline. Measuring actual resident memory requires real process-level monitoring (e.g., tracemalloc, psutil, or a subprocess wrapper). A mock dataset of 10 rows passes even if the implementation buffers all rows in memory. MOCK-HIDE: Any synthetic stub that returns a small fake dataset trivially passes, hiding the real OOM/timeout failure. LLM-DEP: No LLM involved. MULTI-STEP: No agentic steps. REJECTION-GATE: Integration is insufficient because the failure mode is not about module wiring — it is about real memory allocation patterns and real elapsed time under real data volume, which only appear with actual OS resource tracking.",
+      "test_description": "Generate a real 500K-row CSV file on local disk with representative field diversity (varied date formats, some missing fields). Run the full pipeline as a subprocess (or in-process with psutil/tracemalloc monitoring). Assert: (1) the process exits successfully within the configured timeout, and (2) peak resident memory never exceeds the configured limit. Optionally confirm row counts match expected valid/invalid split.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.83,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the interaction between the S3 client wrapper and the retry/backoff orchestration layer — if either mishandles a 503, the batch fails. This crosses a module boundary (HTTP client → retry policy → pipeline error handler) and cannot be caught by testing the retry logic in isolation. REAL-INFRA: The 503 response and retry behavior can be fully reproduced by a stub HTTP server or a fake S3 client that returns 503 on the first N calls then succeeds. The exponential backoff timing can be verified by recording call timestamps or by injecting a fake clock. A real S3 call is not needed to expose this failure. MOCK-HIDE: Mocking the S3 call as always-successful hides the failure; but a stub that returns 503 then 200 faithfully reproduces it. LLM-DEP: No LLM involved. MULTI-STEP: No agentic steps. REJECTION-GATE: System would require real S3 or real network — the behavior text says 'returns a transient 503 error', which a stub can inject precisely. No evidence the real AWS endpoint behavior differs from a stub 503 for this retry correctness test.",
+      "test_description": "Wire the pipeline's S3 reader against a fake/stub S3 client configured to return HTTP 503 on the first two calls, then HTTP 200 with a valid CSV payload. Inject a fake clock or capture call timestamps. Assert: (1) the pipeline does not raise a batch-fatal error, (2) exactly three attempts are made (2 failures + 1 success), and (3) the delay between attempts follows the configured exponential backoff multiplier. Verify the final output contains the expected processed rows.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.73,
+        "System": 0.14,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Idempotency on restart is a multi-module concern: checkpoint tracking, batch state persistence, and the upsert/deduplication logic at the database layer must all cooperate correctly. The failure only appears when these components interact with a real (or realistic) database that enforces constraints. REAL-INFRA: The correctness of deduplication depends on PostgreSQL-specific behavior — unique constraints, ON CONFLICT semantics, or transaction isolation. An in-memory fake dict does not model constraint violations, partial transaction rollback, or the exact row-visible state after an abrupt restart. A real PostgreSQL instance running locally (e.g., via Docker/testcontainers) is needed to catch real failures. However, this is local infrastructure, not a real external service, so System is not required. MOCK-HIDE: A mock DB that just records inserts would trivially pass even if the pipeline double-inserts, because the mock has no constraint enforcement. LLM-DEP: No LLM involved. MULTI-STEP: No agentic steps. REJECTION-GATE: System would require a real remote PostgreSQL or real network — a local containerized PostgreSQL is sufficient to reproduce the failure, so System is not the minimum.",
+      "test_description": "Spin up a local PostgreSQL instance (Docker/testcontainer) with the target schema including the relevant unique/idempotency constraint. Run the pipeline over a test CSV, simulate an abrupt mid-batch termination (kill after N rows are committed), then restart the pipeline on the same input. Assert: (1) the final row count in PostgreSQL equals the expected number of valid rows (no duplicates), and (2) all rows that were committed before the restart are present and unmodified.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.78,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

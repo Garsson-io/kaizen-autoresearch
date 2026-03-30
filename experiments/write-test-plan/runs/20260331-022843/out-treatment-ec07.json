@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between data collection and the aggregation/routing layer — if any one source's data is dropped or miskeyed before being forwarded, a unit test on a single function won't catch it. The bug only appears when the three collection modules and the orchestrator are wired together. REAL-INFRA: The three sources are external APIs, but for this behavior we care only that their (stubbable) responses reach the summary step — no real network needed. MOCK-HIDE: Stubbing all three sources with deterministic responses and asserting the summary-step receives all three payloads is exactly the right approach; nothing is hidden. LLM-DEP: We are asserting on the *input* to the summary step, not its output, so the LLM itself need not run. MULTI-STEP: No chained agentic steps. REJECTION-GATE: System was rejected because stubbed HTTP clients fully reproduce the failure. Agentic was rejected because we never depend on what the model produces.",
+      "test_description": "Stub all three data sources (metrics endpoint, issue tracker API, deployment log) with distinct deterministic payloads. Stub the summary-generation step to capture its input. Invoke the data-collection orchestrator and assert that the captured input contains identifiable markers from each of the three stub responses.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a `data unavailable` note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans two module boundaries: the collection layer must catch the exception from one source and inject a sentinel value, and the orchestrator must continue and pass a partial payload to the report-assembly layer. A unit test on the fallback function alone misses whether the sentinel propagates correctly. REAL-INFRA: Unavailability is simulated by making one stub raise a connection error; no real network is needed. MOCK-HIDE: Mocking the failing source is appropriate here since we want to test the error-handling path, not the API itself. LLM-DEP: None — we are asserting on report structure, not summary quality. MULTI-STEP: No chained agentic steps. REJECTION-GATE: System rejected because an in-process stub that raises an exception faithfully reproduces the failure without real infrastructure.",
+      "test_description": "Stub two sources with valid responses and configure the third stub to raise a connection error. Run the full collection-and-report-assembly pipeline. Assert the resulting report object contains valid data for the two healthy sections and a `data unavailable` string in the section corresponding to the failing source, and that no exception propagates to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The script 'generates a narrative summary' — the accuracy of that summary is the assertion under test. A deterministic stub that returns a fixed string always passes regardless of whether the real model correctly captures key values, omits figures, or hallucinates numbers. The only way to catch a failure is to run the real model. MOCK-HIDE: Replacing the LLM with a fixed response completely hides the failure mode described. REAL-INFRA: No OS/subprocess dependency beyond the API call itself. MULTI-STEP: Single LLM call, so Workflow is not required. REJECTION-GATE: Integration was rejected because the correctness criterion ('accurately represents key values') is a judgment about model output quality, not about infrastructure routing. Unit was rejected for the same reason.",
+      "test_description": "Supply a structured input payload containing several specific numeric values and named entities (e.g., deployment count, P95 latency, open critical bugs). Call the real summary-generation API with this payload. Assert that the returned narrative text contains or accurately paraphrases each key value. Run multiple times and treat consistent omissions or distortions as a failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.05,
+        "Agentic": 0.8,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The pipeline sequences: (1) three real or semi-real data-source calls, (2) a real LLM summary-generation call whose output determines report content, (3) real email delivery to a real inbox. This matches 'multiple agentic steps in sequence, or a full agent pipeline.' REAL-INFRA: 'reaches the configured recipient's inbox' requires real email delivery (or at minimum a real SMTP sink that accepts and stores messages); an in-process fake that accepts calls without actually delivering cannot verify inbox receipt. LLM-DEP: The report content depends on LLM output; a stub replaces the model's judgment with a constant, hiding any generation failure. MOCK-HIDE: Mocking both the LLM and the email transport makes it impossible to verify that (a) the generated content is coherent and (b) actual delivery succeeded. REJECTION-GATE: Agentic was considered but rejected upward because the test also requires real email delivery infrastructure, and the pipeline has multiple sequenced stages (data → LLM → SMTP). System alone was rejected because model output quality is also under test.",
+      "test_description": "Configure the script against a real (sandboxed) SMTP server or mailbox (e.g., a local Mailpit instance or a dedicated test inbox). Point data sources at real or staging endpoints. Execute the full script. After completion, poll the test inbox and assert a message arrived addressed to the configured recipient, that the subject line matches the expected format, and that the body contains meaningful content derived from the collected data.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.11,
+        "Agentic": 0.15,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior spans two module interactions: the delivery layer must catch the SMTP failure and hand off to the file-persistence layer, and on a subsequent invocation the orchestrator must detect the saved file and re-attempt delivery. This crosses at least two module boundaries. REAL-INFRA: The SMTP failure is reproduced by a stub that raises a connection error; no real mail server is needed. The file write and subsequent re-read exercise the real local filesystem, but that is not a System-level concern — in-process filesystem I/O is Integration-appropriate. The 'next scheduled run' is reproduced by invoking the same entry-point function a second time in the same test process. MOCK-HIDE: Mocking SMTP to raise is correct here; we want to test the fallback path. LLM-DEP: The report content can be a pre-generated stub since we are testing the delivery and retry path, not summary quality. MULTI-STEP: No chained agentic steps. REJECTION-GATE: System was considered because 'next scheduled run' implies subprocess re-invocation, but the behavior's own failure mode (state not persisted, retry not triggered) is fully reproducible by calling the entry point twice within one test process using a real temp directory. Workflow rejected: no LLM steps are required to test this path.",
+      "test_description": "Configure the SMTP client stub to raise a connection error on every call. Provide a pre-generated report object. Invoke the delivery function and assert it writes the report to a designated local file path. Then re-invoke the full delivery entry-point (simulating the next scheduled run) with the SMTP stub now succeeding. Assert that (a) the file is consumed/deleted and (b) the SMTP stub received the report content from the saved file.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.58,
+        "System": 0.28,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

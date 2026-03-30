@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the module boundary where the classification request is constructed and handed to the HTTP layer — not in a single isolated function. To catch a bug where labels are omitted, we must inspect the payload at dispatch. REAL-INFRA: No real network needed; a stub HTTP client that captures the outgoing request body is sufficient to verify the payload. MOCK-HIDE: A stub must still accept real payloads so the assertion is on what the module actually sends, not on a mocked construction step. LLM-DEP: No — correctness does not depend on what the model returns. REJECTION-GATE: Unit was considered; rejected because 'request sent to external API' implies verifying the full request construction pipeline, not just an isolated builder function.",
+      "test_description": "Wire the classification module with a stub HTTP client that records incoming requests. Call classify() with a known document and taxonomy. Assert the captured request body contains every label in the taxonomy list exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns 'unknown' instead of forwarding the unexpected value.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure manifests at the boundary where the HTTP response is parsed and the result is returned to the caller — not just in an isolated validator. We need the full response-handling path exercised. REAL-INFRA: No real network needed; a stub that returns an off-taxonomy label is sufficient. MOCK-HIDE: If we mock the internal validator, we never verify it is actually wired into the response path. LLM-DEP: No — we supply a fixed stub response. REJECTION-GATE: Unit was considered; rejected because 'when the API returns' means the validation must be verified in the context of actual response ingestion, not in a standalone function that could be dead-code in the real dispatch path.",
+      "test_description": "Configure a stub HTTP client to return an API response containing a label not in the taxonomy (e.g., 'marketing'). Call classify() through the full module. Assert the return value is 'unknown' and not the raw API label.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.65,
+        "System": 0.07,
+        "Agentic": 0.05,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is an explicit test of the normalization function's determinism given a fixed input. The failure — a non-deterministic or stateful normalizer — appears within a single function boundary, not at a module handoff. REAL-INFRA: No OS, network, or subprocess involved. LLM-DEP: No — the input (raw API response) is held constant; the normalization step is entirely local code. MULTI-STEP: No. The behavior text 'identical raw API responses … normalization step' isolates this to pure function behavior. No higher level is needed because the failure cannot hide behind module wiring when the input is fully controlled.",
+      "test_description": "Call the normalization function directly with a fixed raw API response string multiple times (and with distinct call sites/contexts). Assert the returned label is identical across all invocations. Repeat for several representative raw response shapes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.13,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly says 'live API calls' and requires real provider responses to be meaningful. A mock always returns a constant — trivially passing — and can never reveal provider-side non-determinism. The failure mode is a real LLM returning different labels across calls, which only appears with the real model. REAL-INFRA: Requires real HTTP to the external AI API. MOCK-HIDE: Any stub would make the test vacuous. REJECTION-GATE: System was considered but rejected because the failure depends on the AI model's output distribution, not on OS/network behavior. Integration was considered and rejected — a stub response cannot test whether the live provider is consistent.",
+      "test_description": "Call classify() against the real external AI API with the same document and taxonomy N times (e.g., 5). Assert the returned label is the same across all calls. Flag the test as potentially flaky with a note that divergence indicates real provider non-determinism, not a module bug.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.85,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the budget-enforcement logic and the dispatch step — either the document is sent without truncation, or a reject policy silently fails to block dispatch. We need to verify the enforcement actually intercepts the call before it exits the module. REAL-INFRA: No real network needed; a stub HTTP client lets us assert either the payload is truncated or the call is never made. LLM-DEP: No — enforcement is deterministic input validation. REJECTION-GATE: Unit was considered for an isolated budget function; rejected because 'before dispatch' means the wiring between enforcement and dispatch must be exercised, not just the budget calculation in isolation.",
+      "test_description": "Configure the module with a small token budget. Call classify() with a stub HTTP client and a document that exceeds the budget. Assert either: (a) the stub received a request with a truncated document within budget, or (b) the call was never dispatched and the module returned a policy-defined rejection value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.63,
+        "System": 0.09,
+        "Agentic": 0.05,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The 'provider-reported token usage' is a value returned by the real AI API. A mock can return any token count — it cannot reveal whether the real provider bills more tokens than the module budget allows. The failure is that the real model counts tokens differently than the module predicts (e.g., due to prompt templating, system messages, or encoding). REAL-INFRA: Requires a live call to the external API to get real usage data. MOCK-HIDE: A stub token count will always match whatever the test asserts; only the real provider can expose the gap. REJECTION-GATE: System was considered; rejected because the failure mode is not about network behavior but about the AI provider's tokenization and billing, which is a model-output dependency.",
+      "test_description": "Call classify() against the real external AI API with a representative document and configured token budget. Capture the token usage from the real API response. Assert reported usage (prompt + completion tokens) does not exceed the configured budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.11,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — the module propagating a rate-limit error instead of retrying — is a wiring bug between the HTTP error handler and the retry loop. We must exercise the real response-handling path with a controlled error. REAL-INFRA: A stub HTTP server (or in-process fake) that returns a rate-limit response (e.g., HTTP 429) on the first call and success on the second is sufficient to reproduce the failure; real network is not required. LLM-DEP: No — the retry behavior is deterministic conditional on the HTTP status, not on model output. MOCK-HIDE: The stub must emit a real rate-limit signal so the retry path is actually taken. REJECTION-GATE: System was considered for real timing/backoff verification; rejected because the behavior only asserts 'waits and retries rather than returning an error' — correctness of the retry path, not wall-clock timing, is what must be verified.",
+      "test_description": "Set up a stub HTTP client that returns a rate-limit error response on the first request and a valid classification response on the second. Call classify(). Assert the module returns a valid label (not an error), and that the stub was called exactly twice, confirming a retry occurred.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.18,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

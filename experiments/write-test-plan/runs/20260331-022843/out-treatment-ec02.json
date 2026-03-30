@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode has two parts — the signature check itself and the handler's enforcement (returning 401 and not forwarding). Testing only the HMAC function is Unit, but the behavior explicitly includes 'body is not forwarded,' which requires verifying that the handler wires the check result to both the response code and the queue bypass. A bug could exist in the check algorithm (Unit territory) or in the handler's branch logic after a failed check. To catch both, the handler, signature verifier, and queue stub must be wired together. REAL-INFRA: An in-process HTTP test (e.g., supertest) against the handler is sufficient — no real network or subprocess is needed. MOCK-HIDE: Stubbing the queue to record whether it was called catches the 'body not forwarded' half cleanly. REJECTION-GATE: No text disqualifies Integration.",
+      "test_description": "Mount the handler in an in-process HTTP test (supertest). Build a valid body and a mismatched X-Signature-256 header. Inject a spy/stub for the queue. POST the request; assert the response is 401. Assert the queue stub was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This is purely an ordering constraint across the handler and the queue module — the failure appears only when the two interact (e.g., handler sends the response and then enqueues, or enqueues asynchronously after responding). It cannot be caught by testing either module in isolation. REAL-INFRA: A stub queue that records the timestamp of its write call is sufficient; comparing that against the timestamp the response was flushed catches any inversion. No real OS or network needed. MOCK-HIDE: The stub must preserve real call-order semantics (not elide awaits), so care is needed in construction, but it does not need to be a real queue. REJECTION-GATE: No text disqualifies Integration.",
+      "test_description": "Replace the queue with an in-process stub that records a high-resolution timestamp when written. Wrap the HTTP response's finish/end event to capture its timestamp. POST a valid, signed event. Assert that the queue-write timestamp precedes the response-finish timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a structural coupling between the handler and the downstream processor — e.g., the handler accidentally awaits the downstream call. This only manifests when both are wired together. REAL-INFRA: An in-process slow stub (a downstream mock that never resolves or resolves after N seconds) is sufficient to catch the bug: if the handler awaits, the test will time out or return late; if it does not, the response returns immediately. No real OS or network is required. MOCK-HIDE: A stub with a controlled delay is the correct tool here and will not hide the failure — the slow stub is specifically designed to expose the bug. REJECTION-GATE: Nothing in the behavior text requires real downstream infrastructure.",
+      "test_description": "Wire the handler to a downstream stub that returns a promise that never resolves (or resolves after 10 seconds). POST a valid, signed event. Assert the HTTP response is received well before the downstream stub resolves (e.g., within 500 ms). If the handler awaits the downstream call, the test will block and timeout.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.72,
+        "System": 0.22,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior requires actual concurrency — multiple in-flight requests while downstream is artificially saturated. It cannot be tested on a single function. REAL-INFRA: The 'concurrent' and 'wall-clock time' requirements raise the question of real infrastructure, but the failure mode (handler blocks because it awaits slow downstream) is reproducible with an in-process slow stub plus concurrent supertest calls and real elapsed-time measurement. An in-process fake can reproduce the exact blocking failure. MOCK-HIDE: The slow stub must genuinely delay (real setTimeout or a never-resolving promise) so wall-clock elapsed time is real; a synchronous stub would hide the failure. REJECTION-GATE: The behavior does not mention real network, external services, or OS-level concurrency primitives that would disqualify Integration. Promoted note: the 3-second SLA is a real timing assertion, so the test must use real elapsed time, not logical ordering.",
+      "test_description": "Wire the handler to a downstream stub that artificially delays 5+ seconds per event. Fire 10 concurrent POST requests (valid, signed) using Promise.all / parallel supertest calls. Assert that all 10 responses arrive within 3 seconds wall-clock time (measure start to last-response-received). Assert all responses are 200.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.52,
+        "System": 0.44,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Deduplication requires the handler to consult a dedup store and skip the queue write on a repeated ID. The failure is a multi-module interaction: handler → dedup-store lookup → conditional queue write. Testing only the dedup logic in isolation misses wiring bugs (e.g., ignoring the dedup result). REAL-INFRA: The dedup store can be an in-process stub or real in-memory map; no OS or network needed to expose the failure. MOCK-HIDE: The queue stub must verify it is called exactly once across two identical posts — this is deterministic and not hidden by stubbing. REJECTION-GATE: No behavior text requires a persistent dedup store that survives process restart, so a local in-memory store under the handler suffices.",
+      "test_description": "Wire the handler to a spy queue and an in-process dedup store. POST the same valid, signed event (same event ID) twice in sequence. Assert the queue spy was called exactly once. Assert both HTTP responses are 200 (or the second is an appropriate idempotent acknowledgment, per spec).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.17,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This tests the handler's error-response branch when the queue module signals capacity exhaustion. The failure is in the wiring: the handler must correctly catch the queue's 'full' signal and set both the status code and the Retry-After header. REAL-INFRA: A stub queue that throws or returns a 'queue full' error is sufficient — we are testing the handler's response logic, not the queue's actual enforcement. MOCK-HIDE: Stubbing the queue to always report 'full' is exactly the right technique here because we are isolating the handler's handling of that condition. REJECTION-GATE: No text disqualifies Integration; the behavior is entirely about the handler's response policy.",
+      "test_description": "Configure the queue stub to return a 'queue full' error on every write attempt. POST a valid, signed event. Assert HTTP 503. Assert the response includes a Retry-After header with a positive integer value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: We are testing the queue's own enforcement, so the queue itself cannot be mocked. Any stub or fake would trivially pass. REAL-INFRA: 'Persistent queue' implies durable storage — a real external service (Redis, RabbitMQ, Kafka) or at minimum real filesystem I/O. Capacity limits on such systems are enforced by the storage layer, not by in-process logic. An in-process fake cannot reproduce the failure mode: a misconfigured capacity limit or an off-by-one in the real queue driver would never appear with a fake. MOCK-HIDE: Replacing the queue with a stub to test capacity enforcement is circular — the stub would enforce (or not enforce) whatever we tell it to, making the test meaningless for this behavior. REJECTION-GATE: The word 'actually' in the behavior text and 'persistent' together explicitly require the real queue implementation. There is no text that allows substituting a fake. This is the one behavior where real infrastructure is the subject under test, not a dependency to be isolated.",
+      "test_description": "Spin up the real persistent queue (e.g., via Docker Compose or a test-scoped service container) configured with capacity N=5. Enqueue exactly 5 valid events using the queue client. Assert all 5 succeed. Attempt to enqueue a 6th event. Assert the queue client receives a capacity-exceeded rejection. Assert the queue still contains exactly 5 events.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.25,
+        "System": 0.68,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}
