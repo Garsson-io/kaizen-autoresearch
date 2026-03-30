@@ -174,30 +174,22 @@ LOOP:
        [--metrics '<json from verify.ts | jq .metrics>']
      ```
      View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
-     Also append taxonomy lines and run pattern discovery:
+     Also run the 3-step taxonomy flow (→ full procedure: `experiments/write-test-plan/taxonomy/README.md`):
      ```bash
-     # 1. Append current run's errors to taxonomy files (routes matched, persists unmatched to unmatched.md)
+     # Step 1 — Route (mechanical): pipe errors into taxonomy files; unmatched go to unmatched.md
      npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
        npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts
 
-     # 2. Show cumulative confusion pair counts across all taxonomy files + unmatched.md
+     # Step 2 — Summarize (mechanical): see cumulative counts and which pairs are ≥3 unmatched
      npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
-     ```
 
-     **[LLM COGNITIVE] Taxonomy pattern discovery** — after seeing the --summary output
-     (full system reference: `experiments/write-test-plan/taxonomy/README.md`):
-     For each confusion pair with ≥3 cumulative unmatched occurrences:
-       a. Read those full entries from `taxonomy/unmatched.md` (they contain full J: justification + T: thinking)
-       b. Read the existing taxonomy file descriptions (U1–U4, O1–O4) — does any match this reasoning trap?
-       c. **If fits existing pattern**: update that file's `confusion_pair` frontmatter to include the new pair
-          (e.g., U1 `confusion_pair: Integration-Agentic` → `Integration-Agentic, Unit-Agentic, System-Agentic`)
-       d. **If new reasoning trap**: create a new `taxonomy/XX-name.md` with matching `confusion_pair`
-       e. After any create/update: run `--reprocess-unmatched` to backfill historical entries
-     ```bash
+     # Step 3 — Pattern discovery (LLM cognitive): for each unmatched pair with ≥3 occurrences,
+     # read those full blocks from unmatched.md, decide fit-existing or new-file, then backfill:
      npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --reprocess-unmatched
      ```
-     This is the compounding value: every new taxonomy file retroactively categorizes all historical evidence
-     stored in unmatched.md, not just the current run.
+     → Step 3 is the compounding value: new taxonomy files retroactively categorize all historical
+     evidence in unmatched.md. See `taxonomy/README.md` § "The three-step MINE taxonomy flow" for the
+     full cognitive procedure (what to read, how to classify, validation checklist).
   10. COMMIT RUNS — git add the timestamped run dir and commit the output JSONs:
       ```bash
       git add experiments/write-test-plan/runs/<timestamp>/
@@ -368,9 +360,14 @@ Key issues already mined (ideas in `ideas/` have source attribution):
 
 ## Current failure analysis
 
-See [justification-taxonomy.md](justification-taxonomy.md) for the full pattern analysis with impact rankings and representative quotes. See [ideas/](ideas/) for hypotheses targeting each pattern.
+See [justification-taxonomy.md](justification-taxonomy.md) for the full pattern analysis. See [ideas/](ideas/) for hypotheses. See `taxonomy/README.md` for the current pattern table and cumulative evidence counts.
 
-**Summary** (from taxonomy): U1 "can mock the API" is the highest-impact pattern (impact 40). The model treats AI APIs as mockable and talks itself out of Agentic. In 4/10 cases it explicitly acknowledges Agentic would be required, then picks lower.
+**Summary** (model-specific — check taxonomy/README.md for current counts):
+- **Sonnet** (iters 40+): Integration anchor. Dominant pattern is O1 (Integration→Unit, 52 entries) — over-escalation, never directly targeted. U3 (Integration→System, 33) second. INTEGRATION-BRAKE is load-bearing; removing it causes +30 regression.
+- **Codex** (iters 30–39): Unit anchor. U2 (Unit→Integration) dominated; mock-miss-scope-clarification helped.
+- **U1** has pattern drift: old entries = "can mock" reasoning; run 6 entries = "REJECTION-GATE quality escape" (model knows right answer, gate structure suppresses it). Iter 58 treatment targets the latter.
+
+**Warning**: the taxonomy distribution was invisible for the entire experiment due to reversed confusion_pair direction in O files. See meta-failures.md "O1 blind spot" entry. Re-examine assumptions after any taxonomy structural fix.
 
 **Discussion ID** (for `/post-run-report`): `D_kwDORybT0s4AlROe`
 

@@ -319,3 +319,82 @@ and treatment ideas.
 **Lesson**:
 - Some genuine Integration behaviors are phrased implicitly.
 - Hard textual-evidence gates are too strict; keep failure-boundary semantics without requiring explicit wording patterns in the issue text.
+
+---
+
+### O1 (Integration→Unit over-prediction) was the dominant pattern for the entire experiment but was never targeted
+
+**Status**: confirmed — taxonomy direction fix (commit de4dc8d) revealed 52 accumulated entries
+
+**What happened**:
+Every prompt change targeted under-prediction failures (Agentic/Workflow misses) because the "Current failure analysis" in program.md and the taxonomy summary both said U1 was the dominant pattern. After fixing the reversed confusion_pair direction in O1–O4, O1 emerged with 52 entries — more than any other single pattern. U1, the supposed "highest-impact" pattern, has 35 entries across three confusion pairs. All optimization effort had been directed at the wrong target.
+
+The root cause was invisible: the O taxonomy files had GT-Pred confusion_pairs (see entry below), so all over-prediction blocks were mis-routed away from O files. The summary output showed near-zero O pattern counts, giving a false picture of the error distribution.
+
+**Symptom**:
+`--summary` showed U1/U2/U3 dominating and O files nearly empty. After the direction fix and `--reprocess-unmatched`, 51 blocks moved from unmatched.md into O1/O2/O3. O1 went from 1 entry to 52.
+
+**Lesson**:
+After any taxonomy structural change (direction fix, confusion_pair expansion, regex fix), discard all prior distribution assumptions and re-examine from scratch. The leaderboard treatment history was optimizing against a biased view of the error landscape. Before accepting "X is the dominant pattern," verify with `grep -c "^\[run" taxonomy/O*.md taxonomy/U*.md` that the file counts are plausible and that no category is suspiciously empty.
+
+---
+
+### O taxonomy files had reversed confusion_pair direction for the entire experiment
+
+**Status**: fixed — commit de4dc8d
+
+**What happened**:
+O1–O4 were created with confusion_pair in GT-Pred format instead of the required Pred-GT convention. Example: O3 ("model predicts Agentic, GT is System") had `confusion_pair: System-Agentic` instead of `Agentic-System`. This caused `taxonomy-append.ts` to route blocks with routing key `(System→Agentic)` — which are *under-prediction* blocks — into the over-prediction file O3. Every genuine over-prediction block (e.g. `(Agentic→System)`) had no matching taxonomy file and went to `unmatched.md` instead.
+
+The mistake is intuitive-sounding: "O3 is about Agentic vs System, so the pair is System-Agentic." But the convention is always Pred-GT (what the model predicted → what GT says). An over-prediction where the model says Agentic and GT is System has routing key `(Agentic→System)`, so the pair must be `Agentic-System`.
+
+**Symptom**:
+Over-prediction evidence was invisible in summary output. Under-prediction blocks were silently contaminating O files. After the fix, `--reprocess-unmatched` recovered 51 historical blocks from unmatched.md (O1 got 49, O2 got 2, O3 got 0 new — its history was contaminated).
+
+**Fix**:
+All O files corrected. Contaminating wrong-direction entries removed from O1–O4 bodies. Validation checklist added to `taxonomy/README.md`. The mnemonic: **"the pair reads like the error"** — confusion_pair tells you what the model said first, then what the GT says. It is the arrow `Pred→GT` collapsed to `Pred-GT`. An over-prediction entry where model over-escalated always has a higher-level Pred than GT.
+
+**Lesson**:
+When creating any taxonomy file, immediately write one sample entry and verify it routes to the correct file using `--dry-run`. If it doesn't match, the frontmatter is wrong. Never trust that a new file is working just because the tool ran without error — verify the routing explicitly.
+
+---
+
+### U1 accumulated two distinct reasoning traps that require different fixes (pattern drift)
+
+**Status**: hypothesis — iter 58 treatment targets the new trap (pending eval)
+
+**What happened**:
+U1 ("Can mock the API") was created for the pattern: *model says "I can stub/mock the LLM API, so Integration is sufficient."* Over the run history, a second structurally different trap appeared in run 6: **"REJECTION-GATE quality escape"** — the model correctly identifies LLM dependency in its thinking (sometimes writing the answer "Agentic" internally), but then applies the REJECTION-GATE structure to search for reasons to reject higher levels. It finds a technicality — "the behavior text doesn't explicitly state the AI call is the failure boundary" — and uses it to demote to Integration.
+
+These are mechanically different:
+- **"Can mock" trap**: the model believes mocks are equivalent to real model calls; fix by teaching that mocks replace non-deterministic output with a constant, hiding real failure modes.
+- **"REJECTION-GATE quality escape"**: the model knows the right answer but the gate structure actively suppresses it; fix by adding an execution-path default rule that bypasses the gate (iter 58: "if execution path passes through a real AI/ML API, default to Agentic").
+
+**Symptom**:
+In run 6 U1 entries, the T: (thinking) lines contain explicit Agentic reasoning that the J: (justification) lines then override using REJECTION-GATE language. High self-aware rate in run 6 U1 entries.
+
+**Lesson**:
+As a taxonomy file grows, check whether the J: texts across entries still describe the same reasoning argument. Same confusion pair + different argument structure = pattern drift — the file is conflating distinct failure modes. Indicator that drift has occurred: suddenly high SELF-AWARE rates in a file that previously had low self-awareness. When drift is detected, split the file or create a new one for the new trap, then `--reprocess-unmatched` to route history correctly.
+
+---
+
+### taxonomy-append.ts --summary regex silently undercounted ~400 legacy entries
+
+**Status**: fixed — regex changed from `\[run\d+\]` to `\[run\S+\]`
+
+**What happened**:
+The summary count regex `\[run\d+\]` matches integer-format labels (`[run6]`) but not the timestamp-format labels (`[run-204623]`, `[run-203945]`) used in early runs. Roughly 400 entries across all taxonomy files use the timestamp format. The `--summary` output showed counts that silently excluded these entries — the tool ran without errors and appeared to work correctly, but all older evidence was invisible to the counter.
+
+**Symptom**:
+`grep -c "^\[run" taxonomy/U1-can-mock-the-api.md` returns a higher count than `--summary` reports for U1. The gap equals the number of timestamp-format entries in the file.
+
+**Fix**:
+Changed all three affected regexes in `printSummary()` to `\[run\S+\]`. The routing logic (which matches any `[run...]` prefix) was never broken — only the counter was wrong.
+
+**Lesson**:
+Any tool that counts entries in append-only accumulation files must be validated against the raw ground truth immediately after writing. The validation command is:
+```bash
+grep -c "^\[run" experiments/write-test-plan/taxonomy/*.md
+npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
+```
+Compare the per-file `grep` counts to the `--summary` matched totals. If they diverge, the tool is undercounting. Silent undercounting is worse than an error — it produces misleading confidence in the summary numbers.

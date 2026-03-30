@@ -36,7 +36,7 @@ Every step is either **perception** (tools compute structured evidence), **cogni
 
 **Your cognitive steps** — where judgment actually matters:
 1. **Complete the MINE DIGEST** (light): read the pre-filled template from mine-report.ts, fill in `Pattern:`, `Trap:`, `Dominant pattern:`, `Fix hypothesis:`. This is the only place you form judgment in MINE/DIAGNOSE/META.
-2. **Taxonomy pattern discovery** (after `--summary`): for each confusion pair with ≥3 cumulative unmatched occurrences, read those full blocks from `unmatched.md` (full justification + thinking — no truncation) and the existing taxonomy file descriptions. Decide: does this fit an existing pattern (update its `confusion_pair` list) or is it a new reasoning trap (create new file)? After any change, run `--reprocess-unmatched` to backfill history.
+2. **Taxonomy pattern discovery** (after `--summary`): for each confusion pair with ≥3 cumulative unmatched occurrences, read those full blocks from `unmatched.md` (full justification + thinking — no truncation) and the existing taxonomy file descriptions. Decide: does this fit an existing pattern (update its `confusion_pair` list) or is it a new reasoning trap (create new file)? After any change, run `--reprocess-unmatched` to backfill history. → Full procedure: `taxonomy/README.md` § "The three-step MINE taxonomy flow".
 3. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 
 **Subagent cognitive step** — IDEATE is pure creative generation:
