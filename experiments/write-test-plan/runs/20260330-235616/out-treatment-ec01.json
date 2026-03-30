@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-01",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Error message names the missing key by its exact config path when absent from both file and environment.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces when the full loading pipeline — file parsing, environment variable scanning, and validation — all agree the key is absent. A Unit test on the validator alone can verify string formatting but cannot confirm the loader correctly consults both sources before triggering the error. REAL-INFRA: A temp YAML file and in-process os.environ manipulation are sufficient; no subprocess or network needed, so System is disqualified. LLM-DEP/MULTI-STEP: No AI involved. REJECTION-GATE for Unit: the behavior explicitly requires checking 'both the file and the environment', meaning the failure mode spans at least two subsystems (file reader + env scanner → validator), which is an Integration boundary.",
+      "test_description": "Write a temp YAML config file that omits the required key `database.host`. Ensure `TOOL_DATABASE_HOST` is absent from `os.environ` for the duration of the test. Invoke the loader pointing at the temp file. Assert that the raised exception or stderr output contains the exact string `database.host`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.63,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When XDG_CONFIG_HOME is set, the loader resolves the config file path relative to that directory instead of ~/.config.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Path resolution depends on `os.environ.get('XDG_CONFIG_HOME')` feeding the path-construction logic and then the file-open call using the result. A Unit test on path construction alone cannot catch a bug where the loader ignores the resolved path and still opens `~/.config`. REAL-INFRA: Setting `XDG_CONFIG_HOME` in the test process's `os.environ` and placing a file in a `pytest tmp_path` subdirectory exercises the full code path without a subprocess, so System is disqualified. LLM-DEP/MULTI-STEP: No AI involved. REJECTION-GATE for System: no real subprocess, OS event, or network is required — env var manipulation and `tmp_path` are purely in-process.",
+      "test_description": "Set `os.environ['XDG_CONFIG_HOME']` to a pytest `tmp_path`. Place a valid config file at `<tmp_path>/tool/config.yaml`. Invoke the loader. Assert it reads from the XDG-derived path by (a) verifying no error is raised and values match the file, and (b) confirming the file at `~/.config/tool/config.yaml` is never opened (e.g., by asserting it does not exist and no FileNotFoundError occurs on the XDG path).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.82,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a TOOL_-prefixed environment variable conflicts with a config file key, the environment variable value wins.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The override logic only manifests when both the file-loading path and the env-var scanning path produce a value for the same key and the merger applies precedence. A Unit test on a merge function that accepts two pre-built dicts would miss any bug in how the env-var name is translated to a config path (e.g., `TOOL_DATABASE_HOST` → `database.host`). REAL-INFRA: A temp YAML file plus in-process `os.environ` is sufficient. LLM-DEP/MULTI-STEP: No AI. REJECTION-GATE for Unit: the translation from `TOOL_` env var name to nested config key is a non-trivial mapping that must be exercised end-to-end; mocking either side hides bugs in that translation.",
+      "test_description": "Write a temp YAML config with `database.host: file-value`. Set `os.environ['TOOL_DATABASE_HOST'] = 'env-value'`. Invoke the loader. Assert the returned config object has `database.host == 'env-value'`, confirming the env var won.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the config file contains a YAML syntax error, the error message includes the line number where the problem was detected.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The line number comes from the YAML parser's exception (`yaml.scanner.ScannerError.problem_mark.line`). The failure mode — loader not propagating or formatting that field — only appears when real YAML parsing runs on file content. A Unit test on the error-formatting helper alone passes if the formatter is fed a pre-built exception but misses bugs where the loader catches and re-raises without preserving the mark. REAL-INFRA: A temp file with intentional bad YAML at a known line is sufficient; no subprocess or network needed, so System is disqualified. LLM-DEP/MULTI-STEP: No AI. REJECTION-GATE for Unit: the behavior says 'config file contains a YAML syntax error', meaning the file-reading → YAML-parsing → exception-propagation chain must all run; only Integration catches a bug in that chain.",
+      "test_description": "Write a temp YAML file where line 3 contains a deliberate syntax error (e.g., a bare `:`). Invoke the loader pointing at the file. Catch the raised exception or inspect stderr. Assert the error message contains `3` (or the exact line number) and a meaningful description of the problem.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.58,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the config directory does not exist at startup, the loader creates it and writes a defaults file before proceeding.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a real filesystem side-effect — the directory and file must actually exist after the loader runs. Mocking `os.makedirs` and `open` verifies call signatures but cannot catch bugs like wrong path construction, wrong file mode, or missing `parents=True`. REAL-INFRA: A `pytest tmp_path` gives a real filesystem within the test process. The behavior requires actual `mkdir` + `write` operations to succeed and produce observable artifacts. This is real I/O but does not require a subprocess, real network, or OS-level events beyond what `tmp_path` provides, so System is not required. LLM-DEP/MULTI-STEP: No AI. REJECTION-GATE for System: the loader runs in-process; 'startup' here refers to the loader's initialization logic, not a real CLI subprocess invocation. A temp directory is sufficient to observe whether `Path.mkdir` and file-write calls produced the expected artifacts.",
+      "test_description": "Point the loader's config-dir path at a non-existent subdirectory inside `pytest tmp_path`. Invoke the loader. Assert (a) the config directory now exists on disk (`assert config_dir.is_dir()`), and (b) the defaults file exists at the expected path with non-empty content (`assert defaults_file.stat().st_size > 0`).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.75,
+        "System": 0.19,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

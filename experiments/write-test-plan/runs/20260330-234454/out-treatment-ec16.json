@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between fetching the changed-file list from GitHub (real or stubbed HTTP) and passing that list to the linter. A pure unit test of filtering logic can't catch a wrong API response parse, a wrong endpoint, or a mismatch in how the list is threaded into the scanner. REAL-INFRA: A stub HTTP response (fake GitHub API) reproduces the exact failure without needing real network; a real GitHub API call is not required. REJECTION-GATE for System: the behavior text says nothing about rate limits, auth failures, or other real-network edge cases — only that the correct set of files is selected. A fake HTTP response is sufficient. INTEGRATION-BRAKE: (a) No real OS/network needed — stub HTTP is enough. (b) No LLM. (c) No multi-step agentic chain.",
+      "test_description": "Wire the changed-file fetcher (pointed at a local stub HTTP server returning a known PR diff payload) with the file-selection logic and the linter runner. Assert the linter is invoked exactly for the files listed in the stub response and not for files absent from it.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The grouping/formatting logic is a deterministic transformation over a list of findings. The failure — findings landing in the wrong severity bucket, or an extra finding appearing under the wrong heading — is fully visible by inspecting the output of the grouping function alone. No module handoff is required to expose it. REAL-INFRA: No OS, network, or subprocess involved. MOCK-HIDE: A stub input list of findings with mixed severities exercises the real grouping code; nothing is hidden by the absence of real infrastructure. REJECTION-GATE for Integration/System: the behavior says nothing about the HTTP call that posts the comment — it says findings must appear grouped. The grouping function is the failure boundary.",
+      "test_description": "Call the findings-grouping/comment-formatting function with a fixed list of findings spanning all three severity levels (including edge cases: all same severity, empty list). Assert the returned structure has exactly the correct findings under each severity heading, in the correct order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This is a wall-clock performance requirement against a real execution environment. In-process timing of stub logic cannot measure actual linter I/O, process-spawn overhead, inter-process communication, or filesystem throughput — exactly the costs that cause a real timeout. The failure only appears when the real linter subprocess runs against real (or realistic) files on real hardware. MOCK-HIDE: Any in-process mock replaces the subprocess with a near-zero-cost stub, making the test trivially pass while hiding true performance. REJECTION-GATE for Integration: timing a mock or in-process stub would always succeed, masking subprocess spawn cost, disk reads, and actual linter computation time — the sources of real timeout failure.",
+      "test_description": "Run the full lint step as an actual subprocess (the same entry point used by the GitHub Action) against a directory of 200 synthetic source files of realistic size. Measure wall-clock elapsed time and assert it completes under 600 seconds. Record per-file timing to identify outliers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.87,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: 'Linter process crashes' means a real subprocess terminates abnormally (non-zero exit, signal, or unhandled exception causing process death). The failure mode — whether the orchestrating process correctly detects the crash, skips that file, and continues — depends on real subprocess lifecycle behavior (exit codes, signal handling, pipe teardown). An in-process exception does not reproduce a subprocess crash: the parent's process-management code (waitpid, pipe handling, timeout) is not exercised. MOCK-HIDE: Replacing the subprocess with an in-process callable that raises an exception bypasses the exact OS-level crash recovery path being tested. REJECTION-GATE for Integration: the behavior explicitly names a process crash, not an exception in a module boundary — an in-process fake cannot reproduce the OS-level subprocess failure.",
+      "test_description": "Invoke the linter orchestrator as a real subprocess, providing a mix of valid files and one deliberately malformed file whose format causes the linter binary to exit with a crash (non-zero signal or exit code). Assert that findings from all valid files are present in the final output and that a result is still posted, with the malformed-file error surfaced separately.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.13,
+        "System": 0.81,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Deduplication is a deterministic algorithm over a structured list of findings (file path, line number, rule, message). The failure — duplicate entries surviving into the output — is fully observable by inspecting the deduplication function's return value on a crafted input. No cross-module interaction is needed to expose it. REAL-INFRA: No OS, network, subprocess, or filesystem involvement. MOCK-HIDE: A fixed input list with known duplicates exercises the real deduplication logic; nothing real is hidden. REJECTION-GATE for Integration: the behavior text identifies a single logical operation (deduplication of a findings list) with no mention of a multi-module boundary at which the failure emerges.",
+      "test_description": "Call the deduplication function with a findings list that includes identical entries (same file, same line, same rule), near-duplicates (same line, different rules — should not be merged), and unique findings. Assert the output contains exactly the expected deduplicated set with no missing or spuriously removed entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

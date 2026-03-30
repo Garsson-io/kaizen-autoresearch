@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-35",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Valid JSON payloads containing markdown-heavy strings parse successfully and proceed through normal hook input handling.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the parser — does it choke on backticks, code fences, or `$vars` embedded in string values? This is one function boundary (JSON parser + input handler entry point) with no inter-module handoff. REAL-INFRA: No OS, network, or subprocess needed; an in-process call with crafted strings catches any failure. MOCK-HIDE: Nothing to mock — the parser is the system under test. LLM-DEP: None. REJECTION-GATE: Integration would require a module-boundary failure; the behavior is purely about whether the parser accepts valid-but-markdown-rich input, which is testable in isolation.",
+      "test_description": "Feed the hook input parser a suite of JSON strings containing markdown constructs (triple backtick fences, inline `code`, `$VAR` substitution patterns, escaped backslashes, multiline strings) and assert each returns a successfully parsed payload with all field values intact — no exception, no truncation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Truly malformed JSON payloads produce a `json_parse_failed` trace record with enough context to diagnose the malformed section.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode spans a module boundary: the parser must detect the error AND the error handler must construct and emit a trace record with adequate diagnostic context. If only the parser is exercised in isolation, we cannot verify the trace record content or that the handoff between modules populates the record correctly. REAL-INFRA: No real OS or subprocess needed; an in-process fake trace sink (recording emitted records) is sufficient to verify the record's content. MOCK-HIDE: Mocking the trace sink would hide whether the record contains the right context fields, but an in-process spy/fake sink catches this without requiring real infrastructure. LLM-DEP: None. REJECTION-GATE: System would require real subprocess or OS behavior; nothing in this behavior's description implies that.",
+      "test_description": "Wire the JSON parser to the error handler with a real (or in-process spy) trace sink, supply several categories of malformed input (trailing junk, unclosed brackets, invalid escape sequences, truncated payload), and assert that each emits exactly one `json_parse_failed` trace record containing at minimum: the error type, a non-empty snippet of the offending input region, and byte/character offset information.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.15,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The local error-policy path maps parse failure to a handled result (no throw) and marks telemetry intent.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This behavior is purely about the error-policy function's control flow — does it catch the parse exception, return a structured result instead of re-throwing, and set a telemetry flag? All of this is within one module's boundary. REAL-INFRA: None required; supply a parse-failure exception directly to the policy function. MOCK-HIDE: Nothing meaningful to mock; the telemetry 'intent' is a field on the returned result, not an external call. LLM-DEP: None. REJECTION-GATE: Integration would need a cross-module handoff failure; this behavior's failure mode (unhandled throw, missing flag) is visible within the function under test.",
+      "test_description": "Directly invoke the error-policy handler with a synthetic parse-failure error object and assert: (a) no exception propagates, (b) the returned result carries a failure-status value, and (c) the result's telemetry-intent field is set to the expected marker. Parametrize over several distinct parse-error types to confirm the policy applies uniformly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.23,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "In real process execution, malformed stdin does not crash the hook process and still emits the expected trace signal before exit.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The behavior explicitly names 'real process execution' — the failure mode is a process crash (unhandled exception causing non-zero exit or signal termination), which only manifests when the hook runs as a real OS subprocess. REAL-INFRA: Yes. An in-process fake cannot reproduce process-level crash behavior: signal handling, exit codes, and OS-level stdio buffering are all real-subprocess phenomena. The failure (crash before trace emission) is invisible without a real subprocess. MOCK-HIDE: An in-process test would always 'survive' the parse error because there is no process boundary to crash across. LLM-DEP: None. REJECTION-GATE: Integration cannot reproduce a process crash; the behavior's own failure mode requires a real process boundary.",
+      "test_description": "Launch the hook binary as a subprocess, pipe several malformed JSON payloads to its stdin (trailing junk, empty input, binary garbage), and for each assert: (a) the process exits with a non-crash exit code (e.g., not SIGSEGV/SIGABRT and not an unhandled exception exit), and (b) the process's stdout/stderr or trace output file contains at least one `json_parse_failed` record before the process exits.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.86,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "A real hook invocation path (stdin -> parser -> trace sink) produces the expected trace artifact when malformed input is supplied.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: 'Real hook invocation path' and 'trace artifact' together describe end-to-end execution: real stdin piped into a real process, a real (on-disk or socket) trace sink, and an artifact that persists after the process exits. REAL-INFRA: Yes. The artifact is produced by the real pipeline; an in-process test cannot produce or verify a real artifact written by a real subprocess. MOCK-HIDE: An in-process integration test would substitute the trace sink with a mock, making it impossible to verify the artifact format, file location, or that it survives process exit. LLM-DEP: None. REJECTION-GATE: Integration was considered but disqualified by 'real hook invocation path' — the behavior's failure mode includes artifact production by a real process, which only a System-level test reproduces.",
+      "test_description": "Invoke the hook binary end-to-end with malformed JSON on stdin and a real trace sink configured (e.g., pointing to a temp file or local socket). After the process exits, read the trace artifact and assert it contains a well-formed `json_parse_failed` record with the required diagnostic fields — verifying the full stdin→parser→sink pipeline under real execution conditions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.76,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Regression tests distinguish malformed-JSON failures from valid-markdown payloads, preventing false attribution to markdown content itself.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is a false-positive in test attribution — the test suite incorrectly blames markdown for a parse failure that only occurs with truly malformed JSON. This is a property of the parser's behavior on two distinct input classes, testable at a single function boundary. REAL-INFRA: None required; the parser is called in-process with two input sets. MOCK-HIDE: Nothing meaningful to mock. LLM-DEP: None. REJECTION-GATE: Integration was considered but disqualified: both markdown-valid and truly-malformed inputs exercise only the parser's own logic, not a cross-module handoff. The distinguishing assertion ('these succeed, those fail') is fully visible at Unit level.",
+      "test_description": "Run the hook input parser against a parametrized matrix of inputs: one set of valid JSON strings with heavy markdown content (must all succeed), and one set of truly malformed JSON strings (must all produce a parse error). Assert the two sets produce strictly different outcomes — success vs. failure — with no overlap, confirming markdown alone never triggers a parse error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.78,
+        "Integration": 0.18,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

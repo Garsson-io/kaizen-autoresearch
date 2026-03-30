@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Recursive filesystem watching is an OS-level primitive. On Linux, inotify is not recursive by default; chokidar/fs.watch/fs.promises.watch each handle subdirectory events differently per OS. An in-process fake watcher that manually emits a synthetic event for a subdirectory path would always pass — the test would never reveal that the watcher was registered non-recursively and the OS never delivered the event. The real failure mode is that the OS watch handle silently drops subdirectory events when not configured for recursive watching. REJECTION-GATE: There is nothing in the behavior text that limits the failure to pure configuration logic (e.g., 'assert options.recursive === true'); the failure manifests only when a real file lands in a real subdirectory and no event is delivered.",
+      "test_description": "Create a real temporary root directory and start the daemon against it. Create a nested subdirectory inside the root, then write a file into that subdirectory. Assert that the output directory receives the transformed result within the polling timeout. Verify no manual restart or re-registration of the watcher occurs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.8,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the deduplication function's state management — does it track seen paths with timestamps and suppress duplicates within the window? No module boundary crossing is required to expose this bug. REAL-INFRA: No OS or network interaction is needed; a fake clock (e.g., sinon fake timers or jest fake timers) controls the time window precisely. MOCK-HIDE: The dependency being removed is real time, not a meaningful external system; replacing it with a fake clock does not hide any real failure — it makes the test more deterministic. LLM-DEP: No. The deduplication invariant ('second call within window returns false / is dropped') is testable with a direct call to the deduplication module with controlled timestamps.",
+      "test_description": "Import the deduplication module directly. Call it with a file path, advance fake time to within the configured window, call it again with the same path, and assert the second call is discarded. Then advance fake time past the window, call again, and assert the third call is accepted. Parametrize over several window durations to verify the configurable aspect.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.04,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the OS event emitter and the debounce/deduplication layer wired into the daemon's event handler. If the debounce function is tested alone (Unit), it may pass while a wiring bug — e.g., the handler is registered multiple times or debounce state is not shared — causes duplicate processing. Integrating the event emitter with the handler is needed. REAL-INFRA: The behavior says 'when the OS emits multiple events,' but the testable failure mode is whether the daemon processes the file more than once — not whether the OS literally emits multiple events. A fake watcher (EventEmitter stub) that fires N rapid events for the same path can faithfully reproduce the failure; no real OS event delivery is required for this specific assertion. REJECTION-GATE for System: The behavior text does not assert anything about OS event delivery timing or kernel-level event coalescing — only about processing count.",
+      "test_description": "Instantiate the daemon's watcher pipeline wired to a fake EventEmitter. Emit 5 rapid 'change' events for the same file path in the same tick. Assert that the transformation pipeline's process function is called exactly once. Vary the timing (events spread across two ticks) and assert still exactly one invocation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: When a real directory is deleted, the OS-level inotify/kqueue/FSEvents watch descriptor is invalidated or removed. Node.js watcher libraries must detect the deletion event, drop the stale descriptor, and re-register a new watch on the recreated path. An in-process fake EventEmitter can simulate a 'delete' event message, but it cannot simulate the watch handle becoming permanently invalid — the fake handle continues to receive events even after the simulated deletion, which means the test never exercises the re-registration code path. The real failure mode (stale descriptor silently drops events after directory recreation) is invisible to any stub. REJECTION-GATE: Nothing in the behavior text suggests the failure is about event routing logic alone; it explicitly involves directory lifecycle and OS-level watch validity.",
+      "test_description": "Start the daemon against a real temporary directory. Use fs.rmSync to delete the directory while the daemon is running. Then use fs.mkdirSync to recreate it. Write a new file into the recreated directory. Assert that the output directory contains the transformed result, confirming the watcher re-registered. Verify no manual restart signal was sent to the daemon process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.9,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the filesystem stat layer and the ordering/queue module. If only the sort function is tested with injected timestamps (Unit), a bug in how stat results are fetched, which field is read (mtime vs ctime vs birthtime), or how the priority queue inserts entries remains hidden. Wiring the stat calls to the queue is necessary. REAL-INFRA: Creating real files and reading their real stat timestamps is sufficient — no subprocess or OS-level event ordering is needed. The test controls file creation order and asserts processing order matches birthtime from real stat calls. An in-memory fake filesystem (memfs) could also work here. REJECTION-GATE for System: The behavior does not require testing kernel event scheduling or OS dispatcher ordering — only that the daemon sorts by the timestamp field it reads, which is testable with real temp files.",
+      "test_description": "Create three real temp files with a small delay between each creation so their birthtime/ctime values differ. Drop all three into the watched directory simultaneously (or emit fake arrival events for all three at once). Assert that the transformation pipeline processes them in ascending birthtime order by capturing invocation order via a spy on the process function.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Detecting write completion requires OS-level mechanisms: polling stat for stable file size, checking whether the file's write lock is held, or waiting for a 'close' event after 'open'. A fake or stub cannot simulate a file being in an open-for-write state — the detection logic (e.g., attempting to open the file with exclusive access, or watching for inotify IN_CLOSE_WRITE) only behaves correctly against real file descriptors and real OS locking semantics. A mock that returns 'file is complete' immediately would make the test pass regardless of whether the daemon's completion-detection logic is correct. REJECTION-GATE: The behavior text directly invokes an OS-level condition ('still being written to when the arrival event fires') that cannot be faithfully reproduced without a real write handle held open in a separate process or async stream.",
+      "test_description": "Start the daemon against a real temporary directory. Open a write stream to a file in that directory, write partial data, and pause. Assert that the transformation pipeline has NOT started processing the file. Then close the write stream (completing the write). Assert that the pipeline picks up and processes the file only after the stream is closed. Measure that no processing invocation begins before close.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.85,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

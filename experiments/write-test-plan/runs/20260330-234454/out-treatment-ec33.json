@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a cross-module data consistency check — the summary storage layer must query the findings storage layer for the same round before accepting a PASS verdict. This boundary only exists when both modules are wired together with shared state; a unit test of either module alone cannot expose the missing cross-check. REAL-INFRA: No OS or network dependency; an in-process fake or real local store is sufficient. LLM-DEP: No AI/ML output involved. MULTI-STEP: No multi-agent chain. REJECTION-GATE: A higher level (Agentic/Workflow) is disqualified because correctness depends entirely on stored structured verdicts, not on LLM judgment.",
+      "test_description": "Seed a round's findings store with at least one dimension finding carrying a FAIL verdict. Attempt to write a PASS summary for the same round ID. Assert the write is rejected with an appropriate error. Then replace all dimension findings with PASS verdicts and retry — assert the PASS summary is now accepted. Both the findings store and the summary store must be real (or realistic in-process fakes) so the cross-check actually executes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The bug in the issue is precisely that the gate read the summary text instead of stored findings. Verifying the gate reads the correct data source requires wiring the gate module to both the findings store and the summary store with contradictory data — a unit test of the gate function alone cannot surface this if the data-source selection is inside the wiring. REAL-INFRA: No OS or network required; in-process stores suffice. LLM-DEP: Gate verdict computation is deterministic logic over structured data. MOCK-HIDE: Mocking the findings store would bypass the exact integration point under test. REJECTION-GATE: Agentic/Workflow disqualified because gate computation is deterministic once data is retrieved.",
+      "test_description": "Write conflicting state into the store: store dimension findings all marked FAIL for round R, then write a summary for round R with text claiming PASS. Invoke the gate's verdict computation for round R. Assert the computed verdict is FAIL. This proves the gate consumed findings, not the summary text. The test must use real or stub-but-injected storage backends so the data-source selection path executes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.77,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: 'Auditable warning record' means the warning must be persisted or emitted to a real store/log sink — not just returned from a function. The failure mode (silent override without audit trail) only appears when the validation logic and the audit-record sink are wired together. A unit test that stubs the sink cannot confirm the record is actually written. REAL-INFRA: No OS or network required; a local in-process record store is sufficient. LLM-DEP: None. REJECTION-GATE: System and above are disqualified — no real network, subprocess, or LLM judgment is involved.",
+      "test_description": "Attempt a manual summary override without the override flag set — assert the operation is rejected. Then attempt with the flag set — assert the override is accepted AND exactly one warning record is stored in the audit sink with fields identifying the round, the actor, and the override reason. Both the override validation logic and the audit-record sink must be real (or realistic in-process fakes).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the review loop cannot finalize PASS unless a fresh review-agent round is executed on the updated diff.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the loop's enforcement of a state precondition: 'a fresh review-agent round must be recorded after the last fix phase before PASS finalization is allowed.' This is a loop-state × finalization-logic module boundary. The review-agent itself doesn't need to be real for this enforcement check — a stub agent that records execution is sufficient to verify the loop's guard. REAL-INFRA: No OS/network required. LLM-DEP: The enforcement check is deterministic (was a round recorded? yes/no); correctness does not depend on what the review agent produced. MOCK-HIDE: Stubbing the agent is safe here because behavior 4 tests the loop's precondition guard, not review quality. MULTI-STEP: While the full pipeline is multi-step, the specific failure boundary (loop blocks finalization without fresh round) can be isolated by setting loop state to 'post-Phase-4, no fresh round recorded' without running all prior phases. REJECTION-GATE: Workflow disqualified because the enforcement check does not require executing the full multi-phase pipeline; the state can be injected directly.",
+      "test_description": "Set loop state to reflect: Phase 4 fix applied, no subsequent review-agent execution recorded. Invoke the finalization path. Assert it is blocked (returns an error or pending status, not PASS). Then record a stub review-agent round execution against the updated diff token. Invoke finalization again. Assert it proceeds. No real LLM call is needed — a stub that records 'round executed on diff D' is sufficient to exercise the loop guard.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.52,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.3
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings, the flow emits an escalation outcome instead of PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This requires the flow's termination logic to be wired with the findings store and the round counter — three modules. A unit test of the termination function alone cannot verify that the round counter and findings query are correctly integrated. REAL-INFRA: No OS or network required. LLM-DEP: MUST-FIX findings are structured records, not LLM outputs; seeding synthetic findings is sufficient. MOCK-HIDE: Stubbing the findings store and counter is safe because correctness depends on the flow reading them correctly, not on their content being AI-generated. REJECTION-GATE: Agentic/Workflow disqualified — the escalation logic is deterministic over stored structured data.",
+      "test_description": "Seed the findings store with one or more MUST-FIX findings for round R. Set the round counter to its configured maximum. Invoke the flow's termination/finalization path for round R. Assert the emitted outcome is escalation (not PASS or FAIL-and-retry). Then repeat with zero MUST-FIX findings at max rounds — assert no escalation. Both the findings store and the round counter must be real (or realistic in-process fakes) so the termination logic executes end-to-end.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.06
+      }
+    }
+  ]
+}

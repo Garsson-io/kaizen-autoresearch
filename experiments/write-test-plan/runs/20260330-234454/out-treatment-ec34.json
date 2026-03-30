@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-34",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Branch staleness detection correctly identifies branches with commits not in main, older than the configured age threshold, and no open PR.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The three criteria (commits-not-in-main, age, no-PR) are evaluated together by the detection module; testing any one in isolation misses join-logic bugs. REAL-INFRA: 'Commits not in main' requires real git ancestry traversal — either via subprocess git commands or a real git library operating on an actual repo. The commit timestamp for age comparison is only meaningful against real commit metadata. A fake in-process git stub cannot reproduce incorrect ancestry results that arise from git's actual merge-base and ref-tracking behavior. REJECTION-GATE: The PR-absence check can be stubbed, but the git ancestry portion cannot be mocked without hiding failures in how the code traverses the commit graph. There is no behavior text that disqualifies System.",
+      "test_description": "Initialize a local git repo. Create a feature branch with 2 commits authored more than N days ago (the configured threshold). Leave the branch without a corresponding PR (stub the PR API to return empty). Run the staleness detector and assert it returns stale-no-pr. In a second case, create a branch with commits but authored within the threshold — assert it is not flagged. This requires subprocess git operations to create realistic commit graph state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.18,
+        "System": 0.62,
+        "Agentic": 0.04,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Session-start setup emits a stale-work warning with actionable branch context when the current branch is stale.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the wiring between the staleness detector and the session bootstrap warning emitter — the detection result might not propagate, or the warning might omit required fields (branch name, commit count, age). This only surfaces when the two modules are exercised together. REAL-INFRA: The staleness detector can be stubbed to return a predetermined stale state; the bootstrap's warning logic does not require real git or real HTTP. An in-process stub of the detector is sufficient because the failure being tested is whether the bootstrap reacts correctly to a stale result, not whether the detector itself is correct (that is behavior 1). LLM-DEP: None. REJECTION-GATE: No behavior text requires real git state for the warning emission path.",
+      "test_description": "Stub the staleness detector to return a stale-no-pr result containing branch name, commit count, and age. Invoke the session bootstrap setup function. Assert that a warning was emitted containing the branch name, the number of unPRed commits, and the staleness age — verifying that actionable context is correctly pulled from the detector result and surfaced at session start.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.62,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A local status-classifier function maps computed branch state to labels (`clean`, `stale-no-pr`) deterministically.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior explicitly describes a single local function with no I/O; the failure mode (wrong label for a given state combination) is fully internal to that function. REAL-INFRA: No OS, network, or subprocess involvement — the function takes data already computed by upstream modules and returns a string. LLM-DEP: None. MULTI-STEP: None. A parameterized unit test over all input combinations is both necessary and sufficient.",
+      "test_description": "Call the classifier function with every meaningful input combination: (no commits ahead of main) → clean; (commits ahead, age below threshold) → clean; (commits ahead, age above threshold, has open PR) → clean; (commits ahead, age above threshold, no PR) → stale-no-pr. Assert each returns the expected label. Run with pytest parametrize for exhaustive coverage of the decision table.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.87,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "`/kaizen-wip` against live repo and PR state distinguishes \"clean\" from \"has commits but no PR (STALE)\" in rendered output.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior text explicitly states 'against live repo and PR state' — this requires a real GitHub API call. An in-process HTTP stub always returns the same canned response, so it cannot catch failures that arise from: real API authentication, unexpected PR state field shapes, pagination behavior, or GitHub rate-limiting that affects PR enumeration. The rendered output distinction also depends on correctly parsing the real API response shape. MOCK-HIDE: Mocking the HTTP layer guarantees the test always passes regardless of whether the real API response parsing is correct. REJECTION-GATE: 'Against live repo and PR state' is explicit — there is no text that disqualifies System.",
+      "test_description": "Against a real GitHub repository with a designated test branch that has commits not in main and no open PR, invoke the /kaizen-wip command/endpoint and assert the rendered output contains 'STALE' for that branch. Against a second designated test branch with an open PR, assert the output does not show STALE. These branches must be maintained as test fixtures in the real repo.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.07,
+        "System": 0.81,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Branches with open or merged PRs are not flagged as stale-no-PR false positives.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The false-positive failure occurs in the conditional logic that joins PR state (open/merged) with git state inside the detection module. The failure surfaces when the detection module and the PR lookup module interact — e.g., if 'merged' PR state is not recognized as a valid suppressor. REAL-INFRA: The PR API can be stubbed to return open or merged PR data; the failure is in how the detection module interprets that data, not in real network behavior. An in-process stub providing realistic PR state payloads is sufficient to surface the bug. REJECTION-GATE: No behavior text requires real GitHub API responses for this classification correctness test — behavior 4 covers live API validation.",
+      "test_description": "Wire the staleness detector with a stubbed PR API. Case 1: branch has commits ahead of main, age exceeds threshold, stubbed API returns one open PR — assert branch is NOT classified as stale-no-pr. Case 2: same git state but stubbed API returns one merged PR — assert not flagged. Case 3: same git state, stubbed API returns empty PR list — assert IS flagged as stale-no-pr. Verify the PR-state suppression logic for both open and merged states.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.6,
+        "System": 0.14,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Staleness detection remains correct across rebases or squash merges where commit hashes change but branch state should no longer be classified as unPRed stale work.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: After a squash merge, the feature branch commits have different hashes than the corresponding commit(s) in main. Detection code that naively compares commit hashes will incorrectly classify the branch as still having unmerged work. Reproducing this failure requires performing an actual squash merge or rebase in a real git repository, because the hash-change semantics are specific to git's internal object model and cannot be approximated by an in-process fake. The detection strategy — whether it uses git merge-base, PR state cross-reference, or branch-tracking metadata — only exercises the correct logic against a real git commit graph. MOCK-HIDE: Mocking git ancestry returns fixed data and cannot reproduce the post-squash commit hash divergence that triggers the bug. REJECTION-GATE: 'Commit hashes change' is the explicit failure trigger — no text disqualifies System.",
+      "test_description": "Initialize a local git repo. Branch from main, add two commits. Squash-merge that branch into main using `git merge --squash`. Run staleness detection on the original feature branch (which still has its old commit hashes) and assert it is NOT classified as stale-no-pr (because its work was merged). Repeat with a rebase scenario: rebase the branch onto main, verify the branch is not flagged. This requires subprocess git operations to create authentic post-squash and post-rebase repository state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.13,
+        "System": 0.78,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The primary translator produces a grammatically coherent translation that preserves the meaning of the source text.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The behavior is not about whether the code calls the API — it is about whether the API produces coherent, meaning-preserving output. That quality property lives entirely inside the neural MT model, not in the surrounding service code. LLM-DEP: Grammatical coherence and semantic fidelity are properties of what the real model returns. Any mock or stub replaces the model's actual judgment with a constant, making the test trivially pass regardless of model quality. A deterministic fixture can never verify whether the model produces a coherent translation — it just verifies that the service forwards a constant string. MOCK-HIDE: Mocking the translation API would always pass; the real failure mode (model returns garbled or semantically wrong text) is invisible without a real model call. REJECTION-GATE: No text in the behavior description limits testing to routing or infrastructure — the failure described ('not just a word-for-word substitution') is explicitly about model output quality, which cannot be verified without a real model.",
+      "test_description": "Call the service with a set of curated source sentences in the source language (e.g., sentences with idioms, pronoun agreement, verb conjugation challenges) where a word-for-word substitution would produce wrong output. Submit each sentence to the real neural MT API through the service and evaluate whether the returned translation is grammatically coherent and semantically equivalent using reference translations or a lightweight fluency heuristic. Assert that none of the outputs are bare word-substitution results that fail basic grammaticality checks.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.03,
+        "Agentic": 0.9,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the translation API returns a 503 error, the service transparently falls back to the dictionary-based translator without returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure here is at a module boundary — the service's error-handling layer must catch the 503, suppress it, and invoke the fallback path instead of propagating the error to the caller. This cannot be detected by testing either the HTTP client or the fallback in isolation. REAL-INFRA: The 503 is an HTTP status code. An in-process stub HTTP client configured to return 503 fully reproduces the failure mode — the routing logic's response to a 503 status is deterministic code, not a real network condition. No real network or subprocess is needed. MOCK-HIDE: Mocking the API to return 503 is exactly what is needed; the real question is whether the service layer correctly handles that response. LLM-DEP: Correctness does not depend on model output quality; it depends on whether the control flow branches to the dictionary fallback. REJECTION-GATE for System: the behavior does not describe a failure caused by real network conditions (timeouts, packet loss, TLS errors); a stub returning 503 is sufficient. REJECTION-GATE for Agentic: the behavior is about error-handling routing, not model output content.",
+      "test_description": "Wire the service with a stub HTTP client that always returns a 503 response for the translation endpoint, and a real (in-memory) SQLite database seeded with a known phrase. Call the service with a phrase present in the dictionary. Assert that (a) the caller receives a successful response (no exception or error status), (b) the returned translation matches the pre-seeded dictionary entry, and (c) no error is surfaced to the caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.72,
+        "System": 0.14,
+        "Agentic": 0.06,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The dictionary-based fallback returns the correct pre-stored translation for phrases that exist in the SQLite database.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the fallback lookup logic and the SQLite database — wrong query, wrong schema column, wrong encoding, or a missing JOIN would only appear when the code actually exercises real SQL against a real (even in-memory) database. REAL-INFRA: SQLite is a local file/in-memory database. An in-memory SQLite instance seeded with known test data catches the actual failure mode (incorrect query logic, schema mismatch, wrong column mapping) without any OS filesystem or network dependency. This is Integration, not System. MOCK-HIDE: Mocking the SQLite layer would always return whatever the mock is programmed to return, hiding any bug in the actual SQL query or schema. The real SQLite (even in-memory) must be exercised. LLM-DEP: No model output involved. REJECTION-GATE for Unit: the failure cannot be caught by testing the lookup function in isolation without a real database, because the bug could be in the SQL query or schema.",
+      "test_description": "Create an in-memory SQLite database, apply the service's schema migrations, and insert a set of known phrase-translation pairs. Invoke the dictionary fallback component directly (not through the full service) for each seeded phrase and assert the returned translation exactly matches the stored value. Also test that a phrase not in the database returns a defined fallback behavior (e.g., None or a sentinel).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The quality tracking comparison correctly computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior has two parts. The edit distance computation is a pure function testable at Unit level. The 'stores the metric' part requires that the computed value is correctly persisted — this failure can only appear when the computation result is handed to the storage layer and the two modules interact (wrong field name, missing commit, type coercion error). REAL-INFRA: Storage is to a local SQLite database; an in-memory SQLite suffices. MOCK-HIDE: If the storage layer is mocked, any bug in the write path (wrong column, missing flush, serialization error) is invisible. The real storage layer (even in-memory SQLite) must be exercised. LLM-DEP: Edit distance is a deterministic algorithm; no model output involved. REJECTION-GATE for Unit: 'and stores the metric' cannot be verified without a real storage layer — storage correctness is part of the stated behavior.",
+      "test_description": "Supply two known strings with a known edit distance (e.g., 'cat' and 'cut' → distance 1). Call the quality tracking component with these strings as the primary and fallback outputs against an in-memory SQLite database. Assert (a) the returned or stored metric equals the expected edit distance, and (b) querying the database confirms the metric row was persisted with the correct value, source text reference, and timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, the service returns the primary translation and logs the quality comparison in the background.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the orchestration layer — the service must (a) select the primary output over the fallback and (b) trigger the background quality-logging job without blocking the response. These behaviors only emerge when the primary translator stub, fallback stub, and background job wiring are all active together. A unit test on any one component in isolation cannot catch a bug where the service returns the fallback result instead of the primary, or where it blocks on the background job. REAL-INFRA: Both translators can be stubbed with deterministic return values; the background job can be verified via a captured call or an in-memory log store. No real network or subprocess needed. MOCK-HIDE: Stubbing both translators with distinct, known return values is sufficient — the test assertion checks which value the service returns to the caller, not the quality of translation. LLM-DEP: The behavior is about routing (which output is returned) and background-job triggering, not about translation quality; deterministic stubs fully verify these properties. REJECTION-GATE for Agentic: the behavior description says 'returns the primary translation' — verifying which of two stub strings is returned does not require a real model.",
+      "test_description": "Wire the service with a stub primary translator returning a fixed string (e.g., 'PRIM_OUTPUT') and a stub fallback translator returning a different fixed string (e.g., 'FALL_OUTPUT'). Configure both stubs to succeed. Call the service and assert (a) the response body equals 'PRIM_OUTPUT', not 'FALL_OUTPUT', and (b) the background quality-comparison job was enqueued or invoked (captured via a spy on the background task scheduler). Optionally assert the job was not awaited synchronously by measuring response latency against a slow background stub.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.09,
+        "Agentic": 0.17,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

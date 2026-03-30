@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-36",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The evaluate-stage command stores grounding into a dedicated `grounding` artifact, not the `plan` artifact.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is between the evaluate skill and the artifact store — the bug appears when the skill's output is routed to the wrong key. A single function's assignment logic could be Unit, but verifying that the skill execution pipeline writes to `grounding` and does NOT write to `plan` requires the skill runner wired to the artifact store. REAL-INFRA: No OS/network needed; an in-process fake artifact store is sufficient. LLM-DEP: Correctness here is about routing (which key the output lands in), not LLM output quality — a stub LLM returning a fixed response fully exercises the routing bug. A mock cannot hide this failure because the assertion is on artifact key identity, not content. REJECTION-GATE: Agentic rejected because the behavior explicitly tests artifact routing, not model output quality; a deterministic stub suffices.",
+      "test_description": "Wire the evaluate skill with a stub LLM (returns fixed grounding content) and an in-process artifact store pre-populated with an existing `plan` entry. Execute the evaluate command. Assert: (a) `artifacts['grounding']` is non-empty and contains the stub output; (b) `artifacts['plan']` is unchanged from its pre-existing value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.04,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The implement-stage flow reads grounding when available and still writes its execution output to `plan`.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two module interactions — reading `grounding` from the artifact store before calling the LLM, then writing the result to `plan`. A Unit test of either interaction in isolation misses the combined read-then-write contract. REAL-INFRA: No OS/network required; in-process artifact store suffices. LLM-DEP: The behavior tests data-flow routing (reads grounding, writes plan), not LLM content quality. A stub LLM verifies whether grounding is passed into the prompt construction and whether the result lands in `plan`. MOCK-HIDE: A mock that stubs the entire implement pipeline would hide whether grounding is actually read before the LLM call. REJECTION-GATE: Agentic rejected — the assertion is about artifact slot identity and stub passthrough, not model judgment.",
+      "test_description": "Populate an in-process artifact store with a specific `grounding` value and a sentinel `plan` value. Run the implement skill with a stub LLM that records its input context. Assert: (a) the stub LLM received the grounding content in its context; (b) `artifacts['plan']` is overwritten with the stub LLM output; (c) `artifacts['grounding']` is unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0.1,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Deep-dive no longer overwrites `plan` as a redundant side effect when diagnosis already exists in issue content.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a side-effect bug — deep-dive writes to an artifact it shouldn't touch. Catching it requires running the skill against an issue that already has diagnosis content and then inspecting the artifact store state. The interaction is between the deep-dive skill, the issue content reader, and the artifact store. REAL-INFRA: No OS/network needed. LLM-DEP: The behavior is about a conditional branch (skip artifact write when diagnosis exists), not LLM quality; a stub LLM exercising the branch is sufficient. MOCK-HIDE: Mocking the artifact store at Unit level would require carefully checking `plan` was never set — this can be done in-process, but the skill's logic around 'diagnosis already exists in issue content' likely involves reading structured issue content from the store, making this a module boundary test. REJECTION-GATE: Agentic rejected — the branch condition is deterministic given the issue content fixture.",
+      "test_description": "Set up an in-process artifact store and an issue fixture where diagnosis content is already populated. Execute the deep-dive skill with a stub LLM. Assert: `artifacts['plan']` is absent (or equals a pre-set sentinel value that was not overwritten). Also assert the stub LLM was called for diagnosis, not for plan generation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.32,
+        "Integration": 0.55,
+        "System": 0.03,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "In a full multi-step agent run (`deep-dive -> write-plan/evaluate -> implement`), the final implementation plan reflects grounding produced earlier in the run.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names three sequential skills — deep-dive, evaluate, implement — and asserts that state produced in step 2 is visible in step 3's output. This is definitionally a multi-step agentic pipeline test. MOCK-MISS: Bugs in this scenario arise from state management across skill boundaries (e.g., grounding written by evaluate is not visible to implement due to a scoping or serialization issue). These failures only surface when all three steps execute in sequence against the same shared artifact store. Integration tests of individual skills in isolation cannot catch cross-step state loss. LLM-DEP: Each step invokes an LLM; even with stubs, the test validates that data flows correctly through the full pipeline. REJECTION-GATE: Integration rejected because the failure mode (grounding lost between pipeline steps) only manifests when multiple skills share a live artifact store across sequential executions.",
+      "test_description": "Configure a pipeline runner with stub LLMs for all three stages (deep-dive returns fixed diagnosis, evaluate returns fixed grounding content, implement records its input context). Execute the full `deep-dive → evaluate → implement` pipeline against a shared in-process artifact store. Assert: (a) `artifacts['grounding']` contains evaluate's stub output after step 2; (b) the implement stub LLM received that grounding content in its context; (c) `artifacts['plan']` contains implement's output; (d) `artifacts['grounding']` is not overwritten by implement.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.12,
+        "System": 0.04,
+        "Agentic": 0.13,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When grounding is absent, implement falls back safely and still emits a valid plan artifact without corrupting other stored artifacts.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure has two parts — (a) implement doesn't crash when `grounding` is missing, and (b) it doesn't corrupt pre-existing artifacts. Part (b) requires inspecting the full artifact store state after the skill runs, which involves the skill-to-store boundary. REAL-INFRA: No OS/network needed; an in-process artifact store with pre-seeded sibling artifacts is sufficient. LLM-DEP: The fallback path is a conditional branch — if grounding is absent, proceed without it. A stub LLM verifies that the skill runs and the output lands in `plan`. Content quality is not under test. MOCK-HIDE: Unit-level mocking of the artifact store might miss corruption of sibling keys if the implement skill iterates or resets the store. Wiring the real artifact store module catches this. REJECTION-GATE: Agentic rejected — the assertion is on artifact store state and exception absence, both deterministic given stub inputs.",
+      "test_description": "Populate an in-process artifact store with sibling artifacts (`grounding` absent, but `diagnosis` and other keys set to sentinel values). Run the implement skill with a stub LLM. Assert: (a) no exception is raised; (b) `artifacts['plan']` is present and non-empty; (c) all pre-existing sibling artifact values are unchanged; (d) `artifacts['grounding']` remains absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.62,
+        "System": 0.03,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

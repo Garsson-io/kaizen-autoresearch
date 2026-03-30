@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Recursive directory watching is handled differently by each OS watcher backend (inotify on Linux, FSEvents on macOS, ReadDirectoryChangesW on Windows). Whether the watcher is configured with the recursive flag and whether the OS actually delivers events for nested paths is a real OS concern. An in-process fake watcher would simply emit an event for any path you tell it to, bypassing the real failure: the daemon's watcher was not set up recursively or the OS did not propagate events through subdirectory boundaries. REJECTION-GATE: There is no text in the behavior disqualifying System. The behavior explicitly concerns a real filesystem path hierarchy that only the OS watcher resolves correctly.",
+      "test_description": "Spin up the daemon against a real temporary directory. Create a nested subdirectory (e.g., watched/sub/deep/) using real OS mkdir calls. Drop a file into the deepest subdirectory. Assert that the transformation pipeline runs and the output file appears in the output directory. No files placed at the root level are used, so any result confirms recursive watching rather than flat watching.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.13,
+        "System": 0.75,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within one module's logic: a data structure (e.g., a Map or Set) keyed by file path with a TTL, compared against the current time. There is no multi-module handoff whose boundary could hide the bug. REAL-INFRA: No OS, network, or real filesystem is involved. Fake timers (e.g., Jest's jest.useFakeTimers) can advance the clock deterministically to test within-window discard and post-window acceptance. LLM-DEP: No AI involved. REJECTION-GATE: Nothing in the behavior requires real infrastructure; the configurable time window is a pure numeric parameter and the deduplication is a pure in-memory algorithm.",
+      "test_description": "Isolate the deduplication module. Install fake timers. Call the deduplication entry point twice with the same file path within the configured window; assert the processor callback fires exactly once. Advance fake time past the window; submit the same path again; assert the processor fires a second time, confirming the TTL expired correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.21,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the event ingestion layer and the deduplication/debounce layer. A unit test of the debounce function alone (behavior 2) does not verify that the event listener correctly feeds duplicates into the debounce gate. The failure appears only when the two modules are wired together. REAL-INFRA: The OS event storm is a trigger, but the daemon's defense—debouncing or coalescing—operates on whatever events arrive, regardless of source. An in-process event emitter can faithfully simulate rapid-fire duplicate events; the failure mode ('processed more than once') is fully reproducible without a real filesystem. REJECTION-GATE: The behavior says 'the daemon processes the file exactly once'—this is a claim about the daemon's internal event-handling pipeline, not about OS-specific event characteristics. The OS event storm motivation does not require a real OS to test the daemon's response to it.",
+      "test_description": "Wire the real watcher event emitter to the real deduplication and processor modules (using an in-process test harness). Emit three rapid 'add'/'change' events for the same file path through the watcher's event interface without touching a real filesystem. Assert the processor callback is invoked exactly once after the debounce settle period (controlled via fake timers). Also assert that if the same path is later emitted after the window, the processor fires again.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.55,
+        "System": 0.3,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: OS watchers (inotify, FSEvents) behave differently when a watched inode is unlinked versus when a directory is renamed away. Whether the daemon receives a deletion event, whether the watcher handle becomes invalid, and whether re-registering on the new inode at the same path works correctly are all OS-level behaviors. A mock watcher would simply emit synthetic 'unlink' and 're-add' events, but the real failure is that OS watcher handles become stale after directory removal and the daemon must detect this and re-register with the real OS. An in-process fake cannot replicate inode lifecycle. REJECTION-GATE: The behavior says 'if the watched directory is removed and then recreated'—this is a real OS directory lifecycle operation with no text limiting it to in-process simulation.",
+      "test_description": "Start the daemon against a real temporary directory. Use real OS calls (fs.rmSync with recursive) to delete the watched directory. Wait for the daemon's recovery logic to fire (poll for watcher re-registration). Use real OS mkdir to recreate the directory at the same path. Drop a real file into the recreated directory. Assert the output file appears, confirming the daemon resumed watching the new inode without a process restart.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between the arrival queue and the processor: the queue must sort by timestamp before dispatching, and the processor must receive them in that order. A unit test of a sort function does not verify that timestamps are correctly read from file metadata and fed into the queue, nor that the queue respects the sort before calling the processor. REAL-INFRA: The sorting algorithm is deterministic given timestamps. Timestamps can be provided by stubbing fs.stat (or equivalent) to return controlled birthtimeMs values, making real filesystem unnecessary. The in-process stub fully reproduces the failure mode ('files processed out of timestamp order'). REJECTION-GATE: Nothing in the behavior requires real filesystem timestamps; 'creation timestamps' is metadata the daemon reads, and that read can be stubbed.",
+      "test_description": "Wire the watcher event emitter, the arrival queue, and the processor together in a test harness. Stub fs.stat (using patch.object equivalent in Node: jest.spyOn(fs.promises, 'stat')) to return three different birthtimeMs values assigned out-of-arrival-order to three file paths. Emit all three arrival events in a burst. Assert the processor receives the three files in ascending birthtimeMs order, regardless of emission order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.6,
+        "System": 0.17,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Detecting whether a file is still open for writing requires real OS primitives. Strategies like polling for stable file size, attempting an exclusive open (O_EXCL or LOCK_EX), or waiting for a close/rename event all depend on real OS file handle and locking semantics. A fake filesystem cannot faithfully simulate 'another process holds an exclusive write handle'—it can emit a flag, but that bypasses the actual OS mechanism the daemon relies on. The failure mode ('daemon reads a partial file') only appears when a real write handle is open in another process. REJECTION-GATE: The behavior says 'a file that is still being written to'—this is inherently a real OS cross-process file handle condition with no text limiting it to in-process simulation.",
+      "test_description": "Start the daemon against a real temporary directory. In the test, spawn a real child process (or use fs.createWriteStream without closing it) that holds an open write handle to a file in the watched directory. Allow the arrival event to fire. Assert that the processor has not been called (the file is still open). Then close the write handle. Assert that the processor is called within the daemon's polling interval and that the output file contains complete, non-truncated content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

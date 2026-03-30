@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the segmentation function's parsing algorithm — splitting on newlines and returning a list. No module boundary is crossed; the bug is a wrong return value from one function. REAL-INFRA: No OS, network, or subprocess. MOCK-HIDE: Nothing to mock — input is a string, output is a list. LLM-DEP: No AI/ML. REJECTION-GATE: Integration considered but rejected because the failure (treating the whole block as one segment) is fully reproducible by calling the segmentation function in isolation with a controlled multi-line string.",
+      "test_description": "Call the command-segmentation function with a multi-line string like 'TITLE=\"foo\"\\nDESC=\"bar\"\\ngh pr create --title \"$TITLE\"'. Assert that the returned list contains three separate segments, each corresponding to one statement, rather than a single element containing the full input.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.14,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The actual incident bug was that the trigger classifier never saw `gh pr create` as a segment because segmentation was broken. So this behavior tests the handoff from the segmentation module into the trigger-detection module: the failure only manifests when both are wired together. A unit test of the trigger-detection function alone would pass trivially if given a pre-split 'gh pr create' string. REAL-INFRA: No OS/network needed; an in-process call chain suffices. LLM-DEP: No AI/ML. REJECTION-GATE: System considered but rejected — no subprocess or network is required; the hook can be called in-process with a fabricated command string.",
+      "test_description": "Invoke the full hook classification pipeline (segmentation → trigger detection) with the input string 'TITLE=\"My PR\"\\ngh pr create --title \"$TITLE\" --body \"desc\"'. Assert that the pipeline returns a PR-create trigger result (not 'not_a_trigger'), verifying that the `gh pr create` segment is found and matched after segmentation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Same failure boundary as behavior 2 — the segmentation → trigger-detection handoff must be exercised end-to-end. A unit test of trigger detection alone could pass trivially with a pre-split string. The false-positive risk (classifying `gh issue create` as a PR trigger) only manifests when the full pipeline runs on a multi-line block, because a broken segmentation could surface a wrong leading token. REAL-INFRA: No OS/network. LLM-DEP: None. REJECTION-GATE: Unit considered but rejected — the behavior guards against a false positive that could only appear when the multi-line block flows through both segmentation and classification together.",
+      "test_description": "Invoke the full hook classification pipeline with 'TITLE=\"Bug report\"\\ngh issue create --title \"$TITLE\"'. Assert that the result is NOT a PR-create trigger (e.g., returns 'not_a_trigger' or an issue-create classification), confirming the correct segment is matched and no false positive is produced.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior spans two distinct operations — (1) extracting/reconstructing the PR identifier from tool output and (2) writing it to a state file — so a pure unit test of extraction alone would miss persistence failures and vice versa. REAL-INFRA: File I/O is required, but a real OS filesystem accessed via a temp directory is sufficient; no real HTTP or subprocess is needed because the PR identifier comes from already-captured tool output, not from a live `gh` call. MOCK-HIDE: Mocking the file write would hide mismatches between what extraction produces and what persistence encodes. LLM-DEP: None. REJECTION-GATE: System considered — if the PR identifier reconstruction required re-invoking `gh pr view` as a subprocess, System would be required; but the behavior says 'reconstruct from tool output', implying the data is already present in the hook invocation context.",
+      "test_description": "Construct a fake PostToolUse hook context containing a `gh pr create` command and tool output that includes a PR URL (e.g., 'https://github.com/org/repo/pull/42'). Invoke the persistence step with a temporary directory as the state root. Assert that a state file is created containing the expected PR identifier (e.g., 'org/repo#42' or the full URL) in the format the review loop expects.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.63,
+        "System": 0.29,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This behavior explicitly tests the contract between two hooks — the PostToolUse writer and the PreToolUse reader/enforcer. The failure mode is a format mismatch at their shared boundary (the state file). Neither hook can be tested in isolation to catch this: a unit test of the writer only asserts the file was created, and a unit test of the reader only asserts it can parse some fixture. The bug is in the end-to-end round-trip. REAL-INFRA: Local filesystem with a temp directory is sufficient; no real network or subprocess needed. LLM-DEP: None. MULTI-STEP: Two hooks are involved, but neither makes a real LLM call, so Workflow is not required. REJECTION-GATE: Workflow considered but rejected — the two hooks are deterministic code, not agentic steps; the interaction is a file format contract, not an LLM decision chain.",
+      "test_description": "Using a shared temp directory, (1) invoke the PostToolUse hook with a detected PR-create trigger to write the review gate state file, then (2) invoke the PreToolUse enforcement hook with a subsequent tool call. Assert that the enforcement hook reads the state file correctly and blocks (or flags) the subsequent tool call, confirming the round-trip format is compatible between both hooks.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.72,
+        "System": 0.22,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

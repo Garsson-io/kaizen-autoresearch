@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure can occur at two module boundaries — (a) the validator fails to detect the missing field, or (b) the rejected row is not routed to the DLQ, or (c) the row number is not preserved during the handoff. A Unit test of the validator alone cannot catch (b) or (c); both modules must be wired together. REAL-INFRA: The DLQ can be an in-process fake (in-memory list or stub queue) — no real OS/network needed. The exact failure (wrong row number, missing DLQ entry) appears when the validator and DLQ writer interact, not from real infrastructure. REJECTION-GATE for System: no real network, subprocess, or OS primitive is required; an in-process fake DLQ fully exercises the handoff.",
+      "test_description": "Construct a pipeline with a stub CSV source containing rows that have missing required fields (e.g., empty 'user_id', absent 'amount'), wired to an in-process fake DLQ. Run the pipeline. Assert that each invalid row appears exactly once in the DLQ and carries the correct 1-based source row number (e.g., row 3 missing 'amount' → DLQ entry with row_number=3 and original raw content).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.72,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is purely algorithmic — the transformation function either parses a given date string correctly or it does not. No module boundary is involved; the bug would be in the parsing/conversion logic itself. REAL-INFRA: No OS, network, subprocess, or database needed. REJECTION-GATE for Integration: the behavior describes a single function's input-to-output contract. Wiring it with other modules adds no new failure surface for this specific behavior. LLM-DEP: no AI/ML. MULTI-STEP: no.",
+      "test_description": "Call the date-transformation function directly with a parametrized set of inputs covering all three format families: ISO 8601 (e.g., '2024-03-15', '2024-03-15T10:30:00Z'), US (e.g., '03/15/2024'), and European (e.g., '15.03.2024', '15/03/2024'). Assert each produces the identical canonical output string (e.g., '2024-03-15'). Include edge cases: leap-day dates, single-digit month/day, year-boundary dates.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Memory consumption and wall-clock timing are OS-level properties. Peak RSS must be measured via OS primitives (e.g., /proc/self/status, resource.getrusage, or a memory profiler). An in-process fake cannot reproduce OOM conditions — those arise from real heap allocation patterns across 500k rows, real I/O buffering, and real GC pressure. The configured timeout is a wall-clock constraint, not a logic invariant; an in-process fake with stub I/O gives artificially fast results that hide real throughput bottlenecks. REJECTION-GATE for Integration: the failure mode (OOM, timeout exceeded) is only observable at the OS process level with real data volume. Stub I/O would make the test pass trivially regardless of algorithmic memory efficiency, hiding streaming-vs-loading bugs.",
+      "test_description": "Spawn the pipeline as a real subprocess (or run it in-process with a real data source such as a local S3-compatible service or a streaming file injector) against a test PostgreSQL instance, feeding a 500,000-row synthetic CSV. Measure peak RSS using OS-level tooling and record wall-clock elapsed time. Assert: (a) peak RSS never exceeds the configured memory ceiling; (b) total elapsed time is below the configured timeout; (c) the output PostgreSQL table contains exactly 500,000 processed rows (confirming no silent truncation).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.14,
+        "System": 0.78,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure can occur in the interaction between the HTTP client layer and the retry/backoff orchestrator — e.g., the pipeline catches the 503 but does not re-invoke the S3 call, or it retries immediately with no delay. A stub S3 client that returns 503 then 200 exercises this module boundary without needing a real network. REAL-INFRA: The retry logic is deterministic given a controlled error response; a real S3 network is not needed to surface incorrect retry counts or missing backoff. An in-process stub fully reproduces the failure. REJECTION-GATE for System: the behavior is about application-level retry logic, not real network latency, packet loss, or OS socket behavior. LLM-DEP: none. MULTI-STEP: none.",
+      "test_description": "Wire the pipeline with a stub S3 client configured to return HTTP 503 on the first two calls and HTTP 200 (with valid CSV content) on the third. Instrument the stub to record the timestamp of each call. Run the pipeline. Assert: (a) the pipeline completes successfully without raising a batch-level error; (b) exactly 3 S3 attempts were made; (c) the interval between attempt 1→2 is approximately the base backoff delay and the interval between attempt 2→3 is approximately 2× that delay (within a tolerance accounting for test execution overhead).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.74,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Idempotency on restart is a state-persistence problem. The bug appears only when the pipeline resumes against a database that already contains partial results. An in-memory fake dict cannot reproduce PostgreSQL-specific idempotency mechanisms (ON CONFLICT, unique constraints, advisory locks, transaction isolation). A real test PostgreSQL instance is required for the failure to be observable. REAL-INFRA: PostgreSQL-specific behavior (constraint enforcement, transaction visibility) is needed; however, a local test PostgreSQL instance is available in-process without requiring a real network or subprocess-level restart simulation — the restart can be simulated by reinitializing the pipeline object with the same DB connection in-test. REJECTION-GATE for System: the behavior does not require a real subprocess kill/restart; reinitializing the pipeline object mid-test against a real test DB faithfully simulates the restart scenario and surfaces duplicate-row bugs caused by missing idempotency logic.",
+      "test_description": "Against a real local PostgreSQL test database, run the pipeline over a 1,000-row synthetic CSV but interrupt it (by simulating a mid-batch failure — e.g., raising an exception after 500 rows are committed). Reinitialize a fresh pipeline instance pointed at the same database and the same source data. Allow it to run to completion. Assert: (a) the target table contains exactly 1,000 rows (no duplicates); (b) a unique-constraint check or explicit COUNT(DISTINCT id) matches the input cardinality; (c) no row appears more than once by primary key.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.62,
+        "System": 0.3,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

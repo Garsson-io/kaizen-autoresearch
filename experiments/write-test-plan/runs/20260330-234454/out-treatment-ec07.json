@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-07",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The content passed to the summary-generation step includes data retrieved from all three sources.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is at the boundary between the data-collection layer and the summary-generation step — specifically whether the orchestrator correctly wires all three source results into the payload before calling the summary function. A single-function Unit test cannot catch a bug where one source's data is silently dropped during aggregation. REAL-INFRA: No real network or OS is required; stub HTTP clients for all three sources suffice to reproduce the failure. LLM-DEP: The assertion is about the *input* to the summary step, not about what the LLM produces, so a real model is not needed. REJECTION-GATE: System was considered but rejected because an in-process fake can reproduce the exact failure mode (missing source data in the aggregated payload).",
+      "test_description": "Wire the orchestrator with three stub source clients that return fixed payloads. Capture the argument passed to the summary-generation function (via patch.object). Assert that the captured argument contains data attributed to all three sources — e.g., a field or key per source with a non-empty value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When one data source is unavailable, the report is produced with a 'data unavailable' note for that section rather than aborting.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure boundary is between the faulting source client and the aggregation/report-construction logic: does the error propagate as an abort, or does it become a graceful 'data unavailable' marker? That interaction spans at least two modules. REAL-INFRA: A stub that raises a connection error is sufficient to simulate unavailability; no real network needed. LLM-DEP: The assertion is about report structure (presence of a 'data unavailable' note), not LLM output quality — a stub summary step is fine. REJECTION-GATE: Unit was considered but rejected because we cannot rule out the aggregation module swallowing or re-raising the error in a way only visible when the orchestrator and error-handling layer are wired together.",
+      "test_description": "Configure two source stubs to return valid payloads and one stub to raise a connection error. Run the full data-collection and report-construction pipeline (with a stub summary step). Assert that the resulting report object or serialized output contains a 'data unavailable' marker for the failing source's section and valid content for the other two sections, and that no exception escapes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.1,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The narrative summary accurately represents the key values present in the input data.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Accurately represents key values' is a judgment about the content of what the LLM generates, not about routing or payload format. A stub or mock model always returns a constant string and cannot reveal whether the real model omits, misattributes, or hallucinates key values. Deterministic-assertion trap applies: even a deterministic assertion (e.g., 'metric X appears in the summary') would trivially pass with a hardcoded stub, hiding real failures. MOCK-HIDE: Any mock of the summary generator makes this test structurally incapable of catching the real failure mode. REJECTION-GATE: Integration was considered and rejected because there is no behavior text limiting the assertion to routing or infrastructure — the claim is explicitly about output accuracy, which only a real model call can validate.",
+      "test_description": "Construct a realistic input data payload (using model classes) containing a set of named key values — e.g., deployment count, open issue count, p99 latency. Call the real summary-generation endpoint with this payload. Assert that the returned narrative mentions or correctly represents each key value (by value or recognizable paraphrase). Run across several representative input sets to guard against prompt-sensitivity.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.13
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A complete report — from data collection through email delivery — reaches the configured recipient's inbox correctly.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The pipeline chains multiple agentic steps in sequence: (1) collect from three real external sources, (2) generate a narrative via a real LLM, (3) deliver via a real email service, (4) verify receipt in a real inbox. No single step's stub can validate the full handoff chain. LLM-DEP: Step 2 depends on real LLM output. REAL-INFRA: Steps 1, 3, and 4 require real HTTP and real email infrastructure — in-process fakes hide delivery failures such as malformed MIME, auth errors, or spam filtering. REJECTION-GATE: Agentic was considered but rejected because the behavior explicitly covers delivery to an inbox, which requires real email infrastructure beyond just a real LLM call.",
+      "test_description": "In a staging environment, run the scheduler script end-to-end against real (or staging-equivalent) source endpoints, the real LLM summary service, and a real SMTP target pointed at a test inbox. After execution, poll the test inbox via IMAP and assert: (a) exactly one new email arrived from the sender address, (b) the subject matches the configured template, (c) the body contains narrative text that references data from all three sources.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.1,
+        "Agentic": 0.15,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the email delivery service is unreachable, the generated report is saved to a local file and delivery is retried on the next scheduled run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans at least two modules: the delivery module (which must detect the SMTP error and fall back) and the persistence/retry module (which must write state and re-attempt on the next invocation). These two boundaries must be tested together. REAL-INFRA: A stub SMTP client that raises a connection error reproduces the failure; real network is not required. The filesystem write can be tested with a real tmpdir (no OS-specific behavior at risk). The 'next scheduled run' retry can be simulated by calling the main entry point a second time in the same test process, so subprocess invocation is not needed. LLM-DEP: The assertion is about file persistence and retry mechanics, not LLM output content. REJECTION-GATE: System was considered because 'next scheduled run' implies cross-invocation state; rejected because in-process double-invocation with a shared tmpdir fully exercises the persistence and retry logic without requiring a real subprocess or scheduler.",
+      "test_description": "Configure the pipeline with a stub summary step returning a fixed report and a stub SMTP client that raises a connection error on the first call and succeeds on the second. Point file persistence to a pytest tmpdir. First invocation: run the pipeline and assert the report file is written to the tmpdir. Second invocation (simulating the next scheduled run): run again and assert the stub SMTP client was called (retry attempted) and the local file is removed or marked delivered after success.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.5,
+        "System": 0.3,
+        "Agentic": 0.05,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

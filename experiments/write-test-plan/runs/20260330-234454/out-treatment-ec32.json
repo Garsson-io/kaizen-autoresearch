@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-32",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A static prompt-template lint check rejects phase-specific instruction leakage copied from SKILL.md.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the lint function's own logic — does it detect the disallowed pattern in a template string? No module handoff is required. REAL-INFRA: The check operates on text; input can be an in-memory string or a temp file — no real OS primitives, network, or subprocess are load-bearing. LLM-DEP: No model call; this is pure text/regex analysis. MULTI-STEP: No chained steps. The failure boundary is a single function that parses template content and rejects forbidden patterns.",
+      "test_description": "Construct two in-memory template strings — one containing a phrase copied verbatim from SKILL.md's phase-instruction section, one clean. Assert the linter raises / returns an error for the first and passes the second. Parameterize over representative leakage patterns (e.g. a full phase-instruction sentence, a partial phrase threshold).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The fully assembled prompt produced by the real test harness (after interpolation/fixtures) still contains no phase-instruction leakage.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only surfaces when the interpolation engine, fixture loader, and prompt assembly pipeline are all wired together — leakage can enter during any handoff. A unit test on any single component cannot catch leakage introduced at a different stage. REAL-INFRA: No real network, subprocess, or OS primitives are required; the pipeline is in-process. LLM-DEP: No model call is needed — we are asserting the prompt string itself, not model output. MULTI-STEP: No chained agentic steps. INTEGRATION-BRAKE: (a) No real OS/network. (b) No AI/ML output dependency — assertion is on the assembled string. (c) No chained agentic steps. Integration is confirmed.",
+      "test_description": "Invoke the real test harness with a representative set of fixtures and skill stubs; capture the fully assembled prompt string before any model call. Assert it contains no phrases flagged by the Behavior 1 linter. Run against at least two fixture configurations (minimal and maximal interpolation) to cover different injection surfaces.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.72,
+        "System": 0.1,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The test invocation loads skill context from the plugin/skill files and validates behavior from that context rather than from hard-coded prompt rules.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: Multiple modules (plugin loader, skill file reader, harness assembler) must cooperate, so Integration is the floor. LLM-DEP: 'Validates behavior from that context' requires running the real model — only a live LLM can demonstrate that behavior emerges from skill context rather than explicit instructions. A deterministic stub returns a constant regardless of whether the skill file was loaded, so it cannot distinguish skill-driven behavior from prompt-echoed behavior. REJECTION-GATE: One might propose demoting to Integration by asserting that the prompt contains skill content (not hard-coded rules). But the behavior text says 'validates behavior from that context,' meaning the actual model response must be evaluated — a stub always hides whether the LLM is genuinely using the skill context.",
+      "test_description": "Using real plugin/skill files (not hard-coded prompt strings), submit a user-style prompt to the live model. Capture raw output. Assert the response exhibits the expected structured behavior (per Behavior 6's schema criteria). Then repeat with the skill file replaced by an empty stub and confirm the model no longer exhibits the behavior, proving the behavior originates from the skill context.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.03,
+        "Agentic": 0.68,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the relevant SKILL.md section is removed or degraded, the behavioral test fails with the same user-style prompt.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The regression-detection property is entirely dependent on the real model's response. A stub always returns the same constant, so it cannot fail on skill degradation — the test would pass regardless of whether SKILL.md is intact or empty. Only a real LLM can exhibit degraded behavior when skill context is missing, making the test's pass/fail signal meaningful. MOCK-HIDE: Any mock hides the exact failure this behavior is designed to catch. REJECTION-GATE: One could propose Integration by asserting that the assembled prompt differs when SKILL.md is degraded. But the behavior text specifies 'the behavioral test fails' — the test must evaluate actual model behavior, not merely prompt content. Prompt-diff checking is Behavior 2; this behavior demands the model's response to change.",
+      "test_description": "Run the behavioral test suite twice against the live model: once with the canonical SKILL.md and once with the relevant section removed or replaced with a paraphrased/weakened version. Assert the test passes under canonical SKILL.md and fails (model response does not exhibit the required structured behavior) under the degraded version. Treat flakiness across runs as a signal to tighten the schema assertion (Behavior 6) rather than to abandon the Agentic level.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.02,
+        "Agentic": 0.76,
+        "Workflow": 0.17
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Raw model output is captured to a diagnostic artifact before any JSON parsing or extraction logic runs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure (capture happens after or is skipped) only manifests when the model-call module, the capture module, and the parsing module are all wired together in sequence. A unit test on the capture function alone cannot detect a wrong ordering injected elsewhere in the pipeline. REAL-INFRA: A stub model returning a fixed string plus a temp-file or in-memory sink fully exercises the ordering constraint — no real network or OS filesystem events are required for the failure to be visible. LLM-DEP: Correctness of the capture mechanism does not depend on LLM output quality; any deterministic payload exposes ordering bugs. INTEGRATION-BRAKE: (a) No real OS/network primitives load-bearing. (b) No AI/ML output dependency. (c) No chained agentic steps.",
+      "test_description": "Wire the full pipeline (stub model → capture module → parser) and introduce a spy/interceptor that records the sequence of write-to-artifact and begin-parse calls. Assert the artifact write timestamp/call-index precedes the first parse call. Verify the artifact contains the raw stub output before any transformation. Test the failure case by temporarily swapping the ordering and confirming the sequence assertion fails.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.67,
+        "System": 0.14,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Assertions verify structured behavior (for example field placement or schema shape), not mere keyword presence that could come from prompt echoing.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Verifying that an assertion strategy is non-tautological requires wiring the assertion module together with a fixture that simulates prompt-echoed output versus genuinely structured output. A single function's logic cannot capture this. REAL-INFRA: No real network or OS primitives needed; constructed JSON/text fixtures suffice. LLM-DEP: The behavior targets assertion design, not LLM output quality. We can construct two synthetic outputs — one that contains expected keywords via echo but fails schema checks, and one with correct schema shape — and run the assertion against both. A real LLM is not needed to verify that schema assertions pass/fail on the right inputs. REJECTION-GATE: Agentic would be required if the behavior said 'assertions correctly detect real prompt echoing from a live model.' The behavior text says 'assertions verify structured behavior… not mere keyword presence' — this is about the assertion's discriminating logic, which can be exercised with engineered fixtures.",
+      "test_description": "Construct two synthetic model-output fixtures: (A) a response that contains all expected keywords verbatim (simulating prompt echo) but has incorrect schema shape (wrong field names, missing nested fields), and (B) a response with correct schema shape but no literal keyword matches. Run the schema-based assertion against both. Assert it rejects (A) and accepts (B). Additionally assert that a naive keyword-presence check would incorrectly accept (A), demonstrating why schema assertions are required.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.47,
+        "System": 0.04,
+        "Agentic": 0.27,
+        "Workflow": 0.04
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Two failure modes are coupled here — wrong status code AND enqueue being called when it shouldn't be. A unit test on the HMAC function alone doesn't verify that the HTTP handler correctly short-circuits before touching the queue. REAL-INFRA: No OS/network required; in-process HTTP (e.g., supertest) plus a stub queue is sufficient. MOCK-HIDE: Stubbing the queue allows us to assert it was never called, which is the 'not forwarded' half of the behavior. The handler–queue boundary is where the real failure lives. REJECTION-GATE: System was considered but the failure does not require a real network or OS — an in-process HTTP call against the real handler with a stub queue will catch a missing short-circuit.",
+      "test_description": "Mount the real webhook handler with a stub queue. POST a request with a valid body but a deliberately wrong X-Signature-256 header. Assert the HTTP response is 401. Assert the stub queue's enqueue method was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.13,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — enqueue happening after the response is sent — only appears when the handler, queue, and response object interact in sequence. A unit test on the handler function alone with a mocked response and mocked queue can instrument call order, but the meaningful failure boundary is the handler wiring these two operations in the correct sequence. REAL-INFRA: No real OS or network required; an in-process HTTP test with an instrumented stub queue is sufficient to observe ordering. MOCK-HIDE: The stub queue must be instrumented to record when it was called relative to the response being finalized; a naive mock that returns immediately would still pass even if ordering were reversed without instrumentation. REJECTION-GATE: System was considered but call-order verification does not require real infrastructure — in-process HTTP (supertest) + instrumented stub captures this.",
+      "test_description": "Mount the real handler with an instrumented stub queue that records its invocation timestamp. POST a valid signed event. Capture when the queue's enqueue resolves and when the HTTP 200 response arrives at the in-process client. Assert that enqueue resolved before the response was received.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.15,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — a handler that accidentally awaits downstream work before responding — only surfaces when the handler, queue, and async downstream processor are wired together. Inspecting the handler function in isolation cannot reveal whether it incorrectly awaits downstream. REAL-INFRA: A stub downstream that artificially delays (e.g., returns a promise that resolves after 5 s) allows verifying that the HTTP 200 arrives well before that delay expires. No real OS or network is needed. MOCK-HIDE: A stub that resolves immediately would make the test pass regardless of whether the handler awaits it or not — so the stub must introduce a meaningful delay. REJECTION-GATE: System was considered but wall-clock precision is not required here; we only need to confirm the response arrives before a slow stub finishes, which an in-process test can verify.",
+      "test_description": "Mount the real handler with a stub downstream processor that sleeps 3 s before completing. POST a valid signed event. Assert the HTTP 200 response is received in well under 3 s (e.g., < 500 ms), confirming the handler did not await downstream completion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.65,
+        "System": 0.22,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure mode here is real latency propagation through concurrent connections. REAL-INFRA: 'Wall-clock time' under 'concurrent' load is the key phrase. An in-process supertest call is single-threaded and does not exercise Node.js's event-loop behavior under real concurrent I/O pressure. Only a real HTTP server (actual TCP accept loop, real connection handling) receiving simultaneous requests from multiple real clients can surface the failure — e.g., a blocking await in the handler that only manifests under concurrent request pressure. In-process fakes serialize requests and hide event-loop blocking. MOCK-HIDE: A stub slow downstream in an integration test would still pass even if the handler were serializing requests. REJECTION-GATE: Integration was considered but cannot reproduce real concurrent I/O — the failure mode explicitly involves 'earlier events' (plural, concurrent) slowing later responses, which requires real concurrent HTTP clients against a real listening server.",
+      "test_description": "Start the real server on a localhost port. Inject a stub downstream processor that sleeps 10 s. Fire 5 concurrent HTTP POST requests with valid signed events using real HTTP clients. Assert that all 5 responses arrive within 3 s wall-clock time (measured from request start to response receipt), confirming concurrency does not serialize responses.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.18,
+        "System": 0.74,
+        "Agentic": 0.04,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — enqueuing a duplicate — only appears when the handler, the deduplication store, and the queue are wired together in sequence. The handler function's logic for ID lookup and conditional enqueue is the module boundary where bugs appear. REAL-INFRA: Deduplication state can be held in an in-process structure (Map, Set) or a stubbed store. The dedup lookup + queue-skip logic does not require real OS or network. MOCK-HIDE: The dedup store must retain state between the two requests — a stateless mock reset between calls would always pass; the stub must persist the ID across the two calls. REJECTION-GATE: System was considered. If the dedup store is an external service (Redis), a real connection would be System; however, the behavior does not specify external infrastructure, and an in-process stateful stub is sufficient to catch the failure.",
+      "test_description": "Mount the real handler with a stateful in-process dedup store stub and an instrumented queue stub. POST the same signed event (same event ID) twice. Assert the queue's enqueue was called exactly once after both requests complete.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — handler not translating a queue-full signal into a 503 with the correct header — appears at the handler–queue boundary. REAL-INFRA: The queue only needs to signal 'full'; a stub that throws a known queue-full error is sufficient. No real OS or network needed. MOCK-HIDE: A stub configured to return the queue-full error correctly simulates the failure path. The handler's response construction (status code + header name + header value) is what's under test. REJECTION-GATE: System was considered but the queue-full signal is entirely reproducible with an in-process stub that throws.",
+      "test_description": "Mount the real handler with a stub queue configured to throw a queue-full error on enqueue. POST a valid signed event. Assert the HTTP response status is 503. Assert the response includes a Retry-After header with a non-empty value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.62,
+        "System": 0.11,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This behavior tests the queue implementation itself, not the handler's reaction to it. REAL-INFRA: 'Persistent queue' implies an external durable system (e.g., RabbitMQ with x-max-length, Redis list with MAXLEN, a database-backed queue). Capacity enforcement is a property of the queue's own internals — its overflow policy, its counter logic, its persistence layer. Substituting a stub or in-process fake replaces the queue under test with a mock, making the test verify the mock's behavior rather than the real queue's. Only by writing to the real queue and observing it reject the (N+1)th message can we confirm the limit is actually enforced. MOCK-HIDE: A stub queue would trivially implement capacity checking in the test itself, telling us nothing about whether the real queue is configured correctly. REJECTION-GATE: Integration was considered but disqualified because a fake/in-process queue does not share the real queue's capacity-enforcement logic, persistence internals, or configuration — bugs in queue configuration or policy are invisible to any in-process substitute.",
+      "test_description": "Start the real persistent queue service (e.g., RabbitMQ or Redis) configured with a capacity of N. Write N messages through the real queue client. Attempt to write one additional message. Assert the queue rejects the (N+1)th write with a capacity-exceeded error. Assert the queue length remains N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.1,
+        "System": 0.82,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

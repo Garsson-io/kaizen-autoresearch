@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is a sorting bug (e.g., lexicographic '10' < '9' instead of numeric '10' > '9'). The sort is embedded in a pipeline that reads filenames from the filesystem and applies them to the DB. The bug only manifests as wrong application order, which spans the file-discovery → sort → apply modules. REAL-INFRA: The filesystem read can use a real temp directory or a fake (memfs), and the DB can be a stub that records call order — no real PostgreSQL subprocess needed to catch a sorting defect. A stub DB that logs each migration SQL in order is sufficient to assert the invariant. LLM-DEP: None. REJECTION-GATE: Unit is tempting for the sort function in isolation, but the behavior says 'applied in order,' which requires the full pipeline. System is too high — no real OS behavior or external network is needed to detect a bad sort.",
+      "test_description": "Populate a fake filesystem (or real temp dir) with three migration files named '003_c.sql', '001_a.sql', '010_b.sql'. Wire the runner against a stub PostgreSQL client that records each SQL statement received. Run the runner once. Assert the stub received the statements in file-ascending numeric order: 001, 003, 010 — not lexicographic order (001, 003, 010 happens to match here; use '002', '010', '020' to expose the lexicographic trap where '010' < '020' but also '010' > '002', contrasting with '002', '010', '020' vs '002', '020', '010' in lex). Verify the stub recorded exactly the SQL from 001 first, then 010 would come after 002 — craft filenames specifically to expose lex-vs-numeric divergence (e.g., '1_a.sql', '10_b.sql', '2_c.sql') and assert application order is 1 → 2 → 10.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.55,
+        "System": 0.2,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two modules: the _migrations table reader and the migration applicator. The bug appears only when the runner fails to consult the recorded state before executing SQL — a cross-module boundary. REAL-INFRA: State must persist between two sequential invocations of the runner within the same test. A stub DB that retains inserted rows across calls (simple in-process map) is sufficient to reproduce the exact failure. No real PostgreSQL subprocess is needed. MOCK-HIDE: A stub that returns the pre-seeded migration record on the second SELECT query correctly exposes whether the runner's guard logic is wired. LLM-DEP: None. REJECTION-GATE: System is unjustified — no OS primitives, real network, or subprocess are needed. The idempotency logic is a conditional check against DB state, and an in-process stub that accumulates INSERT calls across invocations faithfully reproduces the failure boundary.",
+      "test_description": "Create a stub PostgreSQL client that persists state in memory across calls. Seed the stub's _migrations table with one entry recording '001_a.sql' as already applied. Place '001_a.sql' and '002_b.sql' in a fake migration directory. Run the runner. Assert: (a) the stub received no SQL from '001_a.sql', (b) the stub received the SQL from '002_b.sql' exactly once, (c) the stub received an INSERT into _migrations for '002_b.sql' but not for '001_a.sql'. Then run the runner a second time with both files present; assert neither file's SQL was re-sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Two distinct sub-behaviors: (a) rollback is actually issued and takes effect, (b) the runner halts after failure. REAL-INFRA: Sub-behavior (b) — the runner stops processing — is testable with a stub. But sub-behavior (a) — 'changes are rolled back' — requires verifying actual DB state. The critical failure mode is that the runner omits an explicit ROLLBACK (e.g., relies on connection-close semantics or sends COMMIT by mistake); a stub that records SQL calls would need to verify ROLLBACK is present, but it cannot catch cases where implicit commit semantics (autocommit left on, connection pool reuse, etc.) silently commit the partial data. Only a real PostgreSQL instance can confirm the partial write is absent after the runner exits. MOCK-HIDE: A stub always passes if it only checks for a ROLLBACK call — it cannot detect that the DB actually preserved partial state. REJECTION-GATE: Integration is disqualified because it cannot verify that partial row writes were actually undone in the database; only a real transaction store with real ACID guarantees can expose this class of bug.",
+      "test_description": "Against a real PostgreSQL instance (e.g., via Docker or a local server), place two migration files: '001_ok.sql' which inserts a row into a test table, and '002_bad.sql' which contains a syntactically invalid statement after one valid INSERT. Run the runner. Assert: (a) the test table contains no rows inserted by '002_bad.sql' (proving rollback), (b) the rows inserted by '001_ok.sql' ARE present (proving earlier committed migrations are unaffected), (c) '003_next.sql' (if present) was not applied — checking the _migrations table shows only '001_ok.sql' recorded. Verify no partial state from '002_bad.sql' exists in the DB.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.27,
+        "System": 0.65,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is a race condition between two separate OS processes. REAL-INFRA: This is definitionally a System-level behavior. The correctness depends on real OS process scheduling, real network connections to a shared PostgreSQL server, and real advisory locks or SELECT FOR UPDATE semantics that PostgreSQL implements. There is no in-process fake that can reproduce two independently scheduled OS processes racing to acquire the same database lock. Any attempt to simulate this with an in-process mock collapses the concurrency to a single-threaded sequential call, which always passes. MOCK-HIDE: An in-process stub would serialize the two 'instances' and hide the race entirely. The failure only appears when two real Node.js process handles contend for the same PostgreSQL connection slot and advisory lock at the same wall-clock time. LLM-DEP: None. REJECTION-GATE: Integration is disqualified because in-process module wiring cannot reproduce real cross-process lock contention; the race window only exists between two independent OS-level processes.",
+      "test_description": "Spawn two real Node.js child processes (via child_process.spawn or equivalent test harness), both pointing at the same real PostgreSQL instance, started within milliseconds of each other. Each runner has access to the same migration files directory. After both processes exit, query the _migrations table and the target schema: assert each migration filename appears exactly once in _migrations, and each side-effect (e.g., each table created by a migration) exists exactly once — no duplicate-key errors, no double inserts, no missing rows. Run this scenario at least 5 times to surface non-deterministic race outcomes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.925,
+        "Agentic": 0.015,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two modules: the bootstrap initializer (CREATE TABLE _migrations) and the migration applier. The bug appears only if the runner tries to INSERT into _migrations before it exists — a module-ordering defect visible at the handoff between init and apply. REAL-INFRA: The ordering constraint can be verified by a stub DB that raises an error if INSERT _migrations is called before CREATE TABLE _migrations — this is a pure in-process sequencing check. No real PostgreSQL subprocess is needed to catch a bootstrap-order bug. A spy that tracks call order is sufficient. MOCK-HIDE: A stub that enforces ordering (raises on out-of-order calls) faithfully reproduces the exact failure mode. LLM-DEP: None. REJECTION-GATE: System would be needed only if verifying real DDL propagation matters — but the behavior's invariant is ordering, not DDL correctness. A stub that models 'table does not exist until CREATE TABLE is received' is an accurate in-process stand-in. Unit is too low because the ordering is a pipeline property, not a single-function property.",
+      "test_description": "Create a stub PostgreSQL client with stateful tracking: it begins with no _migrations table defined. Any INSERT or SELECT against _migrations before a CREATE TABLE _migrations statement is received causes the stub to throw a 'relation does not exist' error (mirroring real PostgreSQL behavior). Point the runner at an empty migration directory and a fresh stub instance. Run the runner. Assert: (a) the stub received CREATE TABLE _migrations as the first DDL statement, (b) no error was thrown by the stub, (c) the stub's call log shows zero migration SQL received before the CREATE TABLE call.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0.025,
+        "Workflow": 0.025
+      }
+    }
+  ]
+}

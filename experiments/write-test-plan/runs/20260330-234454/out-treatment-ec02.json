@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Invalid signature rejected with 401; body not forwarded",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans two module boundaries — the signature verifier and the HTTP handler — and requires verifying the side-effect (no queue write) as well as the response code. A unit test on the verifier alone cannot confirm that the handler correctly gates forwarding. REAL-INFRA: No real OS/network needed; an in-process HTTP test client (e.g., supertest) with a mock queue is sufficient. MOCK-HIDE: The mock queue is necessary to assert the body was NOT forwarded; a real queue is not needed to catch this failure. LLM-DEP: None. REJECTION-GATE: System was considered but rejected — in-process test infrastructure reproduces the exact failure (wrong signature → 401, queue never called).",
+      "test_description": "Send an HTTP POST with a valid body but a tampered X-Signature-256 header to the handler via an in-process test client. Assert the response status is 401. Verify via a call-count spy on the mock queue that no write was attempted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.68,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is written to the persistent queue before the HTTP 200 is returned",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is a sequencing bug at the boundary between the queue-write call and the HTTP response flush — two modules must interact. A unit test on either alone cannot observe the ordering. REAL-INFRA: An in-process test client can observe when the response arrives, and a mock queue can record the timestamp of the write call; no real OS/network needed. MOCK-HIDE: The mock queue records when it was called; comparing that timestamp to response-received time is sufficient to catch the failure. LLM-DEP: None. REJECTION-GATE: System rejected — in-process response ordering is fully observable without a real network socket.",
+      "test_description": "Wire the handler with a mock queue that records the wall-clock time when its write method is invoked. Send a valid signed request via in-process test client and record the time the 200 response is received. Assert that queue write timestamp < response-received timestamp.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.18,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Handler returns HTTP response without waiting for downstream processing to finish",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure — handler blocking on downstream — only manifests when the handler is wired to a downstream that takes time; testing the handler in isolation cannot reveal this. REAL-INFRA: A mock downstream with an artificial delay (e.g., a Promise that resolves after 5 s) is sufficient; no real subprocess or network needed. MOCK-HIDE: The mock downstream's delay is the mechanism that exposes blocking; if it were replaced with a real downstream the same signal would appear but the mock captures it equally. LLM-DEP: None. REJECTION-GATE: System rejected — in-process async delay reproduces the exact failure mode (event-loop block vs. fire-and-forget).",
+      "test_description": "Wire the handler with a mock downstream whose processing Promise resolves after 5 seconds. Send a valid signed request and measure time-to-response. Assert the response arrives in under 1 second (well before the mock downstream resolves), confirming the handler did not await downstream completion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.6,
+        "System": 0.32,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 s wall-clock time under concurrent load with slow downstream",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure (latency regression under concurrent load) only manifests when multiple connections compete for the same server resources simultaneously. REAL-INFRA: In-process supertest sends requests sequentially by default; verifying true concurrency and measuring wall-clock time under concurrent HTTP connections requires a real listening socket with multiple concurrent clients (e.g., k6, autocannon, or parallel curl). An in-process fake hides event-loop blocking that only surfaces under real concurrent I/O multiplexing at the OS level. MOCK-HIDE: A mock slow downstream with real delay is fine; it is the HTTP concurrency layer, not the downstream, that requires real infrastructure. LLM-DEP: None. REJECTION-GATE: Integration was considered but rejected — in-process test clients cannot reproduce true HTTP connection concurrency that stresses the server's accept loop and event loop under load.",
+      "test_description": "Start the real Node.js HTTP server against a mock downstream that sleeps 10 s. Fire 20 concurrent HTTP requests (e.g., via Promise.all + real fetch or autocannon) with valid signatures. Assert that every response completes in under 3 seconds wall-clock time, and assert that no request blocks the others.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.28,
+        "System": 0.66,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate event ID is not written to the queue a second time",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure spans the handler and the deduplication store — the handler must look up the ID in state before conditionally writing. A unit test on the lookup function alone cannot confirm the handler gates the queue write. REAL-INFRA: An in-process fake dedup store (or an embedded key-value store seeded with the first event's ID) is sufficient; no real OS or network dependency. MOCK-HIDE: The dedup store can be a real in-process map or embedded DB; a spy on the mock queue confirms no second write occurred. LLM-DEP: None. REJECTION-GATE: System rejected — the dedup check is in-process state; an in-process seeded store catches the failure equally to a real external store.",
+      "test_description": "Send a valid signed request twice with the same event ID via in-process test client. After the first request, assert the mock queue write was called once. After the second request, assert the mock queue write was still called only once total. Assert the second response is still 200 (acknowledged) but the queue was not written.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, handler returns 503 with Retry-After header",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the queue's 'full' signal and the handler's error-response logic. A unit test on the response-builder alone cannot confirm the handler correctly catches and translates the queue's full error. REAL-INFRA: A mock queue that throws or rejects with a 'queue full' error is fully sufficient; no real OS or network needed. MOCK-HIDE: The mock queue is the trigger for the error path; the assertion (503 + Retry-After header) is deterministic. LLM-DEP: None. REJECTION-GATE: System rejected — the queue's full condition can be deterministically injected via a mock stub.",
+      "test_description": "Configure the mock queue to reject writes with a 'capacity exceeded' error. Send a valid signed request via in-process test client. Assert the response status is 503. Assert the response includes a Retry-After header with a positive integer value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue actually enforces its configured capacity limit",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: This behavior is about the queue implementation itself, not the handler. The queue must be exercised directly. REAL-INFRA: A 'persistent' queue implies real durable storage (disk, external broker, embedded DB). An in-memory stub that returns a fake 'full' error replaces the real enforcement logic and trivially passes; only the real queue implementation can fail in the ways this behavior guards against (off-by-one in capacity counting, persistence layer buffering, flush timing). MOCK-HIDE: Mocking the queue makes this test vacuous — you would be testing the mock's own hard-coded behavior, not the queue's actual enforcement. REAL-INFRA (confirmed): The failure (queue exceeds configured limit) only appears when real persistence I/O participates in capacity accounting. LLM-DEP: None. REJECTION-GATE: Integration was considered; rejected because 'persistent' storage means the capacity logic is coupled to real I/O flushing that an in-process fake does not reproduce accurately.",
+      "test_description": "Spin up the real persistent queue implementation (real broker or embedded DB instance via Docker or test fixture) configured with capacity N. Write N events and assert all succeed. Write one more event and assert the queue rejects it (returns a capacity error or throws). Verify the queue length remains at N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.22,
+        "System": 0.7,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

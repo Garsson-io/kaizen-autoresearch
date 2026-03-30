@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-11",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Conversation history trimmed to most recent 10 messages when full history exceeds context window",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is a pure algorithmic operation — selecting a slice of a list based on its length. The failure (wrong messages included, off-by-one in window, trimming from wrong end) lives entirely inside the trimming function, not at a module boundary. REAL-INFRA: No OS, network, or subprocess involved. MOCK-HIDE: No dependencies to mock — this is list manipulation. LLM-DEP: The trim happens before the LLM call; no AI judgment is involved. MULTI-STEP: No. REJECTION-GATE: Integration was considered and rejected — the trimming algorithm is self-contained and doesn't require modules to hand off state for the failure to appear.",
+      "test_description": "Construct a list of 15 message objects and call the history-trimming function. Assert that exactly 10 messages are returned, they are the 10 most-recent ones (correct tail), and the order is preserved. Also test boundary cases: exactly 10 messages returns all 10 unchanged; 9 messages returns all 9 unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The generated response addresses the customer's question rather than producing a generic or off-topic reply",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: Whether the response is on-topic or generic is entirely a property of what the real LLM produces, not of any deterministic code path. A stub always returns the same constant string and can never reveal whether the model actually understood the customer's question. Correctness here is about model output quality — classification of relevance, generation accuracy — which varies across model versions, prompts, and inputs. MOCK-HIDE: Mocking the LLM always passes; the real failure (model returns a boilerplate non-answer) is invisible to a stub. MOCK-MISS/REAL-INFRA: Not the primary axis for this behavior. MULTI-STEP: Single LLM call, so Workflow not required. REJECTION-GATE: Integration was considered but there is no behavior text limiting this to routing or retry infrastructure — 'addresses the customer's question' is a judgment about output content, which requires a real model call.",
+      "test_description": "Send a specific customer question (e.g., 'How do I reset my two-factor authentication?') with relevant conversation history to the real chatbot pipeline backed by the actual LLM. Assert that the returned response contains content semantically related to the topic (authentication, reset, 2FA) and does not return a canned fallback or a response to a different topic. Run with several representative question types to guard against prompt-sensitivity regressions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.05,
+        "System": 0.03,
+        "Agentic": 0.83,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The tone re-check correctly identifies when a response is too formal for a casual-tier customer and triggers regeneration",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The behavior explicitly says 'correctly identifies' formality — this tests the tone classifier's judgment, not merely the routing code that acts on a classification result. The tone check itself re-prompts the LLM, so whether a formal response is flagged depends on what the real model returns as a tone verdict. A stub tone-checker always returns a constant verdict and cannot reveal whether the model actually distinguishes formal vs. casual register. MOCK-HIDE: Any stub would always pass (or always fail), masking the real question of whether the LLM's tone judgment is calibrated to customer tier. REJECTION-GATE: I considered Integration for the 'triggers regeneration' sub-part (routing given a verdict), but the behavior's stated correctness criterion — 'correctly identifies' — anchors it to classification quality, which is model-dependent. The infrastructure routing can be covered separately (see Behavior 5); this behavior cannot be demoted without discarding the 'correctly identifies' criterion.",
+      "test_description": "Submit a known formally-worded response (e.g., 'I would be delighted to assist you in resolving this matter at your earliest convenience') paired with a casual-tier customer profile to the real tone-checking step backed by the actual LLM. Assert that the tone check returns a 'too formal' verdict and that the orchestrator records a regeneration attempt. Also test a clearly casual response to assert no false positive. Use a set of labeled gold examples covering both polarities.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.78,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full exchange (user message, generated response, any regenerations) is persisted to the database with correct timestamps",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the module boundary between the service layer and the persistence layer — wrong fields mapped, missing regeneration records, timestamp not set before insert. A unit test of the persistence function in isolation cannot catch wiring bugs (e.g., the orchestrator not forwarding regeneration drafts to the persistence call). REAL-INFRA: A local in-process test database (SQLite or an in-memory Mongo equivalent) reproduces the exact failure; no real OS filesystem events, network calls, or subprocesses are required. MOCK-HIDE: Stubbing the DB away hides all mapping and transaction bugs. LLM-DEP: The LLM can be stubbed — the behavior is about storage correctness, not response quality. MULTI-STEP: No. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) LLM output content does not affect correctness of this behavior. (c) No chained agentic steps.",
+      "test_description": "Wire the orchestrator and persistence layer against a local test database. Inject a stub LLM that returns a known first response and a known regenerated response. Trigger the full conversation flow. Query the test database and assert: the user message is saved verbatim; the first (rejected) draft and the final response are both stored with their correct role labels; timestamps for each record are non-null, monotonically increasing, and fall within the test's execution window.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the tone check triggers regeneration, the second response replaces the first — the customer never sees the rejected draft",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is an orchestration bug — the response-delivery path must suppress the rejected draft and return only the second response. This only appears when the orchestrator, tone checker, and response-delivery modules are wired together; a unit test of any single component cannot catch it. REAL-INFRA: An in-process stub LLM can be programmed to return a 'too formal' first response and a casual second response, forcing the regeneration branch without real HTTP. LLM-DEP: Correctness here is about routing/suppression logic, not about what the model actually decides. We only need the orchestrator to take the regeneration branch — a deterministic stub that returns a flaggable first response reliably triggers that branch. MOCK-HIDE: Mocking the LLM away is fine as long as the stub exercises the regeneration path; the bug is in the delivery logic, not the model. MULTI-STEP: This does chain two LLM calls (initial + regeneration), but both can be stubbed — so Workflow is not required. REJECTION-GATE: I considered Agentic because the regeneration path is triggered by a tone verdict. Demoted because: the behavior tests whether the delivery code suppresses the draft ('the customer never sees the rejected draft'), not whether the tone classifier judges correctly. The disqualifying text is 'replaces the first' — that is an orchestration correctness criterion, testable with a stub that forces the regeneration branch deterministically.",
+      "test_description": "Wire the full orchestrator (LLM client, tone checker, response-delivery interface) using a stub LLM configured to return a formal-sounding first response and, on the regeneration call, a casual second response. Also stub the tone checker to flag the first response as 'too formal' for a casual-tier customer. Invoke the chatbot handler end-to-end and assert: (1) exactly one response is returned to the caller; (2) the returned response matches the second (casual) generation; (3) the rejected draft is not present in the output visible to the customer layer (though it may appear in internal logs or DB records per Behavior 4).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.17,
+        "Workflow": 0.08
+      }
+    }
+  ]
+}

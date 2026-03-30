@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-09",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A plugin whose manifest is missing a required field is rejected before any code from that plugin is executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The 'before any code is executed' constraint requires verifying that the loader does not proceed to require/import the plugin module when validation fails. This is not just a validation function test — it tests the handoff between the validator and the module-loading step. If these are tested in isolation (unit), a bug where the loader imports the module before checking validation results would go undetected. REAL-INFRA: No real OS/subprocess needed; a fake plugin directory on disk (or in-memory stub) suffices for the require() call path. MOCK-HIDE: Mocking the loader's import step would trivially pass without proving the sequencing. LLM-DEP: None. REJECTION-GATE for System: no real network or subprocess execution is needed; the entire flow is in-process Node.js with a test fixture on disk.",
+      "test_description": "Create a fake plugin directory containing a manifest.json missing a required field (e.g., 'version'). Wire the manifest validator and loader together. Attach a spy/stub to Node's require() or the plugin entry-point module. Invoke the loader and assert: (1) the loader surfaces a validation error for that plugin, and (2) the require/import spy was never called for that plugin's entry module.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.14,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When plugin A declares a dependency on plugin B, plugin B's onLoad hook is called before plugin A's.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The ordering failure only appears when the dependency-resolver and the hook-dispatch loop are wired together. The resolver may correctly compute order, but a bug in the dispatcher could still call hooks in manifest-discovery order. Neither module alone surfaces this — the failure lives at their boundary. REAL-INFRA: No real OS/network; test plugins can be in-memory stubs. MOCK-HIDE: If onLoad hooks are mocked and order is not tracked, the test passes trivially. LLM-DEP: None. REJECTION-GATE for System: module loading in a Node.js test process with fixture files does not require a subprocess.",
+      "test_description": "Create two stub plugins: plugin-b (no dependencies) and plugin-a (dependencies: ['plugin-b']). Both expose an onLoad stub that pushes their name into a shared call-order array. Load the plugin directory and assert the call-order array equals ['plugin-b', 'plugin-a'].",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When two plugins each declare a dependency on the other, the loader reports the cycle and loads neither.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Cycle detection alone (graph algorithm) is Unit-testable. However 'loads neither' requires verifying that the loader correctly acts on the cycle report — a separate module boundary. A bug where cycle detection reports the cycle but the loader proceeds anyway would not be caught by a Unit test of the cycle-detection function alone. REAL-INFRA: No real OS/network required. MOCK-HIDE: Mocking either the detector or the loader independently cannot catch the handoff failure. LLM-DEP: None. REJECTION-GATE for System: no subprocess or real OS primitives involved.",
+      "test_description": "Create two stub plugins where plugin-a has dependencies: ['plugin-b'] and plugin-b has dependencies: ['plugin-a']. Give each an onLoad stub. Invoke the loader and assert: (1) the loader returns or throws an error whose message names both plugins or explicitly mentions a cycle, and (2) neither plugin-a's nor plugin-b's onLoad stub was ever called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A plugin's onLoad hook is only invoked after the plugin's entry module has been imported and executed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only appears when the module-import step and the hook-dispatch step are wired together. If the loader dispatches the hook before awaiting the dynamic import promise, this is invisible unless both steps are exercised together. REAL-INFRA: In Node.js, require()/import() is in-process; test plugins can be real files on disk that a test fixture creates. This is still in-process module loading, not a subprocess. A jest.mock() stub for the module import would hide the timing bug by replacing the real import with a synchronous constant. Using a real test module file that sets an observable side-effect when its body runs is the minimal real-infrastructure needed. REJECTION-GATE for System: no child_process spawn or real HTTP is required; Node's module loader is in-process.",
+      "test_description": "Write a real test plugin file whose module body pushes 'module-executed' onto a shared events array. Its onLoad hook asserts that 'module-executed' is already present in the array at call time and then pushes 'hook-called'. Load the plugin via the framework and assert the events array equals ['module-executed', 'hook-called'] with no assertion errors thrown inside onLoad.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.65,
+        "System": 0.33,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When a plugin throws an error during its onLoad hook, the loader continues initializing the remaining plugins that do not depend on it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Three concerns must interact: error capture in the dispatcher, the dependency graph (to identify which plugins must be skipped vs. which are safe to continue), and the hook-dispatch loop's continuation logic. No single module in isolation exercises this — the failure appears only when error propagation meets dependency filtering. REAL-INFRA: No real OS/network. MOCK-HIDE: Mocking the dependency resolver or error handler separately cannot catch a bug in their joint behavior. LLM-DEP: None. REJECTION-GATE for System: all behaviour is in-process; no subprocess or real network call needed.",
+      "test_description": "Create three stub plugins: plugin-a (onLoad throws Error('boom')), plugin-b (dependencies: ['plugin-a'], onLoad is a spy), plugin-c (no dependencies, onLoad is a spy). Run the loader and assert: (1) the loader captures and reports plugin-a's error without propagating it as an unhandled exception, (2) plugin-c's onLoad spy was called exactly once, and (3) plugin-b's onLoad spy was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

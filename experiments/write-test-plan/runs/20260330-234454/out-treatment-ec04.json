@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is at the boundary between the module and the API — the module must correctly construct the outgoing payload. This is not a pure function test; we need to exercise the full request-building path. REAL-INFRA: No real HTTP needed — a stub/fake HTTP client can capture the outgoing request and inspect its body. MOCK-HIDE: A stub that captures what was sent does NOT hide the failure; the request construction bug would be fully visible. LLM-DEP: We are not testing what the LLM returns, only what we send to it — no AI output involved. REJECTION-GATE: Nothing in the behavior text requires real network or LLM output, so System/Agentic are disqualified.",
+      "test_description": "Wire the classification module against a stub HTTP server (or intercepting fake client). Submit a document for classification. Capture the outgoing request body and assert it contains exactly the full taxonomy label list (legal, technical, financial, other) — no labels missing, no extras.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns 'unknown' instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in how the module processes the API response. The bug appears at the response-processing boundary, not inside a single pure function. REAL-INFRA: A stub returning an out-of-taxonomy label is sufficient — no real network needed. MOCK-HIDE: Injecting a bad label via stub directly exposes whether the module validates and remaps it; the failure would not be hidden. LLM-DEP: We are testing the module's post-processing logic on a fixed, injected response — no real AI output needed. REJECTION-GATE: Unit is plausible only if validation is a standalone pure function, but the behavior says 'when the API returns,' implying we must go through the API-response processing path. No text disqualifies Integration.",
+      "test_description": "Configure a stub API to return a well-formed response whose label value is outside the taxonomy (e.g., 'sports'). Call the module with any document. Assert the return value is exactly 'unknown', not 'sports' or any other pass-through of the unexpected value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The classification result for the same document is the same across repeated calls.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-HIDE: A stub LLM always returns the same constant label regardless of how many times it is called, so any test using stubs will trivially pass — even if the real model returns different labels on successive calls. REAL-INFRA: Not the deciding factor here. LLM-DEP: Consistency across repeated calls is meaningful only if the real AI model is involved. Two distinct mechanisms could satisfy this invariant: (1) a result cache in the module, or (2) the LLM producing deterministic output at temperature=0. A stub test can verify mechanism (1) by returning different values each time and checking the module still returns the same — but only if caching is known to be the mechanism. The behavior description does not mention caching, so we cannot assume it. If the module relies on LLM determinism, a stub always hides the failure. REJECTION-GATE: There is no text in the behavior that disqualifies Agentic. 'Same across repeated calls' depends fundamentally on what the real model produces; keeping Agentic is required by the rejection gate.",
+      "test_description": "Call the real external AI API twice with an identical document and capture both returned labels. Assert the two labels are equal. Run this across a small sample of representative documents (3–5) to build statistical confidence that the determinism property holds, not just for one document by chance.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.03,
+        "Agentic": 0.75,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The number of tokens consumed for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is the module not enforcing the budget via the API request (e.g., not sending max_tokens or sending an incorrect value). This is a request-construction failure, parallel to Behavior 1. REAL-INFRA: No real HTTP or real LLM needed. A stub can capture the request and verify the token-budget parameter; a stub response can also carry a synthetic token-usage payload. MOCK-HIDE: If the module omits or misconfigures max_tokens, the outgoing request would expose this when captured by the stub. The API itself enforces completion token limits once max_tokens is set, so the real failure is in whether the module sends the correct parameter. LLM-DEP: Token consumption is bounded deterministically by max_tokens in the request; the actual completion content is irrelevant to whether the budget is respected. Prompt token count is also deterministic given a fixed document. INTEGRATION-BRAKE: (a) No real OS/network needed. (b) Correctness does not depend on AI output quality — it depends on the request parameter. (c) Not multi-step. REJECTION-GATE: Agentic would be needed only if we distrusted the API to enforce max_tokens, which is an unfounded assumption not supported by the behavior text.",
+      "test_description": "Set the module's token budget to a specific value (e.g., 200 tokens). Submit a representative document. Capture the outgoing API request with a stub client and assert max_tokens (or equivalent parameter) equals the configured budget. Also verify the module correctly reads and respects token-usage data from the stub response, rejecting any response whose reported total token count exceeds the budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.25,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in how the module handles a 429 (or equivalent rate-limit) API response — a retry-logic failure that only appears when multiple modules interact (HTTP layer + retry/backoff logic + result return path). REAL-INFRA: A stub that returns 429 on the first call and 200 with a valid label on the second is sufficient to expose whether the module retries. Real network behavior is not needed; rate-limit responses are purely a matter of HTTP status codes. MOCK-HIDE: The stub's 429 directly exercises the failure path; a missing retry would surface immediately as an error returned to the caller. LLM-DEP: The behavior is about retry infrastructure — category (1) orchestration code — not about what the model decides. A deterministic stub is exactly right here. REJECTION-GATE: System would require real HTTP under real load; nothing in the behavior text requires that. Agentic would require real model output; this behavior is purely about error handling.",
+      "test_description": "Configure a stub HTTP server to return a 429 rate-limit response on the first request and a valid 200 classification response (with a label from the taxonomy) on the second. Mock or freeze the wait/sleep primitive so the test does not block. Call the module once and assert it returns a valid taxonomy label — not an exception or error — confirming that it retried transparently.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

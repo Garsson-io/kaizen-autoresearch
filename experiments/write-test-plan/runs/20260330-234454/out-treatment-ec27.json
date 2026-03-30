@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-27",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The TSP heuristic produces a route no more than 1.5x the optimal length for up to 20 stops.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is entirely within the heuristic algorithm — wrong ordering or pruning decisions. No module boundary is crossed. REAL-INFRA: Inputs are coordinates (plain floats); no OS, network, or subprocess involved. MOCK-HIDE: Nothing to mock; the function is deterministic given fixed inputs. LLM-DEP: No AI/ML. MULTI-STEP: No. For small N (≤20), brute-force optimal is computable in-process and provides a concrete upper-bound reference. This is a pure algorithm quality check that lives entirely inside one function boundary.",
+      "test_description": "Construct a fixed set of ≤20 stops with known (x, y) coordinates. Run the TSP heuristic to get its route length. Brute-force the true optimal for the same inputs (feasible for N≤12) or use a known lower bound (e.g., MST length). Assert heuristic_length ≤ 1.5 × optimal_length. Parametrize with at least one adversarial case (e.g., clustered stops that tempt nearest-neighbor into a bad path).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.1,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Delivery time window estimates are computed correctly from inter-stop distance and the configured average speed for the road type.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure lives inside the time-estimation formula — wrong unit conversion, wrong speed lookup, or wrong arithmetic. This is a single-function computation, not a module handoff. REAL-INFRA: No I/O; speed config is just a dict or enum lookup. MOCK-HIDE: Nothing to mock; all inputs are passed as arguments. LLM-DEP: No. MULTI-STEP: No. The formula `time = distance / speed` with road-type dispatch is fully exercisable in isolation with parametrized cases.",
+      "test_description": "Call the time-window estimation function directly with explicit distance values (e.g., 60 km) and each supported road-type speed config (e.g., highway 100 km/h, urban 30 km/h). Assert the returned window matches the expected duration to within floating-point tolerance. Include edge cases: zero distance, minimum non-zero distance, and a distance that produces a fractional hour.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The shift-hours validator rejects a route whose total estimated time exceeds the driver's remaining shift hours, returning the excess amount.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is wrong arithmetic or missing rejection logic inside the validator function alone. No inter-module coordination is required to expose it. REAL-INFRA: Inputs are plain numbers (total time, shift hours remaining). MOCK-HIDE: Nothing to mock. LLM-DEP: No. MULTI-STEP: No. The validator is a boundary function: total_time > shift_remaining → return (False, total_time - shift_remaining). All failure modes are reachable with direct numeric inputs.",
+      "test_description": "Call the validator directly with (a) total time exactly equal to shift hours → expect acceptance with zero excess; (b) total time one minute over → expect rejection with excess = 1 minute; (c) total time well under → expect acceptance. Assert both the rejection boolean and the returned excess value. Verify the excess is the precise difference, not rounded or clamped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.92,
+        "Integration": 0.06,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When one address fails geocoding (API returns no results), the service skips that stop, optimizes remaining addresses, and reports which were skipped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure only manifests at the boundary between the geocoding client and the orchestration layer: does the service correctly propagate the 'no results' signal, remove the stop from the candidate list before calling the optimizer, and accumulate it in the skipped-address report? A unit test of any single module cannot catch a bug where the orchestrator passes the bad stop to the optimizer anyway, or forgets to populate the report. REAL-INFRA: The geocoding API is external HTTP in production, but the failure mode (handling an empty-results response) is fully reproducible with a stub HTTP client or a fake geocoding adapter — no real network conditions are required. A stub returning `[]` for a specific address is sufficient. MOCK-HIDE: Mocking at the wrong level (e.g., mocking the geocoder inside the optimizer) would hide the orchestration bug. The stub must be at the geocoding-client boundary so the real orchestration code runs. LLM-DEP: No. MULTI-STEP: No chained agentic steps. REJECTION-GATE for System: the behavior does not mention real network conditions, timeouts, or HTTP-level behavior — the failure is about control-flow with a known API response shape, which a stub reproduces exactly.",
+      "test_description": "Wire the real orchestration layer with (a) a stub geocoding client configured to return no results for exactly one address and valid coordinates for the rest, and (b) the real optimizer and reporter. Submit a list of N addresses where one is the failing address. Assert: the optimizer receives exactly N-1 coordinate pairs; the returned route does not include the failing address; the skipped-address report contains exactly that address. Test with the failing address at the start, middle, and end of the input list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate addresses are consolidated into a single stop with combined delivery items and visited only once in the optimized route.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure can occur at two distinct module boundaries: (a) the deduplication/consolidation step produces a wrong output (wrong item count, wrong stop count), or (b) the consolidated stop is handed correctly to the geocoder and optimizer but the optimizer still schedules two visits (e.g., because deduplication produced two identical coordinate entries). A unit test of the deduplication function alone cannot catch failure mode (b). Verifying 'visited only once' requires the deduplicated stop to flow through to the optimizer and appear in the route exactly once. REAL-INFRA: No real geocoding or HTTP needed; stub geocoding returning the same coordinate for both duplicate addresses is sufficient and is the critical case (same address → same coord → optimizer must not double-visit). MOCK-HIDE: Mocking the optimizer would mask whether it actually deduplicated the visit. The real optimizer must run on the consolidated input. LLM-DEP: No. MULTI-STEP: No agentic steps. REJECTION-GATE for System: no real network or OS behavior is required; a stub geocoder reproduces the exact failure scenario.",
+      "test_description": "Wire the deduplication module, stub geocoding client (returning the same coordinate for duplicate addresses), and real optimizer together. Submit two entries with identical address strings and different delivery items. Assert: the geocoder is called exactly once for that address; the optimizer receives exactly one stop for that coordinate; the returned route visits that coordinate exactly once; the consolidated stop's delivery items are the union of both input entries. Also test three duplicates to confirm N-to-1 consolidation scales correctly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}
