@@ -1,7 +1,7 @@
 ---
 id: contrastive-boundary-examples-pack
 title: Add compact positive/negative contrastive examples for all adjacent boundaries
-status: proposed
+status: rejected
 effort: high
 expected_impact: high
 targets:
