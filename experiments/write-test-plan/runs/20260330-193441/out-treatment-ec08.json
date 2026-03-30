@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Pass 1: Unit, because this is retry-delay math/state progression and cap enforcement for consecutive failures. Downgrade check: cannot go lower than Unit. Upgrade check: no behavior text requires module handoff, real network/OS/subprocess, or model output. Rejected higher level because the behavior only states delay growth and max cap logic.",
+      "test_description": "Test a pure delay-calculation/retry-state function with consecutive failure counts (1..N) and config max delay; assert exponential sequence and hard cap at configured maximum.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.14,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, because failure can occur at the boundary between response classification and retry scheduler (status/error payload -> retry decision + delay). Downgrade check: a single-function test could miss wiring mismatches between classifier and retry logic. Upgrade check: behavior does not require real HTTP transport; an in-process stub response is sufficient. Rejected System because text says only 'identifies a rate-limit response and computes wait time' without requiring real network behavior.",
+      "test_description": "Wire retry orchestrator + response classifier with a stub transport returning a 429/rate-limit-shaped response; assert it is recognized as retryable and that computed delay matches policy/header parsing rules.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, since this needs retry orchestrator, timer/scheduler, request replay, and result propagation working together. Downgrade check: Unit on one function would not prove resend of the original request through the call() boundary. Upgrade check: no explicit requirement for real OS/network/subprocess; fake clock + stub transport can reproduce failure. Rejected System because behavior is about orchestration, not real infrastructure effects.",
+      "test_description": "Using fake timers and a stub API client, force first attempt to return rate-limit then second to succeed; assert the same request payload is resent after backoff and call() resolves with the successful response without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed QuotaExhaustedError rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, because max-retry counting, termination, and public error mapping must align across modules. Downgrade check: pure Unit may miss mismatch where internal retry exhaustion is not mapped to exported typed error at call() boundary. Upgrade check: no real infra or AI dependency in behavior text. Rejected System because behavior only requires correct typed error emission after configured retries.",
+      "test_description": "Configure low max retries, stub transport to always return rate-limit, execute call(), and assert rejection is specifically QuotaExhaustedError (type/instance and key fields), not a generic Error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, because this explicitly spans multiple local components (retry chain + quota tracking) and termination conditions. Downgrade check: Unit cannot validate full chain termination across interacting modules. Upgrade check: behavior does not require real OS/network; controlled stubs and fake timers can detect infinite-loop risk. Rejected System because no concrete text requires real HTTP/subprocess timing behavior.",
+      "test_description": "Run call() with transport continuously rate-limiting and fake timers advanced deterministically; assert attempts stop at expected bound and promise settles with QuotaExhaustedError within finite simulated time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, as this is shared-state correctness across concurrent call() invocations and quota manager wiring. Downgrade check: Unit of a quota function misses real async contention through public API. Upgrade check: behavior is explicitly 'same process' and does not require real network/OS primitives. Rejected System because the failure boundary is in-process concurrency and shared module state, not external infrastructure.",
+      "test_description": "Instantiate one client/quota manager, fire multiple call() promises concurrently with controlled stub responses, and assert aggregate consumption/denials reflect one shared bucket across callers rather than per-caller buckets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.82,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Pass 1: Integration, because queueing discipline (FIFO) must hold through async scheduler + dispatcher interaction. Downgrade check: Unit queue test alone may not catch reordering introduced by dispatcher/timer wiring. Upgrade check: no behavior text requires real OS scheduler or real network; deterministic in-process harness can expose ordering bugs. Rejected System because ordering requirement is internal dispatch order, not external infrastructure behavior.",
+      "test_description": "Queue several call() requests while sending is blocked/rate-limited, then release capacity stepwise via stubs; record dispatch sequence and assert it matches original submission order exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

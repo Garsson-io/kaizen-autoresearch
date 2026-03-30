@@ -1,7 +1,7 @@
 ---
 id: dual-pass-classify-then-audit
 title: Two-pass protocol: initial classification then adversarial downgrade/upgrade audit
-status: proposed
+status: rejected
 effort: high
 expected_impact: high
 targets:
@@ -62,4 +62,3 @@ It may improve robustness because the audit is symmetric, unlike prior edits tha
 Two-pass reasoning can increase variance and latency; weaker runs may produce contradictory audits and unstable final choices. If the model does not faithfully follow "no hypothetical facts," this becomes extra prose with minimal effect.
 
 This is high-effort and may be harder to isolate causally in evaluation.
-
