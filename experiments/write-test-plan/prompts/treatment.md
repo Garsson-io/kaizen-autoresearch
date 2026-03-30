@@ -25,8 +25,17 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
+- **DUAL-PASS DECISION**:
+  - **Pass 1 (propose)**: choose the minimum level that appears sufficient from behavior evidence.
+  - **Pass 2 (audit)**: challenge Pass 1 in both directions:
+    - **Downgrade check**: could this pass at one lower level with the same stated behavior?
+    - **Upgrade check**: is there a concrete behavior-stated reason requiring one higher level?
+  - In Pass 2, do not introduce new hypothetical facts not present in the behavior text.
+  - Finalize the level only after both checks.
+
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
+  If downgrade and upgrade checks disagree, prefer the level supported by explicit behavior evidence, not hypothetical risk.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
