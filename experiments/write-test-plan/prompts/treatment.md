@@ -10,14 +10,6 @@ a real failure — not just to verify happy-path logic.
   - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs)
   - **Workflow** — multiple agentic steps in sequence, or a full agent pipeline
 
-- **TOP-DOWN ELIMINATION**:
-  - Start at Workflow and eliminate downward only with behavior-specific evidence:
-    1) If it does not require multiple real agentic steps, eliminate Workflow.
-    2) If correctness does not depend on real model judgment quality, eliminate Agentic.
-    3) If failure does not require real OS/network/subprocess/external behavior, eliminate System.
-    4) If failure does not require local module/interface wiring, eliminate Integration.
-  - Choose the highest level not eliminated.
-
 - **KEY-QUESTIONS** per behavior:
   - **MOCK-MISS**: Does THIS SPECIFIC BEHAVIOR describe a failure that only appears when multiple modules interact — not just a failure that could theoretically exist somewhere in the feature? If the behavior tests one function's logic, parsing, or algorithm, it is Unit even if the broader feature has integration points. Not Unit: if the bug appears only when local modules hand off data/state, Unit is too low. Only escalate to Integration when the behavior's own failure mode is at a module boundary. This sets the Unit floor only; then still apply REAL-INFRA, LLM-DEP, and MULTI-STEP to decide whether the required level is higher.
   - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
@@ -31,6 +23,7 @@ a real failure — not just to verify happy-path logic.
     Default: if the behavior's correctness depends on AI/ML model output quality (classification accuracy, generation quality, ranking relevance, scoring calibration, moderation decisions), start at Agentic and demote to Integration only if the test truly needs nothing beyond deterministic stub responses.
     - Integration: "service routes requests to the correct model endpoint and retries on failure" — a stub endpoint catches this.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
+    Also Agentic: if the behavior's execution path passes through a real AI/ML API call (LLM, classifier, ranker, scorer), default to Agentic — even when the test assertion is deterministic. A mock replaces the real model with a constant, so any bug that depends on what the model actually returns is invisible. Only demote to Integration if the behavior EXCLUSIVELY tests infrastructure around the call (routing, retries, latency, payload format) with zero dependence on model output content.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
