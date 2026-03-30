@@ -25,8 +25,17 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
+- **BOUNDARY-PROOF** (adjacent escalation only):
+  - Start at Unit.
+  - To move Unit -> Integration, provide one concrete reason this behavior fails at a module/interface handoff.
+  - To move Integration -> System, provide one concrete reason real OS/network/subprocess/external behavior is required.
+  - To move System -> Agentic, provide one concrete reason correctness depends on real model output quality/non-determinism.
+  - To move Agentic -> Workflow, provide one concrete reason multiple agentic steps in sequence are required.
+  - If you cannot provide the proof for a boundary, do not cross it.
+
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
+  If your chosen level skips a boundary proof, lower the level to the highest proven boundary.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
