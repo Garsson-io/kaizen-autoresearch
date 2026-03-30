@@ -29,6 +29,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
+import { z } from "zod";
 import { PATHS } from "./paths.js";
 
 const UNMATCHED_PATH = join(PATHS.taxonomy, "unmatched.md");
@@ -39,6 +40,36 @@ note: "Auto-accumulated unmatched taxonomy lines. After creating new taxonomy fi
 ---
 
 `;
+
+// Schema for a taxonomy routing-key line.
+// Format: "[run7] EC-10 b4 (Integration→Agentic) [w=4] ⚠SELF-AWARE"
+// Lines without the (Pred→GT) pair are not routing keys and will fail parsing.
+const RoutingKeySchema = z.string().transform((line, ctx) => {
+  const m = line.match(/^\[run(\S+)\] (\S+) b(\d+) \((\w+)→(\w+)\)/);
+  if (!m) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Not a routing key line" });
+    return z.NEVER;
+  }
+  const wMatch = line.match(/\[w=(\d+)\]/);
+  return {
+    run: m[1],
+    task: m[2],
+    behavior: parseInt(m[3]),
+    pred: m[4],
+    gt: m[5],
+    pair: `${m[4]}-${m[5]}`,
+    weight: wMatch ? parseInt(wMatch[1]) : null,
+    selfAware: line.includes("⚠SELF-AWARE") || line.includes("SELF-AWARE"),
+  };
+});
+type RoutingKey = z.output<typeof RoutingKeySchema>;
+
+// Schema for taxonomy file frontmatter. confusion_pair and id are required for routing.
+const TaxonomyFrontmatterSchema = z.object({
+  id: z.string(),
+  confusion_pair: z.string(),
+  direction: z.enum(["under", "over"]).optional(),
+}).passthrough();
 
 interface TaxonomyFile {
   path: string;
@@ -76,11 +107,17 @@ function loadTaxonomyFiles(): TaxonomyFile[] {
     if (!name.endsWith(".md") || name === "README.md" || name === "unmatched.md") continue;
     const path = join(dir, name);
     const content = readFileSync(path, "utf8");
-    const fm = parseFrontmatter(content);
-    if (!fm.confusion_pair) continue;
-
+    const raw = parseFrontmatter(content);
+    // Files without confusion_pair are not routing targets (e.g. C1, gt-review) — skip silently.
+    if (!raw.confusion_pair) continue;
+    const result = TaxonomyFrontmatterSchema.safeParse(raw);
+    if (!result.success) {
+      console.warn(`Skipping ${name}: invalid frontmatter — ${result.error.issues.map(i => i.message).join(", ")}`);
+      continue;
+    }
+    const fm = result.data;
     const pairs = fm.confusion_pair.split(",").map(p => p.trim());
-    files.push({ path, confusionPairs: pairs, direction: fm.direction ?? "", id: fm.id ?? name });
+    files.push({ path, confusionPairs: pairs, direction: fm.direction ?? "", id: fm.id });
   }
   return files;
 }
@@ -112,8 +149,8 @@ function detectRunNumber(taxFiles: TaxonomyFile[]): number {
 //   [run5] EC-10 b4 (Integration→Agentic): "truncated..."
 
 function parseConfusionPair(line: string): string | null {
-  const m = line.match(/\((\w+)→(\w+)\)/);
-  return m ? `${m[1]}-${m[2]}` : null;
+  const result = RoutingKeySchema.safeParse(line);
+  return result.success ? result.data.pair : null;
 }
 
 function parseBlocks(rawInput: string): Block[] {
@@ -161,7 +198,16 @@ function matchFiles(pair: string, taxFiles: TaxonomyFile[]): TaxonomyFile[] {
 
 function appendBlocks(filePath: string, blocks: Block[]): number {
   const existing = readFileSync(filePath, "utf8");
-  const toAdd = blocks.filter(b => !existing.includes(b.key.trim()));
+  const toAdd = blocks.filter(b => {
+    if (existing.includes(b.key.trim())) return false;
+    // Validate routing key line against schema before writing
+    const validation = RoutingKeySchema.safeParse(b.key);
+    if (!validation.success) {
+      console.warn(`Skipping invalid routing key: ${b.key.slice(0, 80)}`);
+      return false;
+    }
+    return true;
+  });
   if (toAdd.length === 0) return 0;
   const sep = existing.endsWith("\n") ? "" : "\n";
   const newContent = toAdd.map(b => b.lines.join("\n")).join("\n\n");
@@ -259,18 +305,24 @@ function reprocessUnmatched(taxFiles: TaxonomyFile[], dryRun: boolean): void {
 // Scans all taxonomy files + unmatched.md, counts occurrences per confusion pair.
 // Shows which pairs have enough history to warrant new taxonomy files.
 
-function printSummary(taxFiles: TaxonomyFile[]): void {
-  const KEY_PATTERN = /^\[run\S+\] \S+ b\d+ \((\w+)→(\w+)\)/m;
+function parseRoutingKeys(content: string): RoutingKey[] {
+  const keys: RoutingKey[] = [];
+  for (const line of content.split("\n")) {
+    const result = RoutingKeySchema.safeParse(line);
+    if (result.success) keys.push(result.data);
+  }
+  return keys;
+}
 
-  // Count matched (in taxonomy files)
+function printSummary(taxFiles: TaxonomyFile[]): void {
+  // Count matched (in taxonomy files) — parse each line via RoutingKeySchema
   const matchedCounts = new Map<string, Map<string, number>>();  // pair → (file → count)
   for (const f of taxFiles) {
     const content = readFileSync(f.path, "utf8");
-    for (const m of content.matchAll(/^\[run\S+\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
-      const pair = `${m[1]}-${m[2]}`;
-      if (!matchedCounts.has(pair)) matchedCounts.set(pair, new Map());
-      const fname = f.id.replace(/\.md$/, "");
-      matchedCounts.get(pair)!.set(fname, (matchedCounts.get(pair)!.get(fname) ?? 0) + 1);
+    const fname = f.id.replace(/\.md$/, "");
+    for (const rk of parseRoutingKeys(content)) {
+      if (!matchedCounts.has(rk.pair)) matchedCounts.set(rk.pair, new Map());
+      matchedCounts.get(rk.pair)!.set(fname, (matchedCounts.get(rk.pair)!.get(fname) ?? 0) + 1);
     }
   }
 
@@ -279,11 +331,10 @@ function printSummary(taxFiles: TaxonomyFile[]): void {
   const unmatchedRuns = new Map<string, Set<string>>();
   if (existsSync(UNMATCHED_PATH)) {
     const content = readFileSync(UNMATCHED_PATH, "utf8");
-    for (const m of content.matchAll(/^\[run(\S+)\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
-      const pair = `${m[2]}-${m[3]}`;
-      unmatchedCounts.set(pair, (unmatchedCounts.get(pair) ?? 0) + 1);
-      if (!unmatchedRuns.has(pair)) unmatchedRuns.set(pair, new Set());
-      unmatchedRuns.get(pair)!.add(m[1]);
+    for (const rk of parseRoutingKeys(content)) {
+      unmatchedCounts.set(rk.pair, (unmatchedCounts.get(rk.pair) ?? 0) + 1);
+      if (!unmatchedRuns.has(rk.pair)) unmatchedRuns.set(rk.pair, new Set());
+      unmatchedRuns.get(rk.pair)!.add(rk.run);
     }
   }
 
