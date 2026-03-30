@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Failure mode: logic error in backoff math/capping. Required setup: call backoff-calculation logic (or retry-state object) with consecutive failure counts and a max cap, then assert the computed delays. Higher levels were rejected because the behavior text is only about delay computation (\"doubles... up to a configured maximum\"), not transport, OS/network, or cross-module wiring.",
+      "test_description": "Given base delay and max delay, feed failure counts (1..N) and assert delays follow exponential growth and clamp at max; include edge cases around the cap boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.18,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: module handoff/wiring error between HTTP-response interpretation and retry scheduler (e.g., status/headers not mapped correctly). Required setup: wire retry logic with a stub transport that returns realistic rate-limit responses and verify chosen delay. System was rejected because behavior text focuses on identifying response + computing wait time, which can be exposed with in-process response fixtures; no real network/OS requirement is stated.",
+      "test_description": "Use a stubbed API client returning 429 (and relevant headers/body), run one call attempt through retry module, and assert it classifies as rate-limited and schedules the expected next-wait duration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.68,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: wiring/state error across timer/backoff, request replay, and response propagation to caller. Required setup: retrying client + fake timer + stub transport that fails once with rate-limit then succeeds, asserting original request is resent and success is returned unchanged. System was rejected because behavior text does not require real HTTP semantics beyond resend flow; in-process stubs can expose this failure boundary.",
+      "test_description": "With controlled timers, make first response rate-limited and second response success; assert transport called twice with equivalent request payload and `call()` resolves to second response data without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: error-mapping handoff error at retry-exhaustion boundary (generic error leaks instead of typed domain error). Required setup: drive retry loop to configured max with repeated rate-limit responses and assert thrown error type/fields. Unit was possible but weaker because failure usually appears when counter logic and error-construction wiring interact.",
+      "test_description": "Configure max retries to a small value, force persistent rate-limit responses, invoke `call()`, and assert rejection is instance of `QuotaExhaustedError` (and not a generic Error) with expected metadata.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.73,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: multi-module orchestration error in local retry state machine (non-terminating loop). Required setup: execute full in-process retry chain with controlled clock and persistent quota failures, then assert completion at bounded attempts/time. System was considered but rejected because behavior text targets internal chain termination and quota tracking, which is reproducible without real OS/network/subprocess.",
+      "test_description": "Run `call()` with deterministic always-rate-limited stub and fake time advancement; assert total attempts equal expected bound (`1 + maxRetries`) and promise rejects within a strict virtual-time limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.76,
+        "System": 0.14,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: shared-state/concurrency wiring error across caller-facing API and quota bucket module. Required setup: concurrent in-process callers against one client instance with deterministic quota budget, verifying aggregate consumption reflects one shared bucket. System was rejected because behavior text explicitly scopes to \"same process\" and does not require real external infra.",
+      "test_description": "Launch N concurrent `call()` invocations on one client with quota limit M in a test double backend; assert only M are admitted before throttling/retry behavior and that all callers observe decisions from the same quota state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.83,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode: queue ordering bug at module boundaries (enqueue/dequeue + scheduler dispatch). Required setup: multiple pending calls with controlled release conditions to force queueing, then assert FIFO dispatch order. System was rejected because ordering semantics are internal to process queueing; no real network/OS primitive is required by the behavior text.",
+      "test_description": "Create three queued calls (A,B,C) under blocked quota, then release one slot at a time and assert backend dispatch order is A then B then C.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.82,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

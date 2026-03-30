@@ -1,7 +1,7 @@
 ---
 id: solution-collapse-prevention
 title: Force the model to name the failure mode before choosing the level
-status: proposed
+status: rejected
 effort: medium
 expected_impact: high
 targets:
