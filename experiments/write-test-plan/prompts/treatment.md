@@ -10,20 +10,6 @@ a real failure — not just to verify happy-path logic.
   - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs)
   - **Workflow** — multiple agentic steps in sequence, or a full agent pipeline
 
-- **BOUNDARY EXAMPLES** (use as tie-breakers):
-  - **Unit vs Integration**:
-    - Unit example: "Validate parser rejects malformed token list in one function."
-    - Integration example: "Verify parser output field names map correctly into scheduler input."
-  - **Integration vs System**:
-    - Integration example: "Verify repo layer and service layer preserve transaction rollback state."
-    - System example: "Verify behavior under real subprocess exit codes / real network timeout behavior."
-  - **System vs Agentic**:
-    - System example: "Deterministic external API contract handling (same input -> same output semantics)."
-    - Agentic example: "Correctness depends on real model judgment quality (classification/ranking/scoring/generation)."
-  - **Agentic vs Workflow**:
-    - Agentic example: "Single model step quality check."
-    - Workflow example: "Multi-step agent chain where later step correctness depends on earlier model outputs."
-
 - **KEY-QUESTIONS** per behavior:
   - **MOCK-MISS**: Does THIS SPECIFIC BEHAVIOR describe a failure that only appears when multiple modules interact — not just a failure that could theoretically exist somewhere in the feature? If the behavior tests one function's logic, parsing, or algorithm, it is Unit even if the broader feature has integration points. Not Unit: if the bug appears only when local modules hand off data/state, Unit is too low. Only escalate to Integration when the behavior's own failure mode is at a module boundary. This sets the Unit floor only; then still apply REAL-INFRA, LLM-DEP, and MULTI-STEP to decide whether the required level is higher.
   - **REAL-INFRA**: Does the behavior depend on OS, real network, or real subprocess? → System.
@@ -41,7 +27,6 @@ a real failure — not just to verify happy-path logic.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
-  If two levels still seem plausible, choose the one whose boundary example most closely matches the behavior's failure mode.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
