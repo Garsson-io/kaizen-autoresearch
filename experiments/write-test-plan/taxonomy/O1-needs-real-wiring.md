@@ -30,9 +30,6 @@ EC-28 b8: "Template rendering" — predicted Integration
 [run5] EC-25 b5 (Integration→Unit): "Output structure — model requires 'real models' to catch serialization bugs."
 [run5] EC-27 b5 (Integration→Unit): "Route deduplication consolidation: (1) duplicates consolidated (Unit-testable), (2) final route visits consolidated stops (model adds Integration need)."
 [run5] EC-28 b8 (Integration→Unit): "Dependency-tracking and recalculation mechanism — model says 'single evaluation wouldn't catch ordering bugs'."
-[run6] EC-06 b2 (Unit→Integration) [w=2]
-  J: "Failure boundary is local decision logic (same path + time window) and does not require OS/network/subprocess. MOCK-MISS: behavior can be fully exercised at function/object boundary with a fake clock. INTEGRATION-BRAKE check: no real infra required, no AI output, no multi-step agent chain. Rejected higher levels: behavior text is specifically "deduplication logic" for repeated request by path/time window, which is deterministic and local."
-
 [run6] EC-01 b1 (Integration→Unit) [w=1]
   J: "Failure boundary is the handoff between config-file loading, `TOOL_` env override mapping, and required-key validation/error formatting. A unit test of only the validator can miss merge/path-mapping bugs. Higher levels are rejected because behavior text does not require subprocess/real network/OS-dependent effects (so not System) and does not depend on AI output (not Agentic/Workflow)."
 
@@ -155,4 +152,3 @@ EC-28 b8: "Template rendering" — predicted Integration
 
 [run6] EC-30 b10 (Integration→Unit) [w=1]
   J: "Determinism here is pipeline-level (feature assembly, ordering, tie-breaks, seed handling), not just a single function. Cross-module nondeterminism can occur even if individual units pass. INTEGRATION-BRAKE: behavior text does not require real OS/network/subprocess; no real LLM/ML stochastic output requirement; no multi-agent sequence. Rejected higher levels accordingly."
-

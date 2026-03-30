@@ -5,7 +5,7 @@ direction: under
 predicted: Unit or Integration
 ground_truth: Agentic
 weight: 4
-confusion_pair: Integration-Agentic
+confusion_pair: Integration-Agentic, Unit-Agentic, System-Agentic
 description: Model treats AI/LLM API calls as mockable services, missing that the mock hides non-deterministic model output.
 self_aware: true
 self_aware_note: Model often acknowledges the need for real AI in hedges then picks lower.
@@ -49,4 +49,13 @@ self_aware_note: Model often acknowledges the need for real AI in hedges then pi
 
 [run6] EC-19 b3 (Integration→Agentic) [w=4]
   J: "The bug is at a local module handoff boundary: test-result collector -> prompt builder -> LLM client request payload. No real OS/network/subprocess is required, and correctness does not depend on model output quality, only that failure text is propagated into the next prompt. Rejected higher levels: System/Agentic are disqualified by behavior text focusing on prompt content inclusion, not infrastructure quirks or model judgment."
+
+[run6] EC-30 b3 (Unit→Agentic) [w=4]
+  J: "Behavior is core ranking logic (weighting by browsing signal) and can fail within one algorithm boundary without module interaction. MOCK-MISS: no required cross-module handoff described. Rejected Integration because behavior text focuses on ranking rule itself, not data plumbing."
+
+[run6] EC-30 b5 (Unit→Agentic) [w=4]
+  J: "This is an algorithmic constraint on output composition; can be validated directly in ranking/diversification logic with deterministic fixtures. No required module interaction or real infra in text. Rejected Agentic: no LLM/model quality dependency is described."
+
+[run6] EC-32 b6 (Unit→Agentic) [w=4]
+  J: "Core failure boundary is assertion logic correctness (schema/structure checks vs naive keyword matching). This can be tested with crafted outputs that include echoed keywords but wrong structure. No real infra required; no model non-determinism required. Rejection gate: Integration considered, but behavior text focuses on assertion semantics themselves, which are local logic."
 

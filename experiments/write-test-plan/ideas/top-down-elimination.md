@@ -1,7 +1,7 @@
 ---
 id: top-down-elimination
 title: Top-down elimination ladder (start at Workflow, work down)
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:

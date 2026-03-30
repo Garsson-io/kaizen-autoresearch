@@ -260,13 +260,13 @@ function reprocessUnmatched(taxFiles: TaxonomyFile[], dryRun: boolean): void {
 // Shows which pairs have enough history to warrant new taxonomy files.
 
 function printSummary(taxFiles: TaxonomyFile[]): void {
-  const KEY_PATTERN = /^\[run\d+\] \S+ b\d+ \((\w+)→(\w+)\)/m;
+  const KEY_PATTERN = /^\[run\S+\] \S+ b\d+ \((\w+)→(\w+)\)/m;
 
   // Count matched (in taxonomy files)
   const matchedCounts = new Map<string, Map<string, number>>();  // pair → (file → count)
   for (const f of taxFiles) {
     const content = readFileSync(f.path, "utf8");
-    for (const m of content.matchAll(/^\[run\d+\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
+    for (const m of content.matchAll(/^\[run\S+\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
       const pair = `${m[1]}-${m[2]}`;
       if (!matchedCounts.has(pair)) matchedCounts.set(pair, new Map());
       const fname = f.id.replace(/\.md$/, "");
@@ -279,7 +279,7 @@ function printSummary(taxFiles: TaxonomyFile[]): void {
   const unmatchedRuns = new Map<string, Set<string>>();
   if (existsSync(UNMATCHED_PATH)) {
     const content = readFileSync(UNMATCHED_PATH, "utf8");
-    for (const m of content.matchAll(/^\[run(\d+)\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
+    for (const m of content.matchAll(/^\[run(\S+)\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
       const pair = `${m[2]}-${m[3]}`;
       unmatchedCounts.set(pair, (unmatchedCounts.get(pair) ?? 0) + 1);
       if (!unmatchedRuns.has(pair)) unmatchedRuns.set(pair, new Set());
