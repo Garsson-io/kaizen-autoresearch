@@ -1,463 +1,252 @@
-# Taxonomy
+# Taxonomy System — Canonical Reference
 
-Each `.md` file is one reasoning pattern. Front matter describes the category. Each line in the body is one occurrence (task + behavior + prose excuse).
+The taxonomy captures **reasoning failure patterns** — the specific arguments a model makes when it misclassifies a behavior's minimum test level. Each file is one pattern. Each entry is one occurrence from one run. The system is designed to accumulate evidence longitudinally so patterns become visible across runs, not just within one.
 
-**Count occurrences**: `wc -l taxonomy/U1-can-mock-the-api.md` (subtract frontmatter lines)
-**Find patterns**: `grep -l "mock" taxonomy/*.md`
-**Impact**: frequency x weight (from frontmatter)
+→ For the iteration loop that uses this system, see `experiments/write-test-plan/program.md` step 1 (MINE)
+→ For the step-by-step mining workflow, see `.agents/skills/mine-ideas/SKILL.md` step 6
+→ For the run-experiment skill's cognitive step description, see `.agents/skills/run-experiment/SKILL.md`
+
+---
+
+## Design principles
+
+**Append-only.** Never delete lines. The history of how excuses evolve across runs IS the signal. A behavior that appears in runs 1–6 with the same justification is a core unsolved problem. One that stops appearing after run 4 is evidence the treatment worked.
+
+**Confusion pair as routing key.** Every entry has a `(Pred→GT)` routing key. `taxonomy-append.ts` routes each block mechanically by matching the pair in the block's first line against the `confusion_pair` frontmatter of every taxonomy file. This is fully mechanical — no judgment about content fit.
+
+**unmatched.md as longitudinal accumulation.** When no taxonomy file matches a block's confusion pair, the block goes to `unmatched.md` (never discarded). After enough runs, patterns emerge in unmatched.md. An LLM cognitive step then decides whether each unmatched pair fits an existing pattern (update that file's `confusion_pair` list) or needs a new file.
+
+**`--reprocess-unmatched` as retroactive backfill.** When a new taxonomy file is created or an existing one's `confusion_pair` list is expanded, run `--reprocess-unmatched` to re-route all historical unmatched blocks. New knowledge categorizes old evidence.
+
+---
 
 ## Frontmatter schema
 
 ```yaml
 ---
-id: U1                    # short ID for cross-reference
-name: "Human readable"    # the excuse pattern name
-direction: under | over | correct
-predicted: Unit           # what the model predicted
-ground_truth: Agentic     # what the GT says
-weight: 4                 # GT level weight (Unit=1, Integration=2, System=3, Agentic=4, Workflow=4)
-confusion_pair: System-Agentic
-description: One sentence explaining the reasoning failure
-self_aware: true          # optional — does the model acknowledge the correct answer?
+id: U1                          # short ID used in cross-references (e.g. "see U1")
+name: "Can mock the API"        # human-readable pattern name
+direction: under | over         # under = model predicts too low, over = model predicts too high
+predicted: Integration          # what the model predicted (use exact level name)
+ground_truth: Agentic           # what GT says (use exact level name or "Integration or System")
+weight: 4                       # GT level weight: Unit=1, Integration=2, System=3, Agentic=4, Workflow=4
+confusion_pair: Integration-Agentic, Unit-Agentic   # ALWAYS Pred-GT format, comma-separated list
+description: "One sentence — the core reasoning failure this pattern captures"
+self_aware: true                # optional — does thinking contain correct reasoning the model overrides?
+self_aware_note: "..."          # optional — summarize the self-aware pattern
+note: "..."                     # optional — updates as pattern evolves across runs
 ---
 ```
 
-## Body format
+### CRITICAL: confusion_pair direction convention
 
-Each occurrence has TWO lines — the justification (from output JSON) and the thinking (from .log file):
+The format is **ALWAYS `Predicted-GroundTruth`** (Pred-GT). Never GT-Pred.
+
+| direction | example | correct pair | wrong pair (GT-Pred) |
+|-----------|---------|-------------|---------------------|
+| under (predicts too low) | model says Integration, GT is Agentic | `Integration-Agentic` | `Agentic-Integration` ✗ |
+| over (predicts too high) | model says System, GT is Integration | `System-Integration` | `Integration-System` ✗ |
+
+**Historical note**: O1–O4 were originally created with the pair reversed (GT-Pred). This caused all over-prediction blocks to route to U files instead of O files, and all real O-pattern blocks went to `unmatched.md`. Fixed in commit de4dc8d.
+
+### confusion_pair as a list
+
+The same reasoning trap can manifest at different starting levels. U1 ("can mock the API") produces `Integration-Agentic` AND `Unit-Agentic` AND `System-Agentic`. List all pairs that exhibit the same trap:
+
+```yaml
+confusion_pair: Integration-Agentic, Unit-Agentic, System-Agentic
+```
+
+When a new run surfaces a pair that isn't listed but shows the same reasoning pattern, update the list and run `--reprocess-unmatched` to backfill history.
+
+---
+
+## Body format (current — multi-line blocks)
+
+Each entry is a **block** — a routing key line followed by indented content lines, separated from the next block by a blank line:
 
 ```
-[run4] EC-04 b3 (Unit→Agentic): "quoted justification text from the model"
-[run4] EC-04 b3 THINKING: "A mock would return the same result every time, hiding non-deterministic behavior..."
+[run6] EC-10 b4 (Integration→Agentic) [w=4] ⚠SELF-AWARE
+  J: "Full justification text — no truncation. This is what the model said publicly in the output JSON."
+  T: "Full thinking excerpt — the model's internal reasoning from the .log file. For self-aware cases, this is the sentence where the model acknowledges the correct level."
+
+[run6] EC-17 b2 (Integration→Agentic) [w=4]
+  J: "MOCK-MISS: The likely failure boundary is module handoff..."
+  T: "I need to verify whether the real KB lookup changes the output..."
 ```
 
-The justification is what the model said publicly. The thinking is its internal reasoning.
-When thinking contradicts the justification, flag it — this is the "knows better but acts worse" pattern.
+**First line (routing key)**: `[runN] TASK bBEHAVIOR (Pred→GT) [w=W] [⚠SELF-AWARE]`
+**J: line**: full justification text — what the model said in its structured output
+**T: line**: full thinking excerpt — what the model actually reasoned internally
+**⚠SELF-AWARE**: model's thinking contains correct level but public output chose wrong
 
-Mark with `⚠ SELF-AWARE` when thinking contains correct reasoning that the model overrides:
+The routing key line is the only line parsed by `taxonomy-append.ts` for routing. All other lines are context.
+
+### Legacy format (pre-block era)
+
+Older entries use a single-line format:
 ```
-[run4] EC-04 b3 (Unit→Agentic): "We can mock the API and verify consistency"
-[run4] EC-04 b3 THINKING: ⚠ SELF-AWARE "A mock would mask if the actual API returns different results on repeated calls"
+[run3] EC-10 b4 (Integration→Agentic): "truncated justification at 150 chars..."
+[run3] EC-10 b4 THINKING: ⚠ SELF-AWARE "thinking excerpt..."
+```
+Or very old entries with no confusion pair at all:
+```
+[run1] EC-10 b4: "justification text..."
+```
+These are not routable by taxonomy-append (no `(Pred→GT)` format) and not counted by `--summary`. They are preserved for historical context.
+
+---
+
+## unmatched.md
+
+`taxonomy/unmatched.md` accumulates all blocks that have no matching taxonomy file. It is append-only like all other taxonomy files.
+
+```
+---
+note: "..."
+---
+
+[run6] EC-01 b1 (Integration→Unit) [w=1]
+  J: "full justification..."
+  T: "full thinking..."
 ```
 
-## Updating after a run
+**Never manually edit unmatched.md to route entries.** Instead, either update a taxonomy file's `confusion_pair` list and run `--reprocess-unmatched`, or create a new taxonomy file and run `--reprocess-unmatched`.
 
-Taxonomy is **append-only**. Each line is one occurrence from one run. Never delete old lines.
+---
 
-After each run:
-1. Extract justifications from output JSON files in `runs/latest/`
-2. Extract thinking blocks from `.log` files in `runs/latest/`
-3. **Append** new lines for new occurrences, prefixed with `[runN]`
-4. Flag `⚠ SELF-AWARE` when thinking contains correct reasoning the model overrides
-5. Create new files for newly discovered patterns
-6. Update frontmatter description if the pattern's character changed
+## Tools
 
-The line count across runs shows how persistent a pattern is:
-- Same task+behavior appears in multiple runs → the pattern is stable, prompt didn't fix it
-- A task+behavior stops appearing → the prompt change worked for that case
-- Compare `[run1]` vs `[run2]` lines for the same behavior to see how the excuse evolved
+### taxonomy-append.ts
 
-**Never remove lines.** The history of excuses IS the data.
+```bash
+# Route current run's errors (pipe from extract-thinking)
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
+  npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts [--run N]
 
-## run-204623 mined lines
-[run-204623] EC-01 b1 (Integration→Unit): "MOCK-MISS and MOCK-HIDE both apply: a unit test of only the validator can miss real failures in file-load + env-override wiring and path formatting. R"
-[run-204623] EC-02 b6 (Integration→Unit): "Need real interaction between handler and actual queue-full signaling path. Pure mocks may always return expected error and miss mapping/translation b"
-[run-204623] EC-03 b1 (System→Integration): "Failure boundary is real Git rename detection and CLI subprocess behavior. A mock can miss real rename classification edge cases (e.g., how Git report"
-[run-204623] EC-03 b2 (System→Integration): "Real failure risk is in subprocess output/encoding and Git binary diff handling. In-process mocks can hide decode/crash behavior."
-[run-204623] EC-03 b3 (System→Integration): "This depends on real Git behavior in an unborn-HEAD repository. Mocked Git responses often miss actual nonzero exit/status text patterns."
-[run-204623] EC-03 b5 (System→Integration): "This depends on real index vs working-tree semantics from Git. Pure mocks can accidentally normalize both paths and miss divergence bugs."
-[run-204623] EC-04 b1 (Integration→Unit): "A pure unit test of prompt-builder logic can miss failures in wiring/serialization between classifier module and API client. The real failure boundary"
-[run-204623] EC-04 b2 (Integration→Unit): "The failure is often at response parsing + taxonomy validation boundary. A narrow unit test of only the validator could pass while integrated parsing/"
-[run-204623] EC-04 b4 (System→Agentic): "If you mock token accounting, you can hide real over-budget failures caused by provider-side tokenization/usage accounting differences. This needs a r"
-[run-204623] EC-05 b1 (Integration→Unit): "MOCK-MISS: yes, a mocked file list or DB executor can hide real ordering bugs from filename parsing + discovery. REAL-INFRA: no subprocess/network req"
-[run-204623] EC-06 b1 (System→Integration): "Recursive watch behavior is often determined by the real watcher+OS event stack. A mock watcher can emit idealized nested events and miss real failure"
-[run-204623] EC-06 b5 (System→Integration): "Ordering depends on real timestamp metadata, filesystem granularity, and concurrent event arrival timing. Mocked metadata can mask ties/precision/race"
-[run-204623] EC-07 b1 (Integration→Unit): "A unit test of the prompt-builder alone can miss wiring failures where one collector’s output is dropped or transformed incorrectly before summary gen"
-[run-204623] EC-07 b4 (System→Workflow): "This crosses real external boundaries: APIs plus email transport/inbox delivery (REAL-INFRA). In-process mocks can falsely pass while real auth, TLS, "
-[run-204623] EC-08 b2 (Integration→Unit): "Failure risk is at the boundary between HTTP response interpretation and retry policy (e.g., status/header parsing mismatch). A unit mock of one funct"
-[run-204623] EC-08 b4 (Integration→Unit): "Error typing is a cross-module outcome of retry exhaustion + error translation. Unit tests on the error class alone would miss wrong throw site or gen"
-[run-204623] EC-08 b7 (Integration→Unit): "FIFO ordering emerges from queueing + scheduler + async wake-up behavior together. Mocking queue internals alone can miss dispatch-order regressions i"
-[run-204623] EC-09 b1 (Integration→Unit): "A pure unit test of manifest validation can miss a real failure where the loader imports plugin code too early due to wiring/order bugs. Use real plug"
-[run-204623] EC-09 b2 (Integration→Unit): "The failure boundary is dependency-resolution + hook invocation ordering across multiple plugin modules. A mocked unit test of topological sort can mi"
-[run-204623] EC-09 b3 (Integration→Unit): "Cycle detection correctness must be validated in the real loader flow: manifest read, graph build, error report, and load suppression. Unit graph test"
-[run-204623] EC-10 b4 (System→Agentic): "Real failures include partial post errors/rate limits/retries where summary and inline state diverge. Mocks often make both writes succeed and can hid"
-[run-204623] EC-11 b1 (Integration→Unit): "MOCK-MISS: A pure unit test of a trim helper can miss wiring bugs (wrong order, wrong field, not applied before LLM call). REAL-INFRA: no OS/network r"
-[run-204623] EC-11 b5 (Integration→Workflow): "MOCK-MISS: unit tests can miss orchestration bugs where draft leaks through API/stream path. REAL-INFRA: can be validated in-process via endpoint/serv"
-[run-204623] EC-12 b5 (System→Integration): "This crosses persistence semantics plus crash/restart behavior. A lower-level test can miss duplicate insertion caused by real restart timing, transac"
-[run-204623] EC-13 b4 (Workflow→System): "This is an end-to-end SLO across multiple agentic steps in sequence. Mocked model calls would hide real latency and variance, and isolated tests miss "
-[run-204623] EC-14 b4 (Workflow→System): "This behavior spans multiple sequential model-backed steps (segmenting, per-segment transcription/summarization, merge synthesis). Real failures emerg"
-[run-204623] EC-14 b5 (System→Workflow): "Primary risk is end-to-end operational integration with real external services (upload handling, API auth/timeouts/retries, payload formats, delivery)"
-[run-204623] EC-15 b1 (System→Unit): "A mock embedding client can easily return the expected shape and miss real failures like model-version drift (e.g., 1536 vs 3072 dims) or runtime cont"
-[run-204623] EC-16 b1 (System→Integration): "MOCK-MISS and MOCK-HIDE both apply: a mocked changed-file list can miss real failures in diff collection (merge-base, renames, pagination, path filter"
-[run-204623] EC-16 b2 (Integration→Unit): "The core failure boundary is module wiring: rule outputs -> aggregator -> comment renderer/payload builder. A pure unit test of formatter logic can mi"
-[run-204623] EC-16 b5 (Integration→Unit): "Dedup correctness usually depends on normalized keys produced by multiple components (rule id/path/line normalization + aggregator). A unit test on a "
-[run-204623] EC-17 b2 (Integration→Agentic): "MOCK-MISS applies: contradiction detection usually depends on KB retrieval + claim extraction + checker wiring. Pure unit tests can miss failures in m"
-[run-204623] EC-17 b3 (Agentic→Integration): "This is primarily generation behavior under missing context. MOCK-HIDE is high: templated mocks won’t expose hallucination/fabrication risk seen with "
-[run-204623] EC-18 b1 (Integration→Unit): "Grouping correctness sits at the boundary between parsing/ingestion and correlation modules. A pure unit test of a grouping helper can miss real failu"
-[run-204623] EC-18 b2 (Integration→Unit): "Clock-skew handling is usually implemented across ordering logic plus normalization/timeline assembly. Unit tests of sort logic alone can miss failure"
-[run-204623] EC-18 b3 (Integration→Unit): "The failure boundary is between metric aggregation (baseline + p99 computation) and anomaly reporting. Mocking one side can hide wiring mistakes (wron"
-[run-204623] EC-18 b4 (Integration→Unit): "This requires real parser error propagation through the ingest pipeline and reporting counters. A mocked parser or isolated function test can miss cra"
-[run-204623] EC-19 b1 (Agentic→Unit): "Signature correctness is produced by the LLM, and real failures include model misinterpreting the spec or drifting format. A mock can validate parsing"
-[run-204623] EC-19 b2 (Workflow→Agentic): "This behavior spans multiple agentic steps (generate -> test -> optional refine -> retest). Real failure boundary includes loop orchestration plus LLM"
-[run-204623] EC-19 b3 (Integration→Agentic): "Primary risk is wiring: failed test output not propagated into prompt-construction path. This is best caught by exercising runner + prompt builder + L"
-[run-204623] EC-19 b4 (Integration→Unit): "Failure is mainly retry-limit and result-aggregation logic across modules. Real LLM behavior is not required; controlled failing attempts are sufficie"
-[run-204623] EC-20 b2 (System→Integration): "This depends on real HTTP/API contract behavior. In-process mocks can hide malformed query params, range-encoding issues, or API-side matching semanti"
-[run-204623] EC-20 b7 (Integration→System): "This is cross-module control-flow behavior (semver decision + PR orchestration + report output). A single-function unit test can miss wiring errors wh"
-[run-204623] EC-21 b5 (Agentic→Integration): "Response assembly is integration-level, but semantic alignment check depends on real explanation content. Mocking explanation can mask real mismatch b"
-[run-204623] EC-22 b3 (Integration→Unit): "Real failure boundary is module wiring: memory monitor + config + strategy selector. A pure unit mock of one component can miss miswiring (wrong metri"
-[run-204623] EC-22 b5 (Integration→Unit): "Algorithm correctness matters, but real failures often come from interaction between policy bookkeeping and cache operations (reads/writes/hits/misses"
-[run-204623] EC-24 b4 (Integration→Unit): "Computation alone could be Unit, but behavior includes persistence. MOCK-MISS applies for serialization/schema/write failures; local module+DB wiring "
-[run-204623] EC-24 b5 (System→Integration): "REAL-INFRA and MOCK-HIDE apply: requires real primary API call behavior plus async/background execution timing. In-process mocks can miss race conditi"
-[run-204623] EC-25 b1 (Integration→Unit): "Failure risk is in rule-engine + merchant-category config wiring (including config lookup and threshold application), which a pure unit mock can miss."
-[run-204623] EC-25 b3 (Integration→Unit): "Real failures commonly come from timestamp/window filtering and per-user query logic across modules/storage; an in-process mock can miss boundary/time"
-[run-204623] EC-25 b4 (Integration→Unit): "The critical failure boundary is model-output aggregation + hold decision wiring. Pure unit boolean tests can miss contract/field-mapping issues betwe"
-[run-204623] EC-25 b5 (Integration→Unit): "This is an output-contract/composition guarantee across scoring, risk, and response assembly modules; mocks can hide serialization/field-loss defects."
-[run-204623] EC-26 b3 (Integration→Unit): "Real failures often occur in wiring between parsed schedules, run-time generation horizon, and overlap logic. A pure mock of schedule outputs can miss"
-[run-204623] EC-26 b4 (System→Unit): "Correctness depends on real timezone/DST behavior from runtime+tzdata (OS/environment boundary). In-process mocks frequently hide true DST transition "
-[run-204623] EC-26 b5 (Integration→Unit): "This behavior spans policy config, schedule computation, and recovery decision path/state handoff. Mocking one module can hide real mis-wiring of poli"
-[run-204623] EC-27 b2 (Integration→Unit): "Real failure risk is in wiring between distance computation/output, road-type speed lookup, and time-window accumulation. A pure unit mock of one piec"
-[run-204623] EC-27 b5 (Integration→Unit): "Failure often appears at module boundaries: normalization/dedup + item aggregation + route planner input. Unit-testing only dedup logic can miss dupli"
-[run-204623] EC-28 b1 (Integration→Unit): "MOCK-MISS: a unit test of SUM alone can miss parser/range-resolution wiring bugs. REAL-INFRA: no OS/network needed. The real failure boundary is evalu"
-[run-204623] EC-28 b2 (Integration→Unit): "MOCK-MISS: mocking dependency lookup can hide incorrect reference chaining/evaluation order across cells. No external infra required."
-[run-204623] EC-28 b3 (Integration→Unit): "Failure is in dependency-graph traversal across cells, not a single pure function. Mocking graph/wiring can hide non-terminating or missed-cycle behav"
-[run-204623] EC-28 b4 (Integration→Unit): "MOCK-HIDE: unit-testing VLOOKUP in isolation can miss table-range extraction/type-coercion mismatches from real cell storage."
-[run-204623] EC-28 b5 (Integration→Unit): "Although IF logic is simple, nested-expression parsing + evaluation with real cell references is the likely failure boundary; mocks can miss parse/eva"
-[run-204623] EC-28 b6 (Integration→Unit): "Risk is in how function evaluation interacts with cell value representation (empty/null/string). Isolated string-join unit tests can miss real empty-c"
-[run-204623] EC-28 b8 (Integration→Unit): "MOCK-MISS/MOCK-HIDE: this depends on real dependency graph invalidation and scheduler ordering across modules; isolated tests can miss stale-value/ord"
-[run-204623] EC-29 b1 (Integration→Unit): "A pure validator unit test can verify missing-field detection, but it can miss orchestration bugs where downstream steps still run despite validation "
-[run-204623] EC-29 b9 (Integration→Unit): "Template rendering is simple, but correctness depends on wiring data from multiple modules (patient, scheduling, provider, visit-type rules). Unit-onl"
-[run-204623] EC-30 b1 (Integration→Unit): "Real failure boundary is filter+rank composition. A unit test on only the filter or only the ranker can miss ordering/merge bugs where out-of-stock it"
-[run-204623] EC-30 b2 (Integration→Unit): "Failure usually occurs at wiring boundary between user-settings retrieval and catalog filtering, which pure in-process mocks can hide."
-[run-204623] EC-30 b3 (Integration→Agentic): "This depends on feature extraction + ranking together; unit-testing scoring math alone can miss signal-join or feature pipeline failures."
-[run-204623] EC-30 b4 (Integration→Unit): "Stability bugs often come from sort/pagination interaction with storage ordering; mocks can hide nondeterministic ordering defects."
-[run-204623] EC-30 b5 (Integration→Agentic): "This is a policy constraint in the recommender pipeline, not LLM quality. Must verify final ranked output after diversification logic is applied."
-[run-204623] EC-30 b6 (Integration→Unit): "Failure boundary is fallback routing from empty personalization signals to popularity model plus data access; unit mocks can miss this branch integrat"
-[run-204623] EC-30 b9 (Integration→Unit): "This spans event ingestion/state update and subsequent ranking. Unit tests of either side alone can miss propagation failures."
-[run-204623] EC-30 b10 (Integration→Unit): "Determinism issues typically arise from pipeline-level nondeterminism (unstable sort, random tie-breakers, clock leakage), not a single function."
-[run-204623] EC-32 b3 (Integration→System): "This is a source-of-truth wiring check across loader + invocation + prompt construction, typically via local filesystem skill files. Pure mocks can hi"
-[run-204623] EC-32 b4 (Agentic→Workflow): "Core correctness claim depends on model behavior changing when skill context quality changes (LLM-DEP yes). A deterministic/mock model can falsely pas"
-[run-204623] EC-32 b6 (Unit→Agentic): "Failure boundary is assertion semantics itself. Can be caught with crafted outputs where keywords exist but structure is wrong; no real infra or LLM r"
-[run-204623] EC-33 b4 (Integration→Workflow): "The core failure is stale-state validation between fix phase metadata, diff identity, and latest review round linkage. This is primarily orchestration"
-[run-204623] EC-33 b5 (Integration→Workflow): "This is state-machine logic over persisted findings plus round-limit configuration. Unit tests can miss incorrect repository reads or terminal-state m"
-[run-204623] EC-34 b1 (Integration→System): "A pure unit mock can miss failures in how commit-difference, commit age, and PR-presence signals are combined. The minimum realistic boundary is multi"
-[run-204623] EC-34 b2 (Integration→System): "The failure risk is in startup wiring (session bootstrap + detector + warning renderer). A unit test of only formatter logic would miss miswiring. Rea"
-[run-204623] EC-35 b3 (Integration→Unit): "Behavior spans parse failure propagation into policy mapping and telemetry intent tagging across module boundaries. Unit tests on policy alone could m"
+# Show cumulative confusion pair counts across all files + unmatched
+npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
 
-## run-231214 mined lines
-[run-231214] EC-01 b1 (Integration→Unit): "This depends on real wiring between YAML load, env overlay, required-key validation, and error formatting. A unit test of only the formatter or valida"
-[run-231214] EC-02 b6 (Integration→Unit): "Correctness depends on actual queue-capacity signal propagation to HTTP mapping. Pure mocks can hide mismatches between queue error types and handler "
-[run-231214] EC-03 b1 (System→Integration): "MOCK-MISS: Yes—mocked diff entries can hide real git rename-detection behavior and thresholds. REAL-INFRA: Yes—needs a real repo, filesystem changes, "
-[run-231214] EC-03 b2 (System→Integration): "MOCK-MISS: Yes—mocked text-like diffs miss binary diff edge cases (NUL bytes, git binary markers). REAL-INFRA: Yes—requires real file content and real"
-[run-231214] EC-03 b3 (System→Integration): "MOCK-MISS: Yes—mocking git calls can hide real behavior of unborn HEAD and git error codes/messages. REAL-INFRA: Yes—requires actual `git init` state "
-[run-231214] EC-03 b5 (System→Integration): "MOCK-MISS: Yes—index vs working-tree behavior is a real git state-machine concern that mocks often flatten. REAL-INFRA: Yes—requires manipulating actu"
-[run-231214] EC-04 b1 (Integration→Unit): "MOCK-MISS: yes—unit-testing only the prompt-builder can miss wiring bugs between module config and API client payload. REAL-INFRA: no real external in"
-[run-231214] EC-04 b2 (Integration→Unit): "MOCK-MISS: yes—unit tests of a mapper alone can miss response-shape/adapter mismatches from the real client wrapper. REAL-INFRA: no. MOCK-HIDE: yes, o"
-[run-231214] EC-04 b4 (System→Agentic): "REAL-INFRA: yes—true consumed tokens are accounted by the external API/runtime behavior. MOCK-MISS: yes—local estimators/mocks can diverge from provid"
-[run-231214] EC-05 b1 (Integration→Unit): "MOCK-MISS: yes—unit-testing only the sort function can miss failures in file discovery + execution wiring. REAL-INFRA: no OS/subprocess beyond normal "
-[run-231214] EC-06 b1 (System→Integration): "The failure boundary is real filesystem watch recursion across OS event delivery. A mock watcher can report subdirectory events even if real recursive"
-[run-231214] EC-07 b1 (Integration→Unit): "Failure risk is in wiring across multiple source clients and the aggregation handoff. A pure unit test with mocked return objects can miss misconfigur"
-[run-231214] EC-07 b4 (System→Workflow): "This crosses real network/service boundaries (source APIs + email transport + inbox delivery). Mocks can pass while real SMTP/API auth, MIME formattin"
-[run-231214] EC-08 b1 (Integration→Unit): "Backoff correctness depends on retry-attempt state carried across failures plus timer scheduling; a pure function test can miss state-reset or cap-enf"
-[run-231214] EC-08 b2 (Integration→Unit): "Failure boundary is response parsing/classification wired to retry policy. Mocking only the classifier or only the backoff function can hide mismatche"
-[run-231214] EC-08 b4 (Integration→Unit): "Typed error emission depends on retry-loop terminal path and error mapping at exhaustion; unit tests of error class alone miss incorrect throw path/ty"
-[run-231214] EC-08 b7 (Integration→Unit): "Ordering guarantees emerge from queue + scheduler + async wake-up behavior. Unit tests of queue alone can miss reorder bugs in dispatch integration."
-[run-231214] EC-09 b1 (Integration→Unit): "MOCK-MISS/MOCK-HIDE: a mocked loader/import path can miss real top-level module side effects. The failure boundary is manifest validation wired to rea"
-[run-231214] EC-09 b2 (Integration→Unit): "MOCK-MISS: dependency graph + actual loader orchestration across multiple plugin modules is the failure boundary. A pure unit test of topological sort"
-[run-231214] EC-09 b3 (Integration→Unit): "MOCK-HIDE: testing cycle detection function alone can miss real behavior that neither plugin is imported/initialized. Need real manifests plus loader "
-[run-231214] EC-10 b4 (Integration→Agentic): "MOCK-MISS: yes — this is a cross-module consistency invariant (finding objects, posting results, summary assembly). REAL-INFRA: not strictly required "
-[run-231214] EC-11 b1 (Integration→Unit): "The real failure boundary is at module wiring: history selection + prompt assembly + LLM client payload. A unit test of only the trimming helper can m"
-[run-231214] EC-11 b5 (Integration→Workflow): "The failure boundary is orchestration between generation, tone gate, and response delivery. A unit test of replacement logic alone can miss wiring/rac"
-[run-231214] EC-12 b5 (System→Integration): "Failure boundary includes durable DB state plus real restart/crash semantics. Integration tests in one process can miss checkpoint/transaction behavio"
-[run-231214] EC-13 b4 (Workflow→System): "This is an end-to-end SLA across multiple agentic steps in sequence (vision + text) and pipeline orchestration. Lower-level tests with mocks can hide "
-[run-231214] EC-13 b6 (Workflow→Agentic): "This requires repeated real agentic evaluations (or cache hits) over time plus consistency logic across submissions. Single-call or mocked tests can m"
-[run-231214] EC-14 b1 (Agentic→System): "MOCK-MISS: yes, a mock STT response can hide diarization failures. REAL-INFRA: uses real external STT API over network. LLM-DEP: correctness depends o"
-[run-231214] EC-14 b4 (Workflow→System): "MOCK-MISS: yes, in-process mocks can miss cross-segment context loss and merge defects. REAL-INFRA: long-audio handling often involves real file bound"
-[run-231214] EC-15 b1 (System→Unit): "A real failure can come from mismatch between live embedding model output dimension and the actual index schema/config. In-process mocks can hide prov"
-[run-231214] EC-16 b1 (System→Integration): "MOCK-MISS/MOCK-HIDE: a mocked changed-file list can hide real failures in PR file discovery (renames, pagination, path filtering). REAL-INFRA: this bo"
-[run-231214] EC-16 b2 (Integration→Unit): "MOCK-MISS: pure unit tests on formatter logic can miss wiring bugs between parser/aggregator/comment builder. REAL-INFRA is not required to validate g"
-[run-231214] EC-16 b5 (Integration→Unit): "MOCK-MISS: a unit test on a dedup helper may miss real duplicate-shape differences introduced by parser/rule normalization. REAL-INFRA is unnecessary;"
-[run-231214] EC-17 b2 (Integration→Agentic): "Main risk is wiring between draft-claim extraction, KB lookup, and contradiction rules. Pure unit mocks can miss schema/lookup/parsing mismatches. Rea"
-[run-231214] EC-17 b3 (Agentic→Integration): "Failure is often hallucination behavior from the real model under missing context. Mocked generation can hide this by always returning a compliant dis"
-[run-231214] EC-18 b1 (Integration→Unit): "Failure risk is at the boundary between ingestion/parsing and correlation modules (field mapping, normalization, merge logic across service sources). "
-[run-231214] EC-18 b2 (Integration→Unit): "Correctness depends on interaction between timestamp parsing, skew-tolerance logic, and timeline assembly. Pure unit tests of sorting alone can miss f"
-[run-231214] EC-18 b3 (Integration→Unit): "The critical failure boundary is wiring percentile computation + baseline windowing + anomaly report emission. A unit test of p99 math may pass while "
-[run-231214] EC-18 b4 (Integration→Unit): "Real failure is often in parser-to-pipeline error propagation and counters, not just JSON parse exceptions. In-process mocks can hide crashes in batch"
-[run-231214] EC-19 b1 (Agentic→Unit): "Correctness here depends on what the real LLM produces from natural-language requirements. A mocked model can validate parsing/validation logic, but i"
-[run-231214] EC-19 b2 (System→Agentic): "The core failure boundary includes executing generated code against a real test harness (filesystem/subprocess/runtime behavior). Pure mocks of execut"
-[run-231214] EC-19 b3 (Integration→Agentic): "This is primarily wiring between test-result collection and prompt construction. A unit test of a formatter is too narrow; you need the retry orchestr"
-[run-231214] EC-19 b4 (Integration→Unit): "The main risk is orchestration state/control-flow: retry counting, stop condition, and error payload assembly. This requires multiple components toget"
-[run-231214] EC-20 b2 (System→Integration): "Mocked API clients can hide real request-shape/version-range bugs (query params, range encoding, server-side interpretation). To catch true failures, "
-[run-231214] EC-20 b7 (Integration→System): "This validates cross-module control flow (semver classifier -> decision engine -> PR client/report output). Unit tests on a single function can miss w"
-[run-231214] EC-21 b1 (Integration→Unit): "Core scoring is deterministic, but real failures commonly occur at module boundaries: config loading, normalization/tokenization, and threshold wiring"
-[run-231214] EC-21 b3 (Integration→Unit): "Tie-breaking is deterministic but depends on configured rule application in the assembled analyzer path. Unit tests can miss miswired config defaults "
-[run-231214] EC-21 b5 (Agentic→Integration): "Response bundling is integration-level, but directional consistency with explanation can fail only when the real explanation generator is exercised. M"
-[run-231214] EC-22 b3 (Integration→Unit): "Real failure is often at module wiring: memory-pressure source + config threshold + strategy selector. A unit test of selector logic alone can miss in"
-[run-231214] EC-22 b5 (Integration→Unit): "Algorithm correctness can be unit-tested, but real failures commonly occur where access/frequency counters are updated through the actual cache API an"
-[run-231214] EC-24 b4 (Integration→Unit): "Computation plus persistence must both be validated; unit-only tests can miss serialization/schema/transaction bugs when writing metric."
-[run-231214] EC-25 b1 (Integration→Unit): "This can fail at the boundary between category-to-rule config lookup and scoring logic. A pure unit test of arithmetic can miss real wiring bugs (wron"
-[run-231214] EC-25 b3 (Integration→Unit): "Real failures commonly come from time-window query boundaries, timestamp normalization, and per-user filtering across storage/query modules. In-proces"
-[run-231214] EC-25 b4 (Integration→Unit): "The failure boundary is model-output integration into decisioning/hold logic. Unit tests can miss contract mismatches (field names/status encoding) be"
-[run-231214] EC-25 b5 (Integration→Unit): "This is an output-contract composition issue across modules (scoring, risk, formatter/DTO). Unit tests can miss dropped/renamed fields during integrat"
-[run-231214] EC-26 b2 (Integration→Unit): "Real failures often occur at module boundaries between cron parsing, semantic normalization (L/W semantics), and timestamp generation. A pure unit tes"
-[run-231214] EC-26 b3 (Integration→Unit): "Detecting real contention depends on wiring schedule generation with overlap logic and gap policy. Mocking schedule outputs could hide boundary/roundi"
-[run-231214] EC-26 b4 (System→Unit): "DST correctness depends on real timezone rules and runtime tzdata/OS behavior; mocks can hide ambiguous/nonexistent local-time handling differences. T"
-[run-231214] EC-26 b5 (Integration→Unit): "Real failure boundary is policy evaluation wired with persisted scheduler state and run-time computation. A unit test of policy logic alone can miss s"
-[run-231214] EC-27 b2 (Integration→Unit): "Real risk is module wiring: route segmenting + distance provider + road-type speed config + time accumulation. A pure unit test on one function can mi"
-[run-231214] EC-27 b5 (Integration→Unit): "Need to validate cross-module behavior: input normalization/dedup + item merge + optimizer input/output. A single-function unit test may miss that ded"
-[run-231214] EC-28 b1 (Integration→Unit): "A pure SUM unit test can miss failures in formula parsing, range resolution, and cell value retrieval wiring. The real failure boundary is evaluator +"
-[run-231214] EC-28 b2 (Integration→Unit): "This depends on dependency resolution and multi-cell evaluation order across modules. Mocking internals could hide real graph/evaluator wiring bugs."
-[run-231214] EC-28 b3 (Integration→Unit): "Cycle detection is a property of the dependency graph plus evaluator traversal, not one isolated function. Unit tests can miss real recursion/wiring f"
-[run-231214] EC-28 b4 (Integration→Unit): "Real failures often come from interaction of table-range lookup, type comparison, and function registry/parsing, which mocks can hide."
-[run-231214] EC-28 b5 (Integration→Unit): "Nested condition correctness depends on parser AST shape plus evaluator branching semantics across modules."
-[run-231214] EC-28 b6 (Integration→Unit): "Skipping empty referenced cells depends on reference resolution and function argument handling together; a function-only mock can miss sheet-value sem"
-[run-231214] EC-28 b8 (Integration→Unit): "This is fundamentally dependency graph invalidation + scheduler ordering + evaluator interaction. Mocking any layer may hide stale-value/order bugs."
-[run-231214] EC-29 b1 (Integration→Unit): "The failure boundary is validator + intake orchestrator wiring: real failures include downstream modules still being called when validation fails, or "
-[run-231214] EC-30 b1 (Integration→Unit): "MOCK-MISS: a unit test of only the filter function can miss enum/value mapping bugs between catalog storage and ranking pipeline. REAL-INFRA: no OS/ne"
-[run-231214] EC-30 b2 (Integration→Unit): "MOCK-MISS: pure in-memory filtering can miss failures in reading user settings and joining them to product categories. REAL-INFRA: local DB/filesystem"
-[run-231214] EC-30 b3 (Integration→Agentic): "MOCK-MISS: rank correctness depends on feature extraction plus scoring together, not just a single scoring function. REAL-INFRA: no real external syst"
-[run-231214] EC-30 b4 (Integration→Unit): "MOCK-MISS: unstable ordering bugs often come from real query/sort behavior (missing tiebreakers), which mocks may not reproduce. REAL-INFRA: local DB-"
-[run-231214] EC-30 b5 (Integration→Agentic): "MOCK-MISS: this constraint typically emerges after candidate generation + reranking; unit tests on one function can miss pipeline interactions. REAL-I"
-[run-231214] EC-30 b6 (Integration→Unit): "MOCK-MISS: fallback often depends on wiring between history lookup, empty-state detection, and popularity source. REAL-INFRA: local popularity table/s"
-[run-231214] EC-30 b9 (Integration→Unit): "MOCK-MISS: failure often lies in state propagation from purchase event/history store into scoring features. REAL-INFRA: local event/history persistenc"
-[run-231214] EC-30 b10 (Integration→Unit): "MOCK-MISS: determinism issues usually come from real data retrieval order, tie-breaking, or hidden randomness across modules. REAL-INFRA: local DB-bac"
-[run-231214] EC-31 b4 (Integration→System): "This crosses parser/identifier reconstruction and state persistence (filesystem). A pure unit test of reconstruction or serialization alone can miss r"
-[run-231214] EC-32 b3 (Integration→System): "This depends on wiring between test invocation, skill-loader, and filesystem-backed skill/plugin assets. In-process mocks can hide path/config/load re"
-[run-231214] EC-32 b4 (Agentic→Workflow): "Correctness claim is that behavior quality changes when real skill context changes under the same user prompt. That relies on real model behavior and "
-[run-231214] EC-32 b6 (Integration→Agentic): "The real failure is weak assertion strategy in behavioral tests. You need assertion logic + harness outputs together, including adversarial echoed-key"
-[run-231214] EC-33 b4 (Integration→Workflow): "The core risk is stale-state orchestration (diff/version tracking + round freshness check), not LLM output quality. A realistic integration harness is"
-[run-231214] EC-33 b5 (Integration→Workflow): "This is a policy/state-machine check across persisted round counters and unresolved MUST-FIX findings. Mock-only tests can miss off-by-one or persiste"
+# Re-route unmatched.md blocks after adding/updating taxonomy files
+npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --reprocess-unmatched
 
-## run-232623 mined lines
-[run-232623] EC-01 b2 (Unit→Integration): "This is path-resolution precedence logic (`XDG_CONFIG_HOME` vs default home path). The minimum real failure can be caught by testing the resolver with"
-[run-232623] EC-02 b6 (Integration→Unit): "Primary failure boundary is mapping a queue-full condition to HTTP status/headers in the handler path. This requires real wiring between handler and q"
-[run-232623] EC-03 b1 (System→Integration): "This failure boundary is at real Git rename detection plus CLI parsing/output wiring. Mocked Git responses can hide mismatches in rename status format"
-[run-232623] EC-03 b2 (System→Integration): "Binary diff behavior depends on real git diff output and subprocess handling. Mocks often miss edge formatting and byte-related behavior, so they can "
-[run-232623] EC-03 b3 (System→Integration): "The failure occurs at real git command behavior in an unborn-HEAD repository. Mocking can hide actual exit codes/stderr semantics from git."
-[run-232623] EC-03 b5 (System→Integration): "Staged vs unstaged semantics are defined by real git index/working-tree behavior. Mocked repositories or fake command outputs can miss real index edge"
-[run-232623] EC-04 b1 (Integration→Unit): "Failure is at the module boundary between prompt/request construction and the API client call. A unit test of a helper can miss dropped/renamed fields"
-[run-232623] EC-04 b4 (System→Agentic): "Real token consumption is enforced/counted by the external API. Mocked usage values can hide provider-side counting differences and request-wrapper ov"
-[run-232623] EC-04 b5 (System→Integration): "Real failure often occurs in HTTP/SDK error translation plus retry timing behavior. Pure mocks may not reproduce actual 429 semantics, retry-after han"
-[run-232623] EC-05 b1 (Integration→Unit): "The failure boundary is between file discovery/parsing/sorting and migration execution order. A unit test of only the sort helper can miss real wiring"
-[run-232623] EC-06 b1 (System→Integration): "The failure boundary is real filesystem watch behavior across directory depth. Mocked watcher events can hide recursive-watch misconfiguration and pla"
-[run-232623] EC-06 b2 (Unit→Integration): "This behavior is primarily deterministic path-plus-time-window logic. The real failure is within one dedup component’s state/time handling, not OS or "
-[run-232623] EC-07 b1 (Integration→Unit): "The failure boundary is wiring between multiple modules (three collectors + payload assembly + handoff to summary step). A unit test of only the forma"
-[run-232623] EC-07 b4 (System→Workflow): "This behavior explicitly crosses real external boundaries (networked sources/email delivery and inbox receipt). Mocked email would miss real delivery/"
-[run-232623] EC-07 b5 (Integration→System): "Core failure is retry/fallback orchestration with persistent local state across runs. This is multi-module with real filesystem interaction; full OS s"
-[run-232623] EC-08 b2 (Integration→Unit): "Real failures typically occur at the boundary between HTTP response translation and retry policy (status/header parsing + backoff decision). Unit test"
-[run-232623] EC-08 b4 (Integration→Unit): "Failure appears when retry termination and error mapping interact; unit-testing only error class or only counter logic can miss wrong error surfacing "
-[run-232623] EC-08 b7 (Integration→Unit): "Ordering bugs emerge from interaction of queue, scheduler, and dispatcher under async contention. Unit tests on queue internals alone can miss dispatc"
-[run-232623] EC-09 b1 (Integration→Unit): "The failure boundary is between manifest validation and module-loading/execution. A unit test of only the validator would miss regressions where the l"
-[run-232623] EC-09 b2 (Integration→Unit): "This is a graph-resolution and lifecycle-orchestration interaction across multiple plugins. A single-function unit test would not reliably catch order"
-[run-232623] EC-09 b3 (Integration→Unit): "Cycle detection must be validated in the real dependency-resolution path and tied to load suppression. Unit-testing only cycle logic could miss a bug "
-[run-232623] EC-10 b4 (Integration→Agentic): "This is a cross-module consistency check between finding collection, inline-post results, and summary rendering. It does not inherently require real n"
-[run-232623] EC-11 b5 (Integration→Workflow): "Primary risk is orchestration/state handoff between tone-check, regeneration, and response-delivery modules. Can be caught with deterministic doubles "
-[run-232623] EC-13 b6 (Workflow→Agentic): "This requires repeated agentic evaluations over time plus consistency controls (e.g., cache/idempotency/window policy). The failure emerges across a s"
-[run-232623] EC-14 b1 (Agentic→System): "The failure can come from real diarization behavior of the speech-to-text model (missing/unstable speaker labels) plus downstream use of those labels."
-[run-232623] EC-14 b4 (Workflow→System): "The behavior spans multiple sequential segment passes and a merge step; real failures often emerge only across chained AI calls (context fragmentation"
-[run-232623] EC-15 b1 (Integration→Unit): "The failure is at the contract boundary between embedding generation and vector-index schema; a pure unit test of one function can miss miswired model"
-[run-232623] EC-15 b5 (Workflow→System): "This is a full pipeline SLO spanning multiple model-backed steps and retrieval; lower-level tests cannot expose compounded latency across the real seq"
-[run-232623] EC-16 b2 (Integration→Unit): "The behavior spans multiple modules: linter output parsing, severity bucketing, and comment rendering/posting payload creation. A pure unit test on gr"
-[run-232623] EC-17 b2 (Integration→Agentic): "The core failure boundary is between claim extraction/checker logic and KB retrieval/lookup. Real defects are often in module wiring, schema mapping, "
-[run-232623] EC-17 b3 (Agentic→Integration): "Even with correct no-hit retrieval wiring, the key risk is model hallucination under sparse context. Deterministic mocks would miss whether the real m"
-[run-232623] EC-18 b3 (Integration→Unit): "The behavior spans at least two modules: percentile/baseline computation and anomaly reporting output. A unit test of threshold math alone can miss re"
-[run-232623] EC-18 b4 (Integration→Unit): "This is a module-interaction failure boundary: parser errors must be handled by pipeline control flow and reflected in reporting/metrics. A parser-onl"
-[run-232623] EC-19 b1 (Agentic→Unit): "This behavior is about whether the real model produces a correct interface from natural language. A mocked model can hide signature-generation failure"
-[run-232623] EC-19 b2 (Workflow→Agentic): "Correctness here depends on multi-step agentic behavior (generate, evaluate, refine) and orchestration across attempts. Single-step or mocked tests ca"
-[run-232623] EC-19 b3 (Integration→Agentic): "The failure boundary is module wiring: test runner output must be injected into prompt construction for the next call. Real LLM behavior is not requir"
-[run-232623] EC-19 b4 (Integration→Unit): "This is retry-loop and error-aggregation behavior across components. It does not require real OS/network/model quality, but does require orchestrated "
-[run-232623] EC-20 b2 (System→Integration): "This behavior depends on the real external API contract and request semantics (version-range fields, encoding, filtering behavior). Mocks often accept"
-[run-232623] EC-20 b7 (Integration→System): "The failure boundary is orchestration: semver decision output must gate PR module invocation and propagate a review flag to scanner output. This is cr"
-[run-232623] EC-21 b5 (Agentic→Integration): "This includes integration (single response payload) plus semantic alignment between deterministic score and generated explanation. If explanation is m"
-[run-232623] EC-22 b3 (Integration→Unit): "The failure is at module wiring boundaries: memory-pressure signal + config + strategy selector must interact correctly. A pure unit on selector logic"
-[run-232623] EC-24 b2 (Integration→System): "The failure appears at module boundaries: API client error handling, fallback selection, and response shaping. A pure unit test of one function misses"
-[run-232623] EC-24 b4 (Integration→Unit): "The behavior explicitly includes both computation and persistence. Unit tests can prove distance math, but real failures here include serialization/st"
-[run-232623] EC-25 b3 (Integration→Unit): "The real failure commonly appears at module boundaries: transaction retrieval plus time-window filtering (timestamp precision, inclusive/exclusive bou"
-[run-232623] EC-25 b4 (Integration→Unit): "This behavior validates orchestration across two model outputs and hold-decision logic. The failure mode is incorrect wiring/composition (AND vs OR), "
-[run-232623] EC-25 b5 (Integration→Unit): "This is an output contract assembled from multiple components (scoring result + risk result + reviewer payload). Real failures are field loss/mis-mapp"
-[run-232623] EC-26 b2 (Integration→Unit): "Real failures commonly occur at the boundary between parser representation and time-calculation logic for special cron semantics (`L`, `W`). A unit te"
-[run-232623] EC-26 b4 (Integration→Unit): "This depends on real timezone-rule handling and interaction between scheduler logic and timezone library/tzdata. Mocked timezone behavior can hide rea"
-[run-232623] EC-26 b5 (Integration→Unit): "Failure boundary is policy decision wired with schedule computation and current-time/state inputs. Bugs often appear when these modules combine (e.g.,"
-[run-232623] EC-27 b2 (Integration→Unit): "This behavior depends on interaction between distance/segment data and speed-configuration lookup by road type. Boundary bugs (wrong key, fallback spe"
-[run-232623] EC-27 b4 (Integration→System): "The failure is at module boundaries: geocode-result handling, filtering, optimizer input construction, and skipped-address reporting. A single-functio"
-[run-232623] EC-27 b5 (Integration→Unit): "Correctness spans deduplication/aggregation plus downstream routing behavior (single visit). Boundary issues can occur when normalization, merge logic"
-[run-232623] EC-28 b1 (Integration→Unit): "Real failures commonly occur at the boundary between range resolution and function evaluation (off-by-one ranges, type coercion across cells), which a"
-[run-232623] EC-28 b2 (Integration→Unit): "This behavior’s failure boundary is inter-cell dependency wiring (formula-to-formula chaining), not a single local function."
-[run-232623] EC-28 b3 (Integration→Unit): "Cycle detection is a graph-level interaction across multiple cells/nodes; unit-testing one evaluator function can hide recursion/graph traversal defec"
-[run-232623] EC-28 b4 (Integration→Unit): "Minimum realistic failure boundary includes table range extraction plus VLOOKUP semantics; mocking either side can hide key-not-found and column-index"
-[run-232623] EC-28 b8 (Integration→Unit): "This failure appears in dependency graph update + scheduler interaction; mocking one component can falsely pass while order is wrong."
-[run-232623] EC-29 b1 (Integration→Unit): "The failure boundary is orchestration: validation must both aggregate missing fields and stop downstream modules from running. A unit test of only the"
-[run-232623] EC-30 b1 (Integration→Unit): "The failure boundary is between inventory-availability filtering and ranking/output assembly. A unit test of either module alone can miss leaks caused"
-[run-232623] EC-30 b2 (Integration→Unit): "This behavior depends on correct interaction between settings retrieval and category filtering. Pure unit tests of filter logic alone can miss schema/"
-[run-232623] EC-30 b3 (Unit→Agentic): "The failure is primarily scoring/ranking logic in the recommendation algorithm, which can be validated deterministically in-memory without I/O."
-[run-232623] EC-30 b4 (Integration→Unit): "Stability depends on ranking order plus pagination slicing plus request handling/state behavior. Unit-testing paginate() alone can miss unstable upstr"
-[run-232623] EC-30 b5 (Integration→Agentic): "This usually requires interaction between relevance ranking and diversity/serendipity constraints. Unit tests of a single scorer can miss failures whe"
-[run-232623] EC-30 b9 (Integration→Unit): "This behavior crosses purchase-event ingestion/state update and recommendation scoring. Unit tests of ranking logic alone miss propagation or stale-st"
-[run-232623] EC-30 b10 (Integration→Unit): "Determinism can fail due to cross-module effects (unstable sort keys, nondeterministic iteration, cache/state mutation). A single-function unit test m"
-[run-232623] EC-31 b4 (Integration→System): "This behavior crosses parsing/identifier extraction and persistence boundaries and must verify actual state writing to local storage. A unit mock of p"
-[run-232623] EC-31 b5 (Integration→System): "The real failure boundary is contract compatibility between writer (PostToolUse) and reader/enforcer (PreToolUse) through shared state. This is a mult"
-[run-232623] EC-32 b3 (Integration→System): "This is a module-boundary behavior: file-backed skill loading plus invocation wiring. Mocking loader content could hide hard-coded fallback logic that"
-[run-232623] EC-32 b4 (Agentic→Workflow): "This behavior asserts semantic performance changes caused by skill-content quality under a real user-style prompt. Correctness depends on real model o"
-[run-232623] EC-32 b6 (Unit→Agentic): "This is assertion/evaluator logic quality. Crafted fixtures can expose false positives from keyword checks without requiring real harness I/O or real "
-[run-232623] EC-33 b4 (Integration→Workflow): "The core risk is orchestration/state consistency across diff versioning, phase transitions, and round records. Correctness does not depend on model ou"
-[run-232623] EC-33 b5 (Integration→Workflow): "This is policy evaluation over persisted round counters and findings severity. Real failures typically come from state aggregation across modules, not"
-[run-232623] EC-34 b1 (Integration→System): "Failure boundary is detector logic plus git-state reader, PR-state reader, and age-threshold config working together. A pure unit test on one function"
-[run-232623] EC-34 b2 (Integration→System): "This is primarily bootstrap-to-detector-to-renderer wiring. The failure is in cross-module signal propagation and message composition, not OS/network "
-[run-232623] EC-34 b5 (Integration→System): "Core risk is contract mapping between PR-state provider and classifier logic. This can be caught with multi-module tests using realistic PR-state payl"
+# Preview without writing
+... | npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --dry-run
+```
 
-## [run-002612] mined 2026-03-28T21:31:56Z
-[run-002612] EC-01 b1 (Integration→Unit): "Failure boundary is the handoff between config-file load, env override merge, and validation/error formatting. A unit test of only the validator could"
-[run-002612] EC-02 b6 (Integration→Unit): "Requires exercising handler behavior when queue adapter returns a capacity error. Boundary mapping (error -> HTTP status/header) is the main failure m"
-[run-002612] EC-03 b1 (System→Integration): "The failure boundary includes real `git` rename detection plus the CLI’s parsing/classification. A mocked diff can miss real failures from git flags/s"
-[run-002612] EC-03 b2 (System→Integration): "Binary handling failures typically occur at real git subprocess/stdout decoding boundaries. Mocked text diff fixtures can hide encoding and binary-mar"
-[run-002612] EC-03 b3 (System→Integration): "This depends on real git behavior for unborn HEAD/no-commit repos (subprocess exit/status/messages). Mocking can hide real command-failure handling is"
-[run-002612] EC-03 b5 (System→Integration): "This behavior depends on real index vs working-tree semantics in git and how the CLI invokes git for each mode. Mocked adapters can miss index/worktre"
-[run-002612] EC-04 b1 (Integration→Unit): "The failure boundary is the handoff between request-building logic and the API client payload shape. A pure unit test of one helper can miss dropped/m"
-[run-002612] EC-04 b4 (System→Agentic): "The real failure is cost/token accounting against the actual external API tokenizer/usage reporting. Local mocks can hide mismatches between estimated"
-[run-002612] EC-05 b1 (Integration→Unit): "Failure is at a module handoff (filesystem discovery -> sort -> runner execution order). A unit test of sort logic alone can miss bugs in discovery/fi"
-[run-002612] EC-05 b3 (System→Integration): "This depends on real PostgreSQL transactional behavior under failure (rollback semantics) plus runner control flow stop-on-error. Transaction mocks ca"
-[run-002612] EC-06 b1 (System→Integration): "Failure boundary is real watcher recursion over live filesystem events (REAL-INFRA). A mocked watcher can hide platform/library watch-scope bugs (MOCK"
-[run-002612] EC-06 b2 (Unit→Integration): "This behavior is primarily path+time-window decision logic inside dedup state handling (MOCK-MISS says single-object logic). No real OS/network/subpro"
-[run-002612] EC-07 b1 (Integration→Unit): "The failure boundary is the handoff between multiple local modules: three source clients, aggregation/orchestration, and the summary-input builder. A "
-[run-002612] EC-07 b4 (System→Workflow): "This requires real external boundaries (HTTP/API calls and actual email transport/inbox delivery). Lower-level tests can pass while real delivery fail"
-[run-002612] EC-08 b2 (Integration→Unit): "The failure boundary is the handoff between response parsing/classification and retry scheduling. A unit test of either piece alone can miss mismatche"
-[run-002612] EC-08 b4 (Integration→Unit): "The behavior spans retry counter exhaustion plus error translation at the public API boundary. Unit-testing only the error class or only the counter c"
-[run-002612] EC-08 b7 (Integration→Unit): "FIFO dispatch is a queueing/scheduler contract that emerges when request queue + dispatcher + quota gate interact. Single-function tests can miss reor"
-[run-002612] EC-09 b1 (Integration→Unit): "The failure boundary is between manifest validation and plugin loading/execution. A unit test of only the validator could pass while the loader still "
-[run-002612] EC-09 b2 (Integration→Unit): "This depends on resolver + scheduler + hook invocation across multiple plugins. Single-function unit tests of topological sort may miss wiring bugs in"
-[run-002612] EC-09 b3 (Integration→Unit): "Cycle detection alone can be unit-tested, but this behavior also requires proving neither plugin is loaded/invoked by the real loader pipeline."
-[run-002612] EC-10 b4 (Integration→Agentic): "This is a cross-module consistency invariant (finding aggregation <-> inline-post results <-> summary composer). Pure unit tests can miss mismatched I"
-[run-002612] EC-11 b1 (Integration→Unit): "The failure boundary is the handoff between history-management logic and the LLM request builder. A unit test of trimming alone can miss wiring bugs w"
-[run-002612] EC-11 b5 (Integration→Workflow): "This is a cross-module state/response-selection guarantee (orchestrator + tone-check result + response presenter). It does not require real model qual"
-[run-002612] EC-12 b5 (System→Integration): "Idempotency across restart depends on durable DB state plus restart/process lifecycle behavior. Integration tests without real restart can miss duplic"
-[run-002612] EC-13 b4 (Workflow→System): "This is end-to-end latency across multiple real agentic steps in sequence (MULTI-STEP + LLM-DEP), plus orchestration overhead. Lower-level tests can m"
-[run-002612] EC-14 b1 (Agentic→System): "The failure is not just local parsing logic; it depends on real diarization quality from the speech-to-text model on real audio. A mocked transcript c"
-[run-002612] EC-14 b4 (Workflow→System): "The failure boundary is a multi-step sequence: segmentation, repeated transcription/summarization across chunks, and final merge coherence. Bugs often"
-[run-002612] EC-15 b1 (System→Unit): "The real failure boundary is the contract between the live embedding provider output shape and the live index schema. A mock embedding client can hide"
-[run-002612] EC-17 b2 (Integration→Agentic): "This failure appears at module handoff: draft claim extraction + KB retrieval + contradiction logic. It does not inherently require real OS/network/su"
-[run-002612] EC-17 b3 (Agentic→Integration): "Correctness depends on model behavior under missing-evidence context (LLM-DEP). Mocking generation would hide hallucination failures. This is primaril"
-[run-002612] EC-18 b1 (Integration→Unit): "The failure boundary is the handoff between ingestion/normalization and correlation modules. A unit test of the grouping function alone can miss real "
-[run-002612] EC-18 b2 (Integration→Unit): "This behavior typically depends on interaction between timestamp parsing, skew-adjustment logic, and timeline assembly. A pure sort unit test is often"
-[run-002612] EC-18 b3 (Integration→Unit): "Real failure is often in wiring baseline computation, percentile aggregation, threshold comparison, and report emission. Unit tests of p99 math alone "
-[run-002612] EC-18 b4 (Integration→Unit): "The failure is at parser-to-pipeline error-handling boundaries: malformed records must be dropped, processing must continue, and skip counters must pr"
-[run-002612] EC-19 b1 (Agentic→Unit): "The behavior’s correctness depends on what the real LLM emits from natural-language requirements; mocked model outputs can hide real signature mismatc"
-[run-002612] EC-19 b2 (Workflow→Agentic): "This behavior spans iterative agent steps (generate → test → refine → test) and must validate retry success, which is a multi-step agent pipeline with"
-[run-002612] EC-19 b3 (Integration→Agentic): "The failure mode is at a module handoff boundary: test-runner output must be wired into prompt construction. A pure unit test would miss cross-module "
-[run-002612] EC-19 b4 (Integration→Unit): "This checks orchestration/state aggregation across generator, tester, and result formatter; the real risk is incorrect cross-module loop control and e"
-[run-002612] EC-20 b2 (System→Integration): "This behavior depends on real API query semantics for version-range matching. Mocks can return idealized data and hide real mismatches in request form"
-[run-002612] EC-20 b7 (Integration→System): "Failure is in orchestration: semver decision must propagate to PR-creation gate and reporting output consistently. A unit test of only the decision fu"
-[run-002612] EC-21 b5 (Agentic→Integration): "Requires module integration (score + explanation assembly) plus real explanation behavior to catch true consistency failures. If explanation is mocked"
-[run-002612] EC-22 b3 (Integration→Unit): "The bug typically appears at module boundaries: memory-pressure signal/metrics provider + config + strategy selector + cache policy wiring. A pure uni"
-[run-002612] EC-22 b5 (Integration→Unit): "Correct victim selection depends on interaction between cache storage, access-tracking metadata, and active policy mode. Unit-testing the policy funct"
-[run-002612] EC-24 b4 (Integration→Unit): "Computation plus persistence crosses module boundaries (distance logic + storage). Pure unit checks of distance alone miss serialization/schema/write-"
-[run-002612] EC-25 b3 (Integration→Unit): "Likely failure is at module handoff: transaction retrieval/filtering by user and timestamp window (off-by-one, inclusive bounds, wrong user partition)"
-[run-002612] EC-25 b4 (Integration→Unit): "Real failure appears in combining outputs from two modules (risk output + scoring output) into hold decision. Unit-testing a standalone boolean helper"
-[run-002612] EC-25 b5 (Integration→Unit): "This is output contract composition across modules. Real defects are missing/dropped fields, wrong field mapping, or overwritten values during aggrega"
-[run-002612] EC-26 b3 (Integration→Unit): "The real failure often appears at module handoff: run-time generation feeding overlap logic plus gap policy interpretation. Testing only one function "
-[run-002612] EC-26 b4 (System→Unit): "To catch real DST failures, the test should exercise real timezone rule behavior (tz database/runtime datetime engine), which is effectively OS/runtim"
-[run-002612] EC-26 b5 (Integration→Unit): "Correctness depends on interaction between next-run computation, persisted/reference time, and policy module. Single-function tests can miss decision "
-[run-002612] EC-27 b2 (Integration→Unit): "Real failures are likely at module handoffs: route leg distance output + road-type speed config lookup + estimator math. A single-function unit test c"
-[run-002612] EC-27 b4 (Integration→System): "The failure appears in cross-module orchestration: geocoding result handling, filtering, downstream optimization input, and skipped-address reporting."
-[run-002612] EC-27 b5 (Integration→Unit): "The risk is at the boundary between dedup/consolidation logic and route construction/optimization (ensuring only one visit while preserving merged pay"
-[run-002612] EC-28 b1 (Integration→Unit): "The failure boundary is the handoff between formula parsing, range resolution, and built-in function execution over workbook cell state. A pure unit t"
-[run-002612] EC-28 b2 (Integration→Unit): "This bug appears at module boundaries: dependency resolution plus multi-cell evaluation order. A unit test of arithmetic or single-formula eval is ins"
-[run-002612] EC-28 b3 (Integration→Unit): "Cycle detection must be exercised through real reference graph construction and evaluator orchestration. Unit-testing only the graph algorithm can mis"
-[run-002612] EC-28 b4 (Integration→Unit): "Real failures often occur in table-range extraction plus function semantics (exact-match mode, column indexing, not-found propagation), which cross mo"
-[run-002612] EC-28 b8 (Integration→Unit): "The behavior is specifically about dependency graph propagation and scheduler ordering across cells, which is an inter-module coordination failure bou"
-[run-002612] EC-28 b10 (System→Integration): "This behavior depends on real file I/O and binary serialization/deserialization against OS filesystem behavior; mocking persistence can hide real corr"
-[run-002612] EC-29 b1 (Integration→Unit): "The key failure is at the module boundary: validation must gate the orchestrator so downstream insurance/triage/scheduling are not invoked. A unit tes"
-[run-002612] EC-29 b9 (Integration→Unit): "Content assembly usually depends on data handoff from scheduling/provider/visit-type modules; unit template tests can miss missing-field wiring defect"
-[run-002612] EC-30 b1 (Integration→Unit): "Failure is most likely at the handoff between inventory filtering and ranking (MOCK-MISS), not inside a single pure function. No OS/network/LLM depend"
-[run-002612] EC-30 b2 (Integration→Unit): "The bug boundary is user-settings data passed into category filtering (module interaction). A unit test of only the predicate can miss wiring/mapping "
-[run-002612] EC-30 b3 (Unit→Agentic): "This behavior can be validated at the scoring/ranking function boundary with deterministic feature inputs; no required external infra or LLM dependenc"
-[run-002612] EC-30 b4 (Integration→Unit): "Stability depends on ordering + pagination modules working together; unit-testing pagination alone can miss nondeterministic upstream ordering."
-[run-002612] EC-30 b5 (Integration→Agentic): "Serendipity is usually enforced across candidate generation and reranking/diversification; a single-function test may miss rule loss at module boundar"
-[run-002612] EC-30 b6 (Integration→Unit): "Failure appears when no-history detection, fallback strategy, and popularity source interact; not just isolated logic."
-[run-002612] EC-30 b9 (Integration→Unit): "Requires state transition across modules: purchase event ingestion/state update plus subsequent ranking. A single-function unit test is insufficient."
-[run-002612] EC-30 b10 (Integration→Unit): "Non-determinism often comes from module interactions (unordered retrieval, tie-breaking, cache/state wiring), not just one function."
-[run-002612] EC-32 b1 (Integration→Unit): "The failure boundary is between multiple local modules: template discovery, SKILL.md snippet source, and lint-rule matching. A unit test of only the m"
-[run-002612] EC-32 b3 (Integration→System): "This is specifically about proving dependency on real local skill/plugin files. Mocked loaders or hard-coded strings can hide a real wiring failure wh"
-[run-002612] EC-32 b4 (Agentic→Workflow): "Correctness depends on behavior changing when real skill context quality changes. That requires a real model call and tolerating non-deterministic out"
-[run-002612] EC-32 b6 (Unit→Agentic): "The core failure boundary is assertion logic quality. You can catch false-positive keyword checks with crafted local outputs (including prompt-echo te"
-[run-002612] EC-33 b4 (Integration→Workflow): "The core failure is sequencing/state coupling (diff version, phase transitions, and round execution marker). This can be caught without real LLM nonde"
-[run-002612] EC-33 b5 (Integration→Workflow): "This depends on interaction of round counter policy + persisted unresolved severity findings + final outcome emitter. Unit tests can miss policy/state"
-[run-002612] EC-35 b3 (Integration→Unit): "The failure boundary is policy mapping across components: parse error object -> policy handler -> result + telemetry intent flag. Unit tests on a sing"
+**`--summary` output** shows:
+- MATCHED section: confusion pairs by file with counts across all runs
+- UNMATCHED section: confusion pairs in unmatched.md with run list and `← consider new category` flag for pairs with ≥3 occurrences
 
-## [run-004233] mined 2026-03-28T21:47:53Z
-[run-004233] EC-01 b1 (Integration→Unit): "This failure is at the handoff between config sources and validation/error formatting: file values + env overrides are merged, then required-path vali"
-[run-004233] EC-01 b2 (Unit→Integration): "The core failure boundary is deterministic path-resolution logic from process env + home fallback. This can be caught by testing the resolver function"
-[run-004233] EC-02 b6 (Integration→Unit): "Requires real propagation of queue-capacity error to HTTP mapping (status + header). Mock-only tests can miss incorrect error translation at module bo"
-[run-004233] EC-03 b1 (System→Integration): "The real failure boundary is the CLI’s interaction with an actual git repo and git’s rename detection behavior. Mocked or fixture-based parsing can mi"
-[run-004233] EC-03 b2 (System→Integration): "This depends on real git diff behavior for binary content and real process/encoding handling. Mocking diff output can hide decode/parsing crashes that"
-[run-004233] EC-03 b3 (System→Integration): "The failure mode is tied to unborn-HEAD repository state and actual git command behavior (often non-zero exits/special messages). That state is best v"
-[run-004233] EC-03 b5 (System→Integration): "This behavior relies on real git index vs working-tree semantics. Module-level tests cannot reliably reproduce staging behavior and may miss bugs in c"
-[run-004233] EC-04 b1 (Integration→Unit): "The failure boundary is the handoff between taxonomy configuration, request construction, and API client payload wiring. A pure unit test of prompt-bu"
-[run-004233] EC-04 b4 (System→Agentic): "Real token consumption depends on provider-side tokenization/accounting and full request shape. Mocks can under-report or misrepresent actual usage, m"
-[run-004233] EC-05 b1 (Integration→Unit): "The failure boundary is the handoff between file discovery/parsing and the migration execution loop (MOCK-MISS). No real network/OS subprocess behavio"
-[run-004233] EC-05 b3 (System→Integration): "Rollback correctness depends on real PostgreSQL transaction semantics and error handling behavior that mocks can hide (MOCK-HIDE, REAL-INFRA). Also re"
-[run-004233] EC-06 b1 (System→Integration): "The failure boundary is real filesystem watching behavior (recursive/subdirectory event propagation), which is OS- and watcher-backend-dependent; mock"
-[run-004233] EC-06 b2 (Unit→Integration): "This behavior is primarily deterministic path+time-window logic inside dedup state handling; real OS/file events are not required to expose the core b"
-[run-004233] EC-07 b1 (Integration→Unit): "The failure is at a module handoff boundary: three collectors plus report-assembly input to the summarizer. A unit test of only merge logic can miss w"
-[run-004233] EC-07 b4 (System→Workflow): "This behavior crosses real external boundaries (HTTP/internal APIs + email transport/inbox). Mocked delivery can pass while real SMTP/API auth, format"
-[run-004233] EC-08 b2 (Integration→Unit): "MOCK-MISS: this behavior is at a module boundary (HTTP response classification + retry scheduler/backoff). Unit tests of classifier alone can miss wir"
-[run-004233] EC-08 b4 (Integration→Unit): "MOCK-MISS: typed error guarantee is at the public `call()` boundary after retry exhaustion, requiring retry loop + error mapping to work together. Uni"
-[run-004233] EC-08 b7 (Integration→Unit): "MOCK-MISS: ordering failures arise in queue + dispatcher + retry wake-up interaction, not isolated logic only. REAL-INFRA: no external system required"
-[run-004233] EC-09 b1 (Integration→Unit): "The failure boundary is between manifest validation and module loading/execution. A unit test of the validator alone can’t prove plugin code was never"
-[run-004233] EC-09 b2 (Integration→Unit): "This is a cross-module ordering behavior: manifest dependency parsing + graph resolution + hook invocation sequencing. A unit test of topological sort"
-[run-004233] EC-09 b3 (Integration→Unit): "Cycle handling is at the dependency-graph/loader boundary. Unit-testing cycle detection logic is useful but insufficient for this behavior, which also"
-[run-004233] EC-11 b1 (Integration→Unit): "Failure is most likely at the handoff between history-management logic and the LLM request builder. A pure unit test of a trimming helper can miss wir"
-[run-004233] EC-11 b5 (Integration→Workflow): "Failure appears at orchestration/output boundary: tone-check decision, regeneration call, and final response selection. This can be caught without rea"
-[run-004233] EC-12 b5 (System→Integration): "Correctness depends on durable state across process restart plus real DB write semantics (transactions/checkpointing/idempotency). This cross-process "
-[run-004233] EC-13 b4 (Workflow→System): "This is an end-to-end latency SLO across multiple agentic steps in sequence. Real timing risk comes from the combined pipeline (two model calls plus o"
-[run-004233] EC-14 b1 (Agentic→System): "The failure is primarily diarization quality from a real speech-to-text model (LLM-DEP). A mocked transcript can validate wiring, but it can hide real"
-[run-004233] EC-14 b4 (Integration→System): "The core failure boundary is orchestration across local modules (splitter, sequencing controller, merger) (MOCK-MISS). Real APIs are not strictly requ"
-[run-004233] EC-15 b1 (System→Unit): "The failure is typically a real boundary mismatch between configured embedding model output and the live vector DB index schema; mocks can hide model/"
-[run-004233] EC-15 b2 (System→Integration): "This behavior is about actual retrieval ordering from the vector search component; wiring/config issues (metric type, score interpretation, sort direc"
-[run-004233] EC-16 b2 (Integration→Unit): "This behavior depends on interaction between rule outputs, severity mapping, grouping, and comment rendering (MOCK-MISS). Unit-testing only the groupi"
-[run-004233] EC-17 b2 (Integration→Agentic): "The failure is mainly at module handoff boundaries (claim extraction -> KB lookup -> contradiction decision), not a single pure function (MOCK-MISS). "
-[run-004233] EC-17 b3 (Agentic→Integration): "Even with correct wiring, the key risk is model behavior under missing evidence: real LLMs may hallucinate or omit disclaimers (LLM-DEP). Mocked gener"
-[run-004233] EC-18 b1 (Integration→Unit): "The failure boundary is the handoff between log ingestion/normalization and correlation. A unit test of only the grouping function can miss real misma"
-[run-004233] EC-18 b3 (Integration→Unit): "You must verify both statistical detection and report flag propagation. A unit test of p99 math alone can miss wiring failures where detected spikes a"
-[run-004233] EC-18 b4 (Integration→Unit): "This is an error-handling contract across parser, pipeline control flow, and reporting counters. Mocking parser failures can hide real exception/conti"
-[run-004233] EC-19 b1 (Agentic→Unit): "The behavior is about whether the real model produces the correct signature from natural language. A mocked model can validate parsing/validation logi"
-[run-004233] EC-19 b2 (System→Agentic): "The core failure boundary is orchestration with real code execution (test harness/subprocess/files/runtime). You can stub the LLM and still catch real"
-[run-004233] EC-19 b3 (Integration→Agentic): "This is a module handoff bug class: test-runner output must flow into prompt-construction for the next attempt. A single-function unit test is often t"
-[run-004233] EC-19 b4 (Integration→Unit): "The failure appears in retry-loop state management plus result aggregation across attempts. Deterministic stubs are sufficient; real network/model cal"
-[run-004233] EC-20 b2 (System→Integration): "This behavior depends on real HTTP/API contract semantics for version-range query parameters and response filtering. Mocking can hide real failures in"
-[run-004233] EC-20 b7 (Integration→System): "The behavior spans decision logic, PR-creation module invocation, and output/report assembly. The failure is at local module interactions, not externa"
-[run-004233] EC-21 b5 (Agentic→Integration): "This combines module wiring (single response envelope) with semantic consistency between deterministic score and generated explanation. Using mocked e"
-[run-004233] EC-22 b3 (Integration→Unit): "This failure typically appears at module handoff: memory-usage provider + config + strategy selector/cache manager. A pure unit of the selector can mi"
-[run-004233] EC-22 b4 (System→Integration): "Correctness depends on real PostgreSQL write behavior and DB-to-cache invalidation signaling (e.g., triggers/NOTIFY/listeners/CDC), which is often hid"
-[run-004233] EC-24 b2 (Integration→System): "The bug appears at module handoff (API client error -> fallback path -> response shaping). A unit test of one function can miss wiring/state propagati"
-[run-004233] EC-24 b4 (Integration→Unit): "While edit-distance math alone is unit-testable, this behavior includes persistence. Real failures often occur in compute-to-storage wiring (wrong fie"
-[run-004233] EC-25 b3 (Integration→Unit): "Real failures commonly occur at the boundary between velocity logic and transaction-history retrieval/filtering (time window, ordering, per-user parti"
-[run-004233] EC-25 b4 (Integration→Unit): "The failure boundary is model-output handoff into decision orchestration. You need both module outputs combined in the real decision path to catch OR/"
-[run-004233] EC-25 b5 (Integration→Unit): "This checks contract assembly across components (scoring output + risk output + decision metadata). A single-function unit test can miss dropped/mis-m"
-[run-004233] EC-26 b4 (System→Unit): "Correctness depends on real timezone/DST rule behavior from runtime+OS tz data; mocks can hide real transition semantics and environment-specific fail"
-[run-004233] EC-26 b5 (Integration→Unit): "Real failure appears at module handoff: computed schedule time + current-time evaluation + policy decision path. Isolated function tests may miss wiri"
-[run-004233] EC-27 b2 (Integration→Unit): "Real failure is likely at local module handoff: route segment distances + road-type speed config + estimator. A pure unit test of one formula can miss"
-[run-004233] EC-27 b5 (Integration→Unit): "Real risk is interaction between deduplication/aggregation and route planning modules: duplicates must merge before optimization and produce one visit"
-[run-004233] EC-28 b1 (Integration→Unit): "The failure boundary is the handoff between range reference resolution and function evaluation. A pure `SUM(values[])` unit test can pass while range "
-[run-004233] EC-28 b2 (Integration→Unit): "This behavior is specifically about cross-cell formula chaining (`B1` depends on `A1`, `C1` depends on `B1`), which is a module-boundary interaction b"
-[run-004233] EC-28 b3 (Integration→Unit): "Cycle detection only appears when dependency graph construction and evaluation interact; a single-function unit test can miss real graph wiring failur"
-[run-004233] EC-28 b4 (Integration→Unit): "Real failures often occur at the boundary between range extraction (table from cells) and VLOOKUP semantics. Testing only the lookup algorithm on arra"
-[run-004233] EC-28 b8 (Integration→Unit): "This behavior is about dependency graph scheduling across cells, which is inherently multi-module and not a single local-function concern."
-[run-004233] EC-29 b1 (Integration→Unit): "The failure boundary is the handoff between validation and the intake orchestrator: you must prove downstream modules are not invoked when fields are "
-[run-004233] EC-29 b3 (Integration→System): "The bug surface is request construction + response mapping across internal modules and the payer client boundary. Real external payer calls are not st"
-[run-004233] EC-29 b4 (Integration→System): "The critical failure is error propagation between payer client and orchestration flow. Simulating transport failure at the client boundary is sufficie"
-[run-004233] EC-29 b10 (Agentic→Workflow): "This end-to-end completion includes a real AI step whose live output can break downstream parsing/flow; deterministic stubs can hide this. It also spa"
-[run-004233] EC-30 b1 (Integration→Unit): "Failure mode is at a module boundary: inventory availability filtering must be applied correctly before/with ranking. A unit test of only ranking or o"
-[run-004233] EC-30 b2 (Integration→Unit): "Behavior depends on handoff from user-settings data to filtering logic. Unit-testing filter logic alone can miss schema/serialization/mapping issues i"
-[run-004233] EC-30 b3 (Unit→Agentic): "This is core ranking-rule behavior inside the algorithm, testable at one function/object boundary with deterministic fixtures. No required external I/"
-[run-004233] EC-30 b4 (Integration→Unit): "Real risk is interaction between ranking output, sorting stability, and pagination module. Unit-testing pagination utility alone can miss non-stable o"
-[run-004233] EC-30 b5 (Unit→Agentic): "This is an algorithmic constraint on ranked output composition; it can be validated at ranking/diversification function level with controlled inputs. "
-[run-004233] EC-30 b6 (Integration→Unit): "Failure appears when profile-state detection (cold-start) interacts with fallback retrieval (popularity source). Unit test of fallback scorer alone ma"
-[run-004233] EC-30 b9 (Integration→Unit): "Requires state transition across modules: purchase event ingestion/update plus next recommendation ranking. Unit tests of rank penalty alone can miss "
-[run-004233] EC-30 b10 (Integration→Unit): "Determinism failures often come from module interactions (unstable sort, random seed handling, cache/state effects) rather than a single pure function"
-[run-004233] EC-31 b4 (Integration→System): "Correctness requires coordination between trigger metadata extraction and state persistence (likely filesystem write). A unit-only test can miss seria"
-[run-004233] EC-31 b5 (Integration→System): "The failure boundary is a producer/consumer contract between two local hooks via shared state format. This is a cross-module compatibility test; no LL"
-[run-004233] EC-32 b3 (Integration→System): "Real failure boundary is wiring between invocation code and plugin/skill file loading. A unit test of a validator function would not prove context sou"
-[run-004233] EC-32 b4 (Agentic→Workflow): "This behavior is explicitly about model behavior depending on skill context quality. Correctness depends on real LLM output sensitivity to context cha"
-[run-004233] EC-32 b6 (Unit→Agentic): "Primary failure boundary is assertion design/logic. You can catch false positives with crafted outputs (keyword echo vs correct structure) without ful"
-[run-004233] EC-33 b4 (Integration→Workflow): "This is lifecycle/state coordination across diff versioning, round tracking, and finalization gate. Correctness does not require real LLM output; it r"
-[run-004233] EC-33 b5 (Integration→Workflow): "The failure appears in orchestration over persisted findings + round budget policy. It is not primarily LLM-quality-dependent; the key is policy appli"
-[run-004233] EC-34 b1 (Integration→System): "Failure is primarily at local module handoff (git-diff/age computation/PR-presence input) rather than one pure function. No required real external API"
+**`--reprocess-unmatched`**: reads all blocks from unmatched.md, re-routes against current taxonomy files, appends matched blocks to their files, rewrites unmatched.md with only the remaining unmatched blocks. Safe to run multiple times.
+
+### extract-thinking.ts
+
+```bash
+# Full output — all errors sorted by weight (high-impact first), aggregate summary at end
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest
+
+# Block format for taxonomy routing (full text, no truncation)
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
+
+# Focus on one task
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --task EC-30
+
+# Only self-aware contradictions
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --self-aware-only
+```
+
+---
+
+## The three-step MINE taxonomy flow
+
+### Step 1 — Route (mechanical)
+
+```bash
+npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
+  npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts
+```
+
+Routes matched blocks to taxonomy files. Appends unmatched blocks to `unmatched.md`. Reports what moved.
+
+### Step 2 — Summarize (mechanical)
+
+```bash
+npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
+```
+
+Shows cumulative confusion pair counts. Pairs with `← consider new category` have ≥3 cumulative unmatched occurrences and warrant the cognitive step below.
+
+### Step 3 — Pattern discovery (LLM cognitive)
+
+For each confusion pair flagged in step 2:
+
+1. Read those full blocks from `unmatched.md` — both J: and T: lines (full text, not snippets)
+2. Read the descriptions of existing taxonomy files (id, name, description, direction)
+3. Classify:
+   - **Fits existing pattern** — same reasoning trap, new confusion pair: add pair to that file's `confusion_pair` frontmatter list
+   - **New reasoning trap** — distinct failure mode: create new `taxonomy/XX-name.md` file
+4. After any create or update, backfill history:
+   ```bash
+   npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --reprocess-unmatched
+   ```
+
+**What distinguishes same-pattern vs new-pattern**: read the J: text. If the reasoning argument is structurally identical to an existing pattern (e.g., "can mock this" appearing at Unit level instead of Integration level), it's the same pattern. If the argument type is different (e.g., "apply REJECTION-GATE quality check" vs "mock is sufficient"), it's a new pattern even if the confusion pair is the same.
+
+---
+
+## Current taxonomy files
+
+| File | Direction | Confusion pairs | Pattern |
+|------|-----------|----------------|---------|
+| U1-can-mock-the-api | under | Integration-Agentic | Model says stubs/mocks are sufficient, missing that mock hides real model output variability |
+| U2-pure-logic-no-io | under | Unit-Integration | Model treats behavior as pure function logic, misses module boundary |
+| U3-integration-suffices | under | Integration-System | Model says in-process wiring catches it, missing that real OS/network/subprocess is needed |
+| U4-single-step-enough | under | Agentic-Workflow | Model says one real-model call is enough, missing that multiple sequential agentic steps are required |
+| O1-needs-real-wiring | over | Integration-Unit | Model over-escalates to Integration, manufacturing a module boundary from single-function behavior |
+| O2-needs-external-service | over | System-Integration | Model over-escalates to System, applying REAL-INFRA when in-process stubs suffice |
+| O3-looks-like-ai | over | Agentic-System | Model over-escalates to Agentic when the real failure boundary is deterministic OS/network behavior |
+| O4-agentic-to-workflow-overreach | over | Workflow-Agentic | Model over-escalates to Workflow for single agentic step behaviors |
+| unmatched.md | — | (none yet) | Accumulator for pairs with no taxonomy file |
+
+**Note on `confusion_pair` lists**: U1 currently has `confusion_pair: Integration-Agentic` in frontmatter but contains manually-added `Unit-Agentic` and `System-Agentic` entries from old runs. The frontmatter needs updating to include all three pairs so new entries route correctly.
+
+---
+
+## Known issues and pitfalls
+
+### 1. Pre-fix contamination in O files
+O2 contains 11 `Integration→System` entries (wrong direction, duplicates of U3 entries) from before the confusion_pair direction fix. O3 contains 2 `System→Agentic` and 1 `Integration→Agentic` wrong-direction entries. These cannot be auto-removed (append-only). They are recognized contamination — read O2 and O3 carefully for the correct (System→Integration and Agentic→System) entries.
+
+### 2. Pattern drift — same confusion pair, different reasoning traps
+A taxonomy file with a single `confusion_pair` will collect ALL entries for that pair, even if different runs exhibit different reasoning traps. Example: U1 (`Integration-Agentic`) contains "can mock" reasoning (old runs) AND "REJECTION-GATE quality escape" reasoning (new runs). If the traps require different fixes, the file needs to be split. The cognitive review step should detect this.
+
+### 3. confusion_pair list gaps
+U1 `confusion_pair` only lists `Integration-Agentic` but the file body also has `Unit-Agentic` (8 entries) and `System-Agentic` (3 entries) from manual curation. New Unit-Agentic and System-Agentic errors will route to `unmatched.md` until U1's frontmatter is updated. Same issue for U4 (`Integration-Workflow`, `System-Workflow` entries present but not in confusion_pair).
+
+### 4. Summary undercounts legacy entries
+`--summary` uses regex `\[run(\d+)\]` which only matches integer run labels. The ~400 entries using timestamp format (`[run-204623]`, `[run-203945]`) are invisible to the counter. The matched/unmatched counts are undercounts. This does not affect routing — routing works on any `[run...]` format. The summary fix would change the regex to `\[run\S+\]`.
+
+### 5. Never-delete means contamination is permanent
+Wrong entries from mis-routing cannot be removed by the tooling. Manual cleanup (with an explicit note in a commit message explaining why entries were removed) is acceptable for demonstrably misrouted entries, but must be deliberate.
+
+---
+
+## Validation checklist
+
+Run these checks after any taxonomy file modification:
+
+```bash
+# 1. Check no two files share the same confusion pair (would cause double-routing)
+grep "^confusion_pair:" experiments/write-test-plan/taxonomy/[UO]*.md
+
+# 2. Check all O-file entries have the correct direction (Pred level > GT level)
+#    For O1 (Integration→Unit): Pred=Integration, GT=Unit → Integration > Unit ✓
+#    Any System→Agentic in O3 (Pred=System < GT=Agentic) is wrong direction ✗
+
+# 3. Verify summary counts look reasonable after a run
+npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
+
+# 4. Verify unmatched.md block count matches summary report
+grep -c "^\[run" experiments/write-test-plan/taxonomy/unmatched.md
+```

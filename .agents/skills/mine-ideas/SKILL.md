@@ -98,6 +98,10 @@ Also compute:
 
 ### 6. Update taxonomy/ folder (APPEND-ONLY)
 
+→ **Full system reference**: `experiments/write-test-plan/taxonomy/README.md`
+  Covers: confusion_pair direction convention, block format, unmatched.md, tool commands, known pitfalls, validation checklist.
+
+
 The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. **NEVER delete old lines — only append.**
 
 #### 6a. Route current run's errors

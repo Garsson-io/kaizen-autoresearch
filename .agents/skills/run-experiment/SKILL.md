@@ -23,6 +23,8 @@ Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional
 
 Every step is either **perception** (tools compute structured evidence), **cognition** (LLM reads evidence and forms judgment), or **action** (tools execute decisions). Never mix them.
 
+→ **Taxonomy system reference**: `experiments/write-test-plan/taxonomy/README.md`
+
 **Mechanical tool steps** — run commands, do not reason about them:
 - MINE: `mine-report.ts` produces structured evidence (loss breakdown, diff, persistence, MINE DIGEST template)
 - SCORE: arithmetic — `loss < reference_loss` → keep, otherwise revert

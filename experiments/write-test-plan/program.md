@@ -184,7 +184,8 @@ LOOP:
      npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
      ```
 
-     **[LLM COGNITIVE] Taxonomy pattern discovery** — after seeing the --summary output:
+     **[LLM COGNITIVE] Taxonomy pattern discovery** — after seeing the --summary output
+     (full system reference: `experiments/write-test-plan/taxonomy/README.md`):
      For each confusion pair with ≥3 cumulative unmatched occurrences:
        a. Read those full entries from `taxonomy/unmatched.md` (they contain full J: justification + T: thinking)
        b. Read the existing taxonomy file descriptions (U1–U4, O1–O4) — does any match this reasoning trap?
