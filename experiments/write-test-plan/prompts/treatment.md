@@ -34,6 +34,7 @@ a real failure — not just to verify happy-path logic.
   (a) Does the failure need real OS/network/subprocess? If yes → System.
   (b) Does correctness depend on real AI/ML output? If yes → Agentic.
   (c) Does it chain multiple agentic steps? If yes → Workflow.
+  (d) If the behavior is about orchestration or state handoff across LLM-involved stages (planner→tool→critic, memory/context carryover, retry/replan loops), do not keep Integration by default: choose Agentic when one model decision governs handoff correctness, and Workflow when multiple model decisions are sequenced.
   If any answer is yes, upgrade unless you can quote behavior text that disqualifies the higher level.
 
 - **REJECTION-GATE**: If during your reasoning you considered a level higher than
