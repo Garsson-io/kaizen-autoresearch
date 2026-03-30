@@ -20,6 +20,7 @@ import { join, basename } from "path";
 import { fileURLToPath } from "url";
 import { PATHS, getRunDir } from "./paths.js";
 import { LEVELS } from "../src/schema.js";
+import { LEVEL_WEIGHTS, serializeEntry, type TaxonomyEntry } from "./taxonomy-schema.js";
 
 interface BehaviorThinking {
   task: string;
@@ -249,21 +250,22 @@ function printTaxonomyLines(results: BehaviorThinking[], runLabel: string) {
   const errors = results.filter((r) => r.direction !== "correct");
 
   for (const r of errors) {
-    const weight = ROW_WEIGHT[r.gt ?? "Unit"] ?? 1;
-    const arrow = `${r.predicted}→${r.gt}`;
-    const saFlag = r.self_aware ? " ⚠SELF-AWARE" : "";
-    // First line: routing key — parseable by taxonomy-append (confusion pair extraction)
-    console.log(`[${runLabel}] ${r.task} b${r.behavior_id} (${arrow}) [w=${weight}]${saFlag}`);
-    // Full justification — no truncation
-    console.log(`  J: "${r.justification}"`);
-    // Full thinking — for ALL errors, not just self-aware (the decisive reasoning is often here)
+    if (!r.gt) continue;
     const thinkText = r.self_aware && r.self_aware_evidence
       ? r.self_aware_evidence
       : r.thinking_excerpt;
-    if (thinkText && thinkText !== "(behavior not found in thinking)") {
-      console.log(`  T: "${thinkText}"`);
-    }
-    console.log(); // blank line separator between blocks
+    const entry: TaxonomyEntry = {
+      run: runLabel,
+      task: r.task,
+      b: r.behavior_id,
+      pred: r.predicted as TaxonomyEntry["pred"],
+      gt: r.gt as TaxonomyEntry["gt"],
+      w: LEVEL_WEIGHTS[r.gt as keyof typeof LEVEL_WEIGHTS] ?? 1,
+      j: r.justification,
+      ...(thinkText && thinkText !== "(behavior not found in thinking)" ? { t: thinkText } : {}),
+      ...(r.self_aware ? { sa: true } : {}),
+    };
+    console.log(serializeEntry(entry));
   }
 }
 

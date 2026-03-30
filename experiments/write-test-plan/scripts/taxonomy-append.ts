@@ -31,6 +31,7 @@ import { join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { PATHS } from "./paths.js";
+import { parseEntryLine, entryPair, serializeEntry } from "./taxonomy-schema.js";
 
 const UNMATCHED_PATH = join(PATHS.taxonomy, "unmatched.md");
 
@@ -156,25 +157,45 @@ function parseConfusionPair(line: string): string | null {
 function parseBlocks(rawInput: string): Block[] {
   const blocks: Block[] = [];
 
-  // Split on blank lines → each group is a potential block
+  // New format: JSONL — one TaxonomyEntry per line (from extract-thinking --taxonomy-lines)
+  const lines = rawInput.split("\n");
+  const isJsonl = lines.some(l => l.trim().startsWith("{"));
+
+  if (isJsonl) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const entry = parseEntryLine(trimmed);
+      if (!entry) {
+        if (trimmed.startsWith("{")) console.warn(`Invalid entry JSON: ${trimmed.slice(0, 80)}`);
+        continue;
+      }
+      blocks.push({
+        lines: [serializeEntry(entry)],
+        key: serializeEntry(entry),
+        confusionPair: entryPair(entry),
+        isSelfAware: entry.sa ?? false,
+      });
+    }
+    return blocks;
+  }
+
+  // Legacy format: multi-line blocks separated by blank lines
   const groups = rawInput.split(/\n[ \t]*\n/);
-
   for (const group of groups) {
-    const lines = group.split("\n").filter(l => l !== "");
-    if (!lines.length) continue;
+    const groupLines = group.split("\n").filter(l => l !== "");
+    if (!groupLines.length) continue;
 
-    // Find the first [run...] line (routing key)
-    const keyIdx = lines.findIndex(l => /^\[run/.test(l));
+    const keyIdx = groupLines.findIndex(l => /^\[run/.test(l));
     if (keyIdx < 0) continue;
 
-    const keyLine = lines[keyIdx];
-    const block: Block = {
-      lines: lines.slice(keyIdx),  // key + any following indented lines
+    const keyLine = groupLines[keyIdx];
+    blocks.push({
+      lines: groupLines.slice(keyIdx),
       key: keyLine,
       confusionPair: parseConfusionPair(keyLine),
       isSelfAware: keyLine.includes("⚠SELF-AWARE") || keyLine.includes("SELF-AWARE"),
-    };
-    blocks.push(block);
+    });
   }
 
   return blocks;
@@ -308,6 +329,23 @@ function reprocessUnmatched(taxFiles: TaxonomyFile[], dryRun: boolean): void {
 function parseRoutingKeys(content: string): RoutingKey[] {
   const keys: RoutingKey[] = [];
   for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    // New format: JSONL entry
+    const entry = parseEntryLine(trimmed);
+    if (entry) {
+      keys.push({
+        run: entry.run,
+        task: entry.task,
+        behavior: entry.b,
+        pred: entry.pred,
+        gt: entry.gt,
+        pair: entryPair(entry),
+        weight: entry.w,
+        selfAware: entry.sa ?? false,
+      });
+      continue;
+    }
+    // Legacy format: routing key line "[runN] EC-NN bN (Pred→GT) [w=W]"
     const result = RoutingKeySchema.safeParse(line);
     if (result.success) keys.push(result.data);
   }
