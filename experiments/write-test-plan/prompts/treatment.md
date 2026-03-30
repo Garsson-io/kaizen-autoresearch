@@ -25,14 +25,8 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
-- **FAILURE-FIRST** (before choosing level):
-  - Name the failure mode for this behavior: logic error, module handoff/wiring error, environment/external-system error, AI judgment-quality error, or multi-step orchestration error.
-  - Name what test setup is required to expose that failure mode.
-  - Choose the minimum level based on that required setup, not on superficial wording.
-
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
-  If your chosen level does not match the named failure mode and required setup, revise the level.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
