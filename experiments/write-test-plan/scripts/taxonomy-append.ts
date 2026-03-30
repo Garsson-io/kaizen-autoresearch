@@ -1,20 +1,29 @@
 #!/usr/bin/env npx tsx
 /**
- * taxonomy-append.ts — Auto-route taxonomy-lines output to the right taxonomy files.
+ * taxonomy-append.ts — Route taxonomy-lines output to taxonomy files, persist unmatched,
+ * and support retroactive re-routing when new taxonomy files are added.
  *
- * Takes the output of `extract-thinking.ts --taxonomy-lines` (via stdin or --input)
- * and appends each line to the taxonomy file whose `confusion_pair` frontmatter
- * matches the line's confusion pair. Lines with no matching file are collected
- * for review (potential new patterns).
+ * NEW: Input is block-based (multi-line entries from extract-thinking --taxonomy-lines).
+ * Each block: first line is the routing key "[runN] TASK bN (Pred→GT) [w=W]",
+ * followed by indented "  J: ..." and "  T: ..." lines. Full text, no truncation.
+ * Old single-line format is still accepted (treated as a one-line block).
+ *
+ * Unmatched blocks are persisted to taxonomy/unmatched.md (append-only).
+ * Run --reprocess-unmatched after adding new taxonomy files to backfill history.
  *
  * Usage:
+ *   # Append current run's errors to taxonomy files
  *   npx tsx scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
- *     npx tsx scripts/taxonomy-append.ts --run N
+ *     npx tsx scripts/taxonomy-append.ts [--run N]
  *
- *   # Or with explicit input file:
- *   npx tsx scripts/taxonomy-append.ts --run 8 --input /tmp/lines.txt
+ *   # Re-route historical unmatched after adding/updating taxonomy files
+ *   npx tsx scripts/taxonomy-append.ts --reprocess-unmatched
  *
- * The --run flag sets the [runN] label; auto-detect if omitted (counts existing entries).
+ *   # Show cumulative confusion pair counts across all taxonomy files + unmatched.md
+ *   npx tsx scripts/taxonomy-append.ts --summary
+ *
+ *   # Preview without writing
+ *   ... | npx tsx scripts/taxonomy-append.ts --dry-run
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
@@ -22,14 +31,30 @@ import { join } from "path";
 import { fileURLToPath } from "url";
 import { PATHS } from "./paths.js";
 
+const UNMATCHED_PATH = join(PATHS.taxonomy, "unmatched.md");
+
+const UNMATCHED_HEADER = `---
+confusion_pair: "(unmatched — no taxonomy file for these pairs yet)"
+note: "Auto-accumulated unmatched taxonomy lines. After creating new taxonomy files or updating confusion_pair lists, run: npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --reprocess-unmatched"
+---
+
+`;
+
 interface TaxonomyFile {
   path: string;
-  confusionPairs: string[];  // e.g. ["Integration-Agentic", "Unit-Agentic"]
-  direction: string;         // "under" | "over"
+  confusionPairs: string[];
+  direction: string;
   id: string;
 }
 
-// ─── Load taxonomy files and parse frontmatter ────────────────────────────────
+interface Block {
+  lines: string[];      // first line is routing key, rest are indented context
+  key: string;          // first line (used for dedup check)
+  confusionPair: string | null;
+  isSelfAware: boolean;
+}
+
+// ─── Load taxonomy files ──────────────────────────────────────────────────────
 
 function parseFrontmatter(content: string): Record<string, string> {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
@@ -48,25 +73,26 @@ function loadTaxonomyFiles(): TaxonomyFile[] {
   if (!existsSync(dir)) return files;
 
   for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".md") || name === "README.md") continue;
+    if (!name.endsWith(".md") || name === "README.md" || name === "unmatched.md") continue;
     const path = join(dir, name);
     const content = readFileSync(path, "utf8");
     const fm = parseFrontmatter(content);
     if (!fm.confusion_pair) continue;
 
-    // confusion_pair can be "Integration-Agentic" or multiple "U1, U2" — use it directly
     const pairs = fm.confusion_pair.split(",").map(p => p.trim());
     files.push({ path, confusionPairs: pairs, direction: fm.direction ?? "", id: fm.id ?? name });
   }
   return files;
 }
 
-// ─── Count existing run labels to auto-detect run number ─────────────────────
+// ─── Detect run number ────────────────────────────────────────────────────────
 
 function detectRunNumber(taxFiles: TaxonomyFile[]): number {
   let max = 0;
-  for (const f of taxFiles) {
-    const content = readFileSync(f.path, "utf8");
+  const allPaths = taxFiles.map(f => f.path);
+  if (existsSync(UNMATCHED_PATH)) allPaths.push(UNMATCHED_PATH);
+  for (const path of allPaths) {
+    const content = readFileSync(path, "utf8");
     for (const m of content.matchAll(/\[run(\d+)\]/g)) {
       max = Math.max(max, parseInt(m[1], 10));
     }
@@ -74,39 +100,227 @@ function detectRunNumber(taxFiles: TaxonomyFile[]): number {
   return max + 1;
 }
 
-// ─── Parse a taxonomy line ────────────────────────────────────────────────────
+// ─── Parse input into blocks ──────────────────────────────────────────────────
+//
+// New format (multi-line block):
+//   [run-HHMMSS] EC-10 b4 (Integration→Agentic) [w=4]
+//     J: "full justification text"
+//     T: "full thinking text"
+//   <blank line>
+//
+// Old format (single line, backwards compatible):
+//   [run5] EC-10 b4 (Integration→Agentic): "truncated..."
 
-interface TaxonomyLine {
-  raw: string;
-  confusionPair: string | null; // "Integration-Agentic"
-  isSelfAware: boolean;
+function parseConfusionPair(line: string): string | null {
+  const m = line.match(/\((\w+)→(\w+)\)/);
+  return m ? `${m[1]}-${m[2]}` : null;
 }
 
-function parseLine(line: string): TaxonomyLine {
-  // Format: [runN] TASK bN (Pred→GT): "justification"
-  // or:     [runN] TASK bN THINKING: ⚠ SELF-AWARE "..."
-  const pairMatch = line.match(/\((\w+)→(\w+)\)/);
-  if (!pairMatch) return { raw: line, confusionPair: null, isSelfAware: false };
-  const pair = `${pairMatch[1]}-${pairMatch[2]}`;
-  const isSelfAware = line.includes("SELF-AWARE") || line.includes("THINKING:");
-  return { raw: line, confusionPair: pair, isSelfAware };
+function parseBlocks(rawInput: string): Block[] {
+  const blocks: Block[] = [];
+
+  // Split on blank lines → each group is a potential block
+  const groups = rawInput.split(/\n[ \t]*\n/);
+
+  for (const group of groups) {
+    const lines = group.split("\n").filter(l => l !== "");
+    if (!lines.length) continue;
+
+    // Find the first [run...] line (routing key)
+    const keyIdx = lines.findIndex(l => /^\[run/.test(l));
+    if (keyIdx < 0) continue;
+
+    const keyLine = lines[keyIdx];
+    const block: Block = {
+      lines: lines.slice(keyIdx),  // key + any following indented lines
+      key: keyLine,
+      confusionPair: parseConfusionPair(keyLine),
+      isSelfAware: keyLine.includes("⚠SELF-AWARE") || keyLine.includes("SELF-AWARE"),
+    };
+    blocks.push(block);
+  }
+
+  return blocks;
 }
 
-// ─── Match a confusion pair to taxonomy files ─────────────────────────────────
+// ─── Relabel run number in block ──────────────────────────────────────────────
+
+function relabelBlock(block: Block, runN: number): Block {
+  const newLines = [...block.lines];
+  newLines[0] = newLines[0].replace(/^\[run\S+\]/, `[run${runN}]`);
+  return { ...block, lines: newLines, key: newLines[0] };
+}
+
+// ─── Match confusion pair to taxonomy files ───────────────────────────────────
 
 function matchFiles(pair: string, taxFiles: TaxonomyFile[]): TaxonomyFile[] {
   return taxFiles.filter(f => f.confusionPairs.some(p => p === pair));
 }
 
-// ─── Append lines to a file (avoiding exact duplicates) ──────────────────────
+// ─── Append blocks to a taxonomy file (dedup by key line) ────────────────────
 
-function appendLines(filePath: string, lines: string[]): number {
+function appendBlocks(filePath: string, blocks: Block[]): number {
   const existing = readFileSync(filePath, "utf8");
-  const toAdd = lines.filter(l => !existing.includes(l.trim()));
+  const toAdd = blocks.filter(b => !existing.includes(b.key.trim()));
   if (toAdd.length === 0) return 0;
-  const newline = existing.endsWith("\n") ? "" : "\n";
-  writeFileSync(filePath, existing + newline + toAdd.join("\n") + "\n", "utf8");
+  const sep = existing.endsWith("\n") ? "" : "\n";
+  const newContent = toAdd.map(b => b.lines.join("\n")).join("\n\n");
+  writeFileSync(filePath, existing + sep + newContent + "\n\n", "utf8");
   return toAdd.length;
+}
+
+// ─── Persist unmatched blocks to unmatched.md ────────────────────────────────
+
+function persistUnmatched(blocks: Block[]): number {
+  if (blocks.length === 0) return 0;
+  if (!existsSync(UNMATCHED_PATH)) {
+    writeFileSync(UNMATCHED_PATH, UNMATCHED_HEADER, "utf8");
+  }
+  return appendBlocks(UNMATCHED_PATH, blocks);
+}
+
+// ─── Read blocks from a file (for reprocessing) ──────────────────────────────
+
+function readBlocksFromFile(filePath: string): Block[] {
+  if (!existsSync(filePath)) return [];
+  const content = readFileSync(filePath, "utf8");
+  // Skip frontmatter
+  const body = content.replace(/^---[\s\S]*?---\n/, "");
+  return parseBlocks(body);
+}
+
+// ─── --reprocess-unmatched ───────────────────────────────────────────────────
+//
+// Re-routes all blocks in unmatched.md against the current taxonomy files.
+// Matched blocks are appended to the correct taxonomy files.
+// Unmatched blocks remain in unmatched.md (rewritten in place).
+
+function reprocessUnmatched(taxFiles: TaxonomyFile[], dryRun: boolean): void {
+  if (!existsSync(UNMATCHED_PATH)) {
+    console.log("No unmatched.md found — nothing to reprocess.");
+    return;
+  }
+
+  const blocks = readBlocksFromFile(UNMATCHED_PATH);
+  if (blocks.length === 0) {
+    console.log("unmatched.md is empty — nothing to reprocess.");
+    return;
+  }
+
+  console.log(`Reprocessing ${blocks.length} blocks from unmatched.md...\n`);
+
+  const matched = new Map<string, Block[]>();
+  const stillUnmatched: Block[] = [];
+
+  for (const block of blocks) {
+    if (!block.confusionPair) { stillUnmatched.push(block); continue; }
+    const files = matchFiles(block.confusionPair, taxFiles);
+    if (files.length === 0) {
+      stillUnmatched.push(block);
+    } else {
+      for (const f of files) {
+        if (!matched.has(f.path)) matched.set(f.path, []);
+        matched.get(f.path)!.push(block);
+      }
+    }
+  }
+
+  let totalMoved = 0;
+  for (const [filePath, fileBlocks] of matched) {
+    const fname = filePath.split("/").pop()!;
+    if (dryRun) {
+      console.log(`[dry-run] Would move ${fileBlocks.length} blocks → ${fname}`);
+      for (const b of fileBlocks) console.log(`  ${b.key.slice(0, 100)}`);
+    } else {
+      const added = appendBlocks(filePath, fileBlocks);
+      if (added > 0) {
+        console.log(`  ✓ ${fname}: +${added} blocks from unmatched`);
+        totalMoved += added;
+      }
+    }
+  }
+
+  if (!dryRun && totalMoved > 0) {
+    // Rewrite unmatched.md with only the still-unmatched blocks
+    const header = readFileSync(UNMATCHED_PATH, "utf8").match(/^---[\s\S]*?---\n/)?.[0] ?? UNMATCHED_HEADER;
+    const newBody = stillUnmatched.length > 0
+      ? stillUnmatched.map(b => b.lines.join("\n")).join("\n\n") + "\n"
+      : "";
+    writeFileSync(UNMATCHED_PATH, header + "\n" + newBody, "utf8");
+    console.log(`\nMoved ${totalMoved} blocks → taxonomy files.`);
+    console.log(`${stillUnmatched.length} blocks remain in unmatched.md.`);
+  } else if (!dryRun) {
+    console.log("No blocks matched current taxonomy files.");
+  }
+}
+
+// ─── --summary ───────────────────────────────────────────────────────────────
+//
+// Scans all taxonomy files + unmatched.md, counts occurrences per confusion pair.
+// Shows which pairs have enough history to warrant new taxonomy files.
+
+function printSummary(taxFiles: TaxonomyFile[]): void {
+  const KEY_PATTERN = /^\[run\d+\] \S+ b\d+ \((\w+)→(\w+)\)/m;
+
+  // Count matched (in taxonomy files)
+  const matchedCounts = new Map<string, Map<string, number>>();  // pair → (file → count)
+  for (const f of taxFiles) {
+    const content = readFileSync(f.path, "utf8");
+    for (const m of content.matchAll(/^\[run\d+\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
+      const pair = `${m[1]}-${m[2]}`;
+      if (!matchedCounts.has(pair)) matchedCounts.set(pair, new Map());
+      const fname = f.id.replace(/\.md$/, "");
+      matchedCounts.get(pair)!.set(fname, (matchedCounts.get(pair)!.get(fname) ?? 0) + 1);
+    }
+  }
+
+  // Count unmatched (in unmatched.md)
+  const unmatchedCounts = new Map<string, number>();
+  const unmatchedRuns = new Map<string, Set<string>>();
+  if (existsSync(UNMATCHED_PATH)) {
+    const content = readFileSync(UNMATCHED_PATH, "utf8");
+    for (const m of content.matchAll(/^\[run(\d+)\] \S+ b\d+ \((\w+)→(\w+)\)/gm)) {
+      const pair = `${m[2]}-${m[3]}`;
+      unmatchedCounts.set(pair, (unmatchedCounts.get(pair) ?? 0) + 1);
+      if (!unmatchedRuns.has(pair)) unmatchedRuns.set(pair, new Set());
+      unmatchedRuns.get(pair)!.add(m[1]);
+    }
+  }
+
+  console.log("\nTAXONOMY SUMMARY — confusion pairs across all runs\n");
+
+  if (matchedCounts.size > 0) {
+    console.log("  MATCHED (in taxonomy files):");
+    const sorted = [...matchedCounts.entries()].sort((a, b) => {
+      const ta = [...a[1].values()].reduce((s, v) => s + v, 0);
+      const tb = [...b[1].values()].reduce((s, v) => s + v, 0);
+      return tb - ta;
+    });
+    for (const [pair, fileCounts] of sorted) {
+      const total = [...fileCounts.values()].reduce((s, v) => s + v, 0);
+      const breakdown = [...fileCounts.entries()].map(([f, c]) => `${f}:${c}`).join(", ");
+      console.log(`    ${pair.padEnd(28)} ${String(total).padStart(3)} lines  (${breakdown})`);
+    }
+  }
+
+  if (unmatchedCounts.size > 0) {
+    console.log("\n  UNMATCHED (in unmatched.md):");
+    const sorted = [...unmatchedCounts.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [pair, count] of sorted) {
+      const runs = [...(unmatchedRuns.get(pair) ?? [])].sort((a, b) => parseInt(a) - parseInt(b)).join(",");
+      const flag = count >= 3 ? "  ← consider new category" : "";
+      console.log(`    ${pair.padEnd(28)} ${String(count).padStart(3)} lines  runs:[${runs}]${flag}`);
+    }
+    const needsCategory = [...unmatchedCounts.entries()].filter(([, c]) => c >= 3);
+    if (needsCategory.length > 0) {
+      console.log(`\n  → ${needsCategory.length} pair(s) ≥3 unmatched occurrences.`);
+      console.log(`    Cognitive step: read those entries in unmatched.md, decide if they fit`);
+      console.log(`    an existing pattern (update confusion_pair list) or need a new file,`);
+      console.log(`    then run: npx tsx scripts/taxonomy-append.ts --reprocess-unmatched`);
+    }
+  } else {
+    console.log("\n  UNMATCHED: (none)");
+  }
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -116,13 +330,26 @@ function main() {
   const runArg = args.includes("--run") ? parseInt(args[args.indexOf("--run") + 1] ?? "0", 10) : null;
   const inputArg = args.includes("--input") ? args[args.indexOf("--input") + 1] : null;
   const dryRun = args.includes("--dry-run");
+  const reprocess = args.includes("--reprocess-unmatched");
+  const summary = args.includes("--summary");
 
-  // Read input lines
+  const taxFiles = loadTaxonomyFiles();
+
+  if (summary) {
+    printSummary(taxFiles);
+    return;
+  }
+
+  if (reprocess) {
+    reprocessUnmatched(taxFiles, dryRun);
+    return;
+  }
+
+  // Read input blocks
   let rawInput: string;
   if (inputArg) {
     rawInput = readFileSync(inputArg, "utf8");
   } else {
-    // Read from stdin
     try {
       rawInput = readFileSync("/dev/stdin", "utf8");
     } catch {
@@ -131,64 +358,74 @@ function main() {
     }
   }
 
-  const inputLines = rawInput.split("\n").filter(l => l.trim() && l.match(/^\[run/));
+  const blocks = parseBlocks(rawInput);
+  if (blocks.length === 0) {
+    console.error("No blocks parsed from input. Expected lines starting with [run...].");
+    process.exit(1);
+  }
 
-  const taxFiles = loadTaxonomyFiles();
   const runN = runArg ?? detectRunNumber(taxFiles);
 
-  // Re-label lines with the correct run number
-  const relabeled = inputLines.map(l => l.replace(/^\[run\S+\]/, `[run${runN}]`));
+  // Relabel blocks with correct run number
+  const relabeled = blocks.map(b => relabelBlock(b, runN));
 
-  // Route lines to files
-  const matched = new Map<string, string[]>(); // filePath → lines
-  const unmatched: TaxonomyLine[] = [];
+  // Route blocks
+  const matchedBlocks = new Map<string, Block[]>();
+  const unmatchedBlocks: Block[] = [];
 
-  for (const line of relabeled) {
-    const parsed = parseLine(line);
-    if (!parsed.confusionPair) continue;
-    const files = matchFiles(parsed.confusionPair, taxFiles);
+  for (const block of relabeled) {
+    if (!block.confusionPair) continue;
+    const files = matchFiles(block.confusionPair, taxFiles);
     if (files.length === 0) {
-      unmatched.push({ ...parsed, raw: line });
+      unmatchedBlocks.push(block);
     } else {
       for (const f of files) {
-        if (!matched.has(f.path)) matched.set(f.path, []);
-        matched.get(f.path)!.push(line);
+        if (!matchedBlocks.has(f.path)) matchedBlocks.set(f.path, []);
+        matchedBlocks.get(f.path)!.push(block);
       }
     }
   }
 
-  // Append to files
+  // Append matched blocks to taxonomy files
   let totalAppended = 0;
-  for (const [filePath, lines] of matched) {
+  for (const [filePath, fileBlocks] of matchedBlocks) {
     const fname = filePath.split("/").pop()!;
     if (dryRun) {
-      console.log(`[dry-run] Would append ${lines.length} lines to ${fname}`);
-      for (const l of lines) console.log(`  ${l.slice(0, 100)}`);
+      console.log(`[dry-run] Would append ${fileBlocks.length} blocks to ${fname}`);
+      for (const b of fileBlocks) console.log(`  ${b.key.slice(0, 100)}`);
     } else {
-      const added = appendLines(filePath, lines);
+      const added = appendBlocks(filePath, fileBlocks);
       if (added > 0) {
-        console.log(`  ✓ ${fname}: +${added} lines`);
+        console.log(`  ✓ ${fname}: +${added} blocks`);
         totalAppended += added;
       }
     }
   }
 
-  if (unmatched.length > 0) {
-    console.log(`\nUNMATCHED (no taxonomy file for these confusion pairs — consider new patterns):`);
+  // Persist unmatched blocks to unmatched.md
+  if (unmatchedBlocks.length > 0) {
     const byPair = new Map<string, number>();
-    for (const u of unmatched) {
-      byPair.set(u.confusionPair!, (byPair.get(u.confusionPair!) ?? 0) + 1);
+    for (const b of unmatchedBlocks) {
+      byPair.set(b.confusionPair!, (byPair.get(b.confusionPair!) ?? 0) + 1);
     }
-    for (const [pair, count] of [...byPair.entries()].sort((a, b) => b[1] - a[1])) {
-      console.log(`  ${pair}: ${count} lines`);
-    }
-    for (const u of unmatched.slice(0, 3)) {
-      console.log(`  Example: ${u.raw.slice(0, 120)}`);
+
+    if (dryRun) {
+      console.log(`\nUNMATCHED (would append ${unmatchedBlocks.length} blocks to unmatched.md):`);
+      for (const [pair, count] of [...byPair.entries()].sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${pair}: ${count} blocks`);
+      }
+    } else {
+      const added = persistUnmatched(unmatchedBlocks);
+      if (added > 0) {
+        console.log(`  ✓ unmatched.md: +${added} blocks (no taxonomy file for these pairs)`);
+        console.log(`    Pairs: ${[...byPair.entries()].map(([p, c]) => `${p}:${c}`).join(", ")}`);
+        console.log(`    Run 'npx tsx scripts/taxonomy-append.ts --summary' to see cumulative unmatched counts`);
+      }
     }
   }
 
   if (!dryRun && totalAppended > 0) {
-    console.log(`\nAppended ${totalAppended} lines across ${matched.size} taxonomy files (run${runN})`);
+    console.log(`\nAppended ${totalAppended} blocks across ${matchedBlocks.size} taxonomy files (run${runN})`);
   }
 }
 

@@ -30,3 +30,6 @@ EC-28 b8: "Template rendering" — predicted Integration
 [run5] EC-25 b5 (Integration→Unit): "Output structure — model requires 'real models' to catch serialization bugs."
 [run5] EC-27 b5 (Integration→Unit): "Route deduplication consolidation: (1) duplicates consolidated (Unit-testable), (2) final route visits consolidated stops (model adds Integration need)."
 [run5] EC-28 b8 (Integration→Unit): "Dependency-tracking and recalculation mechanism — model says 'single evaluation wouldn't catch ordering bugs'."
+[run6] EC-06 b2 (Unit→Integration) [w=2]
+  J: "Failure boundary is local decision logic (same path + time window) and does not require OS/network/subprocess. MOCK-MISS: behavior can be fully exercised at function/object boundary with a fake clock. INTEGRATION-BRAKE check: no real infra required, no AI output, no multi-step agent chain. Rejected higher levels: behavior text is specifically "deduplication logic" for repeated request by path/time window, which is deterministic and local."
+

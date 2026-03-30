@@ -174,11 +174,29 @@ LOOP:
        [--metrics '<json from verify.ts | jq .metrics>']
      ```
      View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
-     Also append taxonomy lines:
+     Also append taxonomy lines and run pattern discovery:
      ```bash
+     # 1. Append current run's errors to taxonomy files (routes matched, persists unmatched to unmatched.md)
      npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
        npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts
+
+     # 2. Show cumulative confusion pair counts across all taxonomy files + unmatched.md
+     npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
      ```
+
+     **[LLM COGNITIVE] Taxonomy pattern discovery** — after seeing the --summary output:
+     For each confusion pair with ≥3 cumulative unmatched occurrences:
+       a. Read those full entries from `taxonomy/unmatched.md` (they contain full J: justification + T: thinking)
+       b. Read the existing taxonomy file descriptions (U1–U4, O1–O4) — does any match this reasoning trap?
+       c. **If fits existing pattern**: update that file's `confusion_pair` frontmatter to include the new pair
+          (e.g., U1 `confusion_pair: Integration-Agentic` → `Integration-Agentic, Unit-Agentic, System-Agentic`)
+       d. **If new reasoning trap**: create a new `taxonomy/XX-name.md` with matching `confusion_pair`
+       e. After any create/update: run `--reprocess-unmatched` to backfill historical entries
+     ```bash
+     npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --reprocess-unmatched
+     ```
+     This is the compounding value: every new taxonomy file retroactively categorizes all historical evidence
+     stored in unmatched.md, not just the current run.
   10. COMMIT RUNS — git add the timestamped run dir and commit the output JSONs:
       ```bash
       git add experiments/write-test-plan/runs/<timestamp>/
@@ -191,6 +209,7 @@ LOOP:
               experiments/write-test-plan/explore-log.jsonl \
               experiments/write-test-plan/ideas/ \
               experiments/write-test-plan/taxonomy/ \
+              experiments/write-test-plan/taxonomy/unmatched.md \
               experiments/write-test-plan/justification-taxonomy.md \
               experiments/write-test-plan/leaderboard.md \
               experiments/write-test-plan/meta-failures.md \

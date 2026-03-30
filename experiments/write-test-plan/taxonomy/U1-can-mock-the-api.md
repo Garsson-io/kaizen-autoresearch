@@ -41,3 +41,12 @@ self_aware_note: Model often acknowledges the need for real AI in hedges then pi
 [run5] EC-25 b2 (System→Agentic): "Real failure: 'The risk model doesn't actually detect this fraud pattern.' If mocked to always return fraud=true, the test passes regardless of whether the real model works."
 [run5] EC-30 b3 (Unit→Agentic): "Tests ranking algorithm's weighting of browsing signal. Real failure: algorithm doesn't factor browsing history into scores, or browses-matching products aren't boosted."
 [run5] EC-30 b5 (Unit→Agentic): "Tests algorithm's diversification logic. Real failure: all results are from user's browsed categories. Testable at Unit with user fixture."
+[run6] EC-10 b4 (Integration→Agentic) [w=4]
+  J: "Failure is a local contract/state consistency issue across modules (finding aggregator, inline-post result tracking, summary composer). It can be reproduced with module wiring and controlled API responses. INTEGRATION-BRAKE: (a) no mandatory real OS/network dependency to detect mismatch, (b) no model-quality dependency, (c) no multi-agentic chain requirement. Rejected System: behavior text focuses on correspondence invariant, not environment-specific behavior."
+
+[run6] EC-17 b2 (Integration→Agentic) [w=4]
+  J: "MOCK-MISS: The likely failure boundary is module handoff (draft claim extraction + KB lookup + contradiction logic), not a single pure function. REAL-INFRA: No behavior text requires real OS/network/subprocess; an in-process KB/repository fixture can expose mismatch bugs. MOCK-HIDE: Mocking only at function level could miss wiring/state mismatches, so Unit is too low. INTEGRATION-BRAKE: (a) no explicit real infra dependency, so not System; (b) behavior text does not state checker quality depends on real AI/ML output, so Agentic not required; (c) no multi-agentic chain, so not Workflow. REJECTION-GATE: Higher levels rejected because behavior text is about 'flags claims ... contradict entries in the knowledge base' and does not require real external environment or model-quality evaluation."
+
+[run6] EC-19 b3 (Integration→Agentic) [w=4]
+  J: "The bug is at a local module handoff boundary: test-result collector -> prompt builder -> LLM client request payload. No real OS/network/subprocess is required, and correctness does not depend on model output quality, only that failure text is propagated into the next prompt. Rejected higher levels: System/Agentic are disqualified by behavior text focusing on prompt content inclusion, not infrastructure quirks or model judgment."
+

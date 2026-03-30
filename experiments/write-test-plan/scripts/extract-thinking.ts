@@ -249,11 +249,21 @@ function printTaxonomyLines(results: BehaviorThinking[], runLabel: string) {
   const errors = results.filter((r) => r.direction !== "correct");
 
   for (const r of errors) {
+    const weight = ROW_WEIGHT[r.gt ?? "Unit"] ?? 1;
     const arrow = `${r.predicted}→${r.gt}`;
-    console.log(`[${runLabel}] ${r.task} b${r.behavior_id} (${arrow}): "${r.justification.slice(0, 150)}"`);
-    if (r.self_aware) {
-      console.log(`[${runLabel}] ${r.task} b${r.behavior_id} THINKING: ⚠ SELF-AWARE "${r.self_aware_evidence?.slice(0, 150)}"`);
+    const saFlag = r.self_aware ? " ⚠SELF-AWARE" : "";
+    // First line: routing key — parseable by taxonomy-append (confusion pair extraction)
+    console.log(`[${runLabel}] ${r.task} b${r.behavior_id} (${arrow}) [w=${weight}]${saFlag}`);
+    // Full justification — no truncation
+    console.log(`  J: "${r.justification}"`);
+    // Full thinking — for ALL errors, not just self-aware (the decisive reasoning is often here)
+    const thinkText = r.self_aware && r.self_aware_evidence
+      ? r.self_aware_evidence
+      : r.thinking_excerpt;
+    if (thinkText && thinkText !== "(behavior not found in thinking)") {
+      console.log(`  T: "${thinkText}"`);
     }
+    console.log(); // blank line separator between blocks
   }
 }
 

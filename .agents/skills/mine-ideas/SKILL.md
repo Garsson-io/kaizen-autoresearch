@@ -100,17 +100,40 @@ Also compute:
 
 The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. **NEVER delete old lines — only append.**
 
-Use the taxonomy-lines output as a starting point:
+#### 6a. Route current run's errors
+
 ```bash
-npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
+# Route matched blocks to taxonomy files; persist unmatched to taxonomy/unmatched.md
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
+  npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts
+
+# Show cumulative confusion pair counts across all files + unmatched
+npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts --summary
 ```
 
-This gives pre-formatted lines with justifications, thinking excerpts, and ⚠ SELF-AWARE flags. For each pattern file:
-1. Determine the current run number (count previous `[runN]` prefixes, increment)
-2. **Append** the taxonomy-lines output for occurrences in this pattern
-3. Update frontmatter `description` and `note` if the pattern's character changed
-4. Update `self_aware` and `self_aware_note` in frontmatter with the self-aware count
-5. Create new `.md` files for newly discovered patterns
+Taxonomy-lines output uses **multi-line block format** — full J: justification and T: thinking, no truncation — routed as atomic blocks. Unmatched blocks (no taxonomy file for their confusion pair) are persisted to `unmatched.md`, never discarded.
+
+#### 6b. [LLM COGNITIVE] Discover and categorize new patterns
+
+This is the cognitive step: mechanical routing only files what it already knows. The agent must decide what new patterns the data reveals.
+
+From the `--summary` output, for each confusion pair with **≥3 cumulative unmatched occurrences**:
+1. Read those full blocks from `taxonomy/unmatched.md` — both J: (justification) and T: (thinking). The full text is required; do not work from truncated quotes.
+2. Read the existing taxonomy file descriptions (id, name, description fields).
+3. **Classify**: does this confusion pair exhibit the same reasoning trap as an existing pattern?
+   - **Yes (fits existing)**: Add the pair to that file's `confusion_pair` frontmatter (comma-separated list). Update `description` and `note` if the pattern's scope changed.
+   - **No (new trap)**: Create a new `taxonomy/XX-name.md` file with `id`, `name`, `direction`, `confusion_pair`, `description`.
+4. After any create/update, backfill history:
+   ```bash
+   npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts --reprocess-unmatched
+   ```
+   This re-routes all historical unmatched blocks against the updated taxonomy files, moving matched ones out of `unmatched.md`. This is the compounding benefit — every new pattern immediately categorizes all prior evidence.
+
+**Pattern categories to distinguish:**
+- Same confusion pair, same trap: just update `confusion_pair` in existing file
+- Same trap, different confusion pair (e.g., U1 "can mock" now manifesting as Unit→Agentic, not just Integration→Agentic): add the new pair to U1's `confusion_pair` list
+- Genuinely new trap with a distinct reasoning pattern: new file
+- Too few occurrences or ambiguous: leave in unmatched.md, revisit after more runs
 
 Also update `$EXPERIMENT_DIR/justification-taxonomy.md` with summary counts and key insights.
 

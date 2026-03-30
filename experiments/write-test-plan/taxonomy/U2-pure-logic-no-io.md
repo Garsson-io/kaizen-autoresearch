@@ -44,3 +44,6 @@ description: Model classifies multi-module wiring as pure function logic testabl
 [run5] EC-10 b1 (Unit→Integration): "Input filtering logic (reading diff vs. full file) is testable by mocking the GitHub API to return known diff content."
 [run5] EC-23 b4 (Unit→Integration): "Merge logic is deterministic. Conflicting assessments injected via mocked results verify the merge rule."
 [run5] EC-28 b7 (Unit→Integration): "Cross-sheet reference resolution is in-memory logic. Multiple sheets can coexist in memory without I/O."
+[run6] EC-06 b2 (Unit→Integration) [w=2]
+  J: "Failure boundary is local decision logic (same path + time window) and does not require OS/network/subprocess. MOCK-MISS: behavior can be fully exercised at function/object boundary with a fake clock. INTEGRATION-BRAKE check: no real infra required, no AI output, no multi-step agent chain. Rejected higher levels: behavior text is specifically "deduplication logic" for repeated request by path/time window, which is deterministic and local."
+
