@@ -42,17 +42,6 @@ a real failure — not just to verify happy-path logic.
   disqualifies the higher level. If you cannot point to concrete disqualifying
   evidence from the behavior description, keep the higher level.
 
-### INTEGRATION DUAL-QUOTE GATE (adjacent boundary proof)
-
-If your final label is **Integration**, you must quote **both**:
-
-1. **Unit-floor evidence**: text showing a real boundary between components/services (not just internal helper logic).
-2. **Ceiling-stop evidence**: text showing why this is **not** higher-level:
-   - either explicitly in-process/fake/stubbed (so not System),
-   - and no model judgment/autonomous policy loop (so not Agentic/Workflow).
-
-If either quote is missing, **do not keep Integration**: move to the supported adjacent label and cite the missing proof as the rejection reason.
-
 Issue (task_id: {{TASK_ID}}):
 ---
 {{ISSUE_BODY}}
