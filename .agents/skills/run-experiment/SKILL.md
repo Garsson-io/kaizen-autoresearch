@@ -19,15 +19,27 @@ Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional
 | `experiments/<name>/leaderboard.md` | What's been tried and what scored what. |
 | `experiments/<name>/justification-taxonomy.md` | Impact-ranked failure patterns — what goes wrong and why. |
 
-## Architecture: you are the EXECUTOR, the subagent is the THINKER
+## Architecture: perception → cognition → action
 
-The loop in program.md has two kinds of steps:
+Every step is either **perception** (tools compute structured evidence), **cognition** (LLM reads evidence and forms judgment), or **action** (tools execute decisions). Never mix them.
 
-**Mechanical steps (you do these):** MINE, DIAGNOSE, META, EDIT, COMMIT, RUN, SCORE, LOG, COMMIT RUNS. These are deterministic — follow the instructions exactly.
+**Mechanical tool steps** — run commands, do not reason about them:
+- MINE: `mine-report.ts` produces structured evidence (loss breakdown, diff, persistence, MINE DIGEST template)
+- SCORE: arithmetic — `loss < reference_loss` → keep, otherwise revert
+- LOG: `log-iteration.ts` handles delta, JSONL append, idea status
+- TAXONOMY: `extract-thinking --taxonomy-lines | taxonomy-append.ts` routes lines automatically
+- COMMIT/GIT: pure commands
 
-**Creative step (subagent does this):** IDEATE (step 4). Spawn an opus subagent with the prompt template from program.md's "IDEATE subagent" section. Give it the latest scores (from `npx tsx scripts/results.ts --last 10`) and per-task totals. It runs `npx tsx scripts/ideas-index.ts --table`, reads treatment.md, taxonomy/, meta-failures.md, and returns: idea id, specific edit with diff, rationale, skeptic view, optional meta-note.
+**Your two cognitive steps** — where judgment actually matters:
+1. **Complete the MINE DIGEST** (light): read the pre-filled template from mine-report.ts, fill in `Pattern:`, `Trap:`, `Dominant pattern:`, `Fix hypothesis:`. This is the only place you form judgment in MINE/DIAGNOSE/META.
+2. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 
-You execute the subagent's recommendation. If it sounds wrong, you can override — but document why in the commit message.
+**Subagent cognitive step** — IDEATE is pure creative generation:
+- Spawn opus subagent with the prompt template from program.md's "IDEATE subagent" section
+- The subagent receives all context pre-assembled — it should NOT need to run any tool calls except optionally reading specific idea files or writing new ones
+- It returns: idea id, specific edit (with diff), rationale, skeptic view, optional meta-note
+
+You execute the subagent's recommendation. If it sounds wrong, document why in the commit message.
 
 ## MINE checkpoint — gate before IDEATE
 

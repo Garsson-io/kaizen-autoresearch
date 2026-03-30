@@ -158,10 +158,27 @@ LOOP:
   8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
-  9. LOG — append one JSON line to experiments/write-test-plan/autoresearch-results.jsonl (schema: src/schema.ts IterationResult).
-     Capture `metrics` from `verify.ts` output (`jq '.metrics'`) and include in the JSONL record.
-     Always include `model` (e.g. `claude-haiku-4-5-20251001`, `gpt-5.3-codex`) so results can be compared across models.
-     Update idea status in ideas/ (kept/rejected/no-op). View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
+  9. LOG — use log-iteration.ts (handles JSONL append, delta computation, and idea status update):
+     ```bash
+     npx tsx experiments/write-test-plan/scripts/log-iteration.ts \
+       --idea <idea-id> \
+       --status keep|discard|no-op \
+       --loss <loss from verify.ts> \
+       --score <score from verify.ts> \
+       --run-dir <timestamp> \
+       --model <model-id> \
+       --description "<idea-id>: keep|regression" \
+       --section "<SECTION-NAME>" \
+       --edit-type add|remove|replace \
+       [--commit <hash-before-revert>]   # if reverting, capture hash BEFORE git revert
+       [--metrics '<json from verify.ts | jq .metrics>']
+     ```
+     View log: `npx tsx experiments/write-test-plan/scripts/results.ts`
+     Also append taxonomy lines:
+     ```bash
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
+       npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts
+     ```
   10. COMMIT RUNS — git add the timestamped run dir and commit the output JSONs:
       ```bash
       git add experiments/write-test-plan/runs/<timestamp>/
@@ -241,26 +258,33 @@ Reasoning patterns from MINE — your completed MINE DIGEST (paste it here verba
 quoted justifications, persistence counts, identified patterns, and a fix hypothesis.
 This is the primary signal for creative generation — use it.}
 
-## What to do
+## Pre-assembled context (executor provides this — do NOT re-read these files)
 
-1. Run `npx tsx experiments/write-test-plan/scripts/ideas-index.ts --table` to see all ideas with status/effort/impact
-2. Read `experiments/write-test-plan/prompts/treatment.md` (the current prompt)
-3. Read `experiments/write-test-plan/justification-taxonomy.md` (failure pattern summary)
-4. Read `experiments/write-test-plan/meta-failures.md` (process pitfalls)
-5. For any ideas you want to examine in detail, read the full file in `ideas/`
-6. Check `explore_status` on each candidate idea:
-   - `explore_status: signal`    → prioritize; use the recorded winning variation diff
-   - `explore_status: no-signal` → deprioritize; skip unless no other options
-   - `explore_status: null`      → viable candidate; will require EXPLORE before full run
+Ideas index:
+{IDEAS_INDEX — executor runs `npx tsx experiments/write-test-plan/scripts/ideas-index.ts --table` and pastes here}
 
-Then think deeply:
-a. Which existing ideas target the top taxonomy patterns from the context above?
-b. Do the patterns suggest a NEW idea not in the backlog?
-c. Can two existing ideas be COMBINED into something stronger?
-d. Does a rejected idea deserve retry given new evidence?
-e. What would a skeptic say about your top candidate?
+Current treatment.md (full text):
+{TREATMENT_MD — executor reads and pastes here}
 
-If you generate a new idea, WRITE it to ideas/ with full frontmatter and steelman/critique.
+Meta-failures:
+{META_FAILURES — executor reads experiments/write-test-plan/meta-failures.md and pastes here}
+
+Top taxonomy pattern files (top 3 by impact, executor pre-reads and pastes):
+{TOP_TAXONOMY — relevant taxonomy file contents, focus on patterns matching MINE DIGEST}
+
+## Your job
+
+The executor has done all the perception work. Your ONLY job is creative generation.
+
+Think deeply:
+a. Which existing ideas directly address the dominant pattern in REASONING_PATTERNS above?
+b. Are there behaviors in REASONING_PATTERNS that expose a pattern NOT in the existing ideas?
+c. Can two existing ideas combine into something stronger than either alone?
+d. Does a rejected idea deserve retry given the NEW REGRESSIONS evidence?
+e. What would a skeptic say about your top candidate — steelman the objection, then rebut or concede?
+
+For any idea you want to examine in detail, READ the full file in `ideas/`.
+If you generate a new idea, WRITE it to `ideas/` with full frontmatter and steelman/critique.
 
 ## Output format
 
