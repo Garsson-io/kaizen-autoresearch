@@ -373,12 +373,13 @@ The five test levels map to three distinct things that can be tested in an AI-as
 - Examples: "search tool returns top-N results", "code executor handles timeout", "DB query paginates correctly"
 
 **Category C — The decisions the LLM itself makes** (Agentic / Workflow)
-- What the LLM classifies, generates, ranks, selects, or decides
-- A stub ALWAYS returns the same constant — it cannot verify whether the LLM decides correctly
+- What the LLM classifies, generates, ranks, selects, or decides — and whether steering the LLM (via skills, prompts, hooks, fine-tuning) actually changes its behavior as intended
+- A stub ALWAYS returns the same constant — it cannot verify whether the LLM decides correctly or responds to steering
 - Examples: "recommendations are relevant", "classification is accurate", "generated code compiles and passes tests", "summary preserves key facts"
+- **Key concrete case**: testing that a change to an agent skill / prompt / hook / system message steers the agent in the intended direction → requires real LLM, because only the real model exhibits the steering behavior
 - Agentic = single LLM decision. Workflow = multiple sequential LLM decisions in a chain.
 
-**The Agentic test**: if the behavior's failure mode is "the LLM made the wrong decision" → Agentic/Workflow. If the failure mode is "the surrounding code/tools behaved wrong" → A or B (Unit/Integration/System with fake LLM).
+**The Agentic test**: if the behavior's failure mode is "the LLM made the wrong decision" OR "the steering change didn't take effect" → Agentic/Workflow. If the failure mode is "the surrounding code/tools behaved wrong" → A or B (Unit/Integration/System with fake LLM).
 
 **Common trap**: "I can write a deterministic assertion for this" does NOT mean Category A/B. `assert ranking[0] == best_item` is a deterministic assertion about a Category C behavior. The assertion's determinism is irrelevant; what matters is whether you're verifying the LLM's judgment or the code around it.
 
