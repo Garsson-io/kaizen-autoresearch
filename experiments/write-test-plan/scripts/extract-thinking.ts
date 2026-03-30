@@ -142,7 +142,7 @@ export function checkSelfAware(
   return { selfAware: false, evidence: null };
 }
 
-function loadGT(taskId: string): Record<number, string> {
+export function loadGT(taskId: string): Record<number, string> {
   const gtPath = join(PATHS.groundTruth, `${taskId.toLowerCase().replace("-", "-")}.json`);
   if (!existsSync(gtPath)) return {};
   const data = JSON.parse(readFileSync(gtPath, "utf8"));

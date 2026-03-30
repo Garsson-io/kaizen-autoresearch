@@ -83,43 +83,38 @@ Report all three scores in `leaderboard.md`.
 
 ```
 LOOP:
-  1. MINE — use extract-thinking.ts to pair thinking blocks with outputs and detect self-aware errors:
+  1. MINE — run mine-report.ts for the full picture (diff, persistence, loss breakdown, MINE DIGEST):
      ```bash
-     # Human-readable table of errors + self-aware flags:
-     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest
+     # PRIMARY: one command gives everything — run this first
+     npx tsx experiments/write-test-plan/scripts/mine-report.ts
 
-     # Lines ready to append to taxonomy/:
+     # For taxonomy export (append to taxonomy/ files):
      npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
 
-     # Machine-readable JSON (all 173 behaviors with direction/gt/justification/thinking):
-     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --json
-     ```
-     The script pairs each behavior's structured output (justification, predicted level) with the
-     model's internal thinking from the .log file. It also flags self-aware cases where thinking
-     contains correct reasoning the model overrides. Append --taxonomy-lines output to taxonomy/.
+     # For focused single-task deep read (when you need full thinking on one task):
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --task EC-30
 
-     **CRITICAL: Don't just count error directions.** You MUST actually READ the thinking blocks
-     and justification text for at least the top 5–10 errors by weight. The tool now outputs
-     errors sorted by weight descending with HIGH IMPACT labels — read those first.
-
-     **After reading, you MUST produce a MINE DIGEST before proceeding to DIAGNOSE/IDEATE.
-     If you cannot produce this digest from reading, you have not mined — run the tool again
-     with `--task EC-XX` to focus on specific tasks. The digest format:**
-
+     # Self-aware contradictions only:
+     npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir latest --self-aware-only
      ```
-     MINE DIGEST:
-     - [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification — do not paraphrase>"
-       Pattern: <what reasoning trap caused this — e.g., "anchored on MOCK-MISS, never tested REAL-INFRA">
-       Trap: <which prompt section or phrase led to this — e.g., "KEY-QUESTIONS integration floor">
-     - [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification>"
-       Pattern: <...>
-       Trap: <...>
-     ... (at least 5 errors)
-     Dominant pattern: <one-sentence summary of the most common reasoning failure>
-     Fix hypothesis: <what specific prompt change would fix the dominant pattern>
-     ```
+     mine-report.ts shows:
+     - Loss breakdown by confusion pair with Δbaseline and Δprev
+     - Behavioral diff vs previous run (new regressions, new improvements, persistent errors)
+     - Cross-run persistence: which behaviors are ALWAYS WRONG across recent runs (core problem set)
+     - A pre-filled MINE DIGEST template with justification quotes and persistence counts
+
+     **CRITICAL: Don't just read the aggregate numbers.** READ the justification quotes in the
+     MINE DIGEST section. The ALWAYS WRONG behaviors (wrong in 8/8 runs) are the core problem —
+     focus analysis there first, then look at NEW REGRESSIONS to understand what the last treatment broke.
+
+     **Complete the MINE DIGEST template before proceeding:**
+     - Fill in `Pattern:` and `Trap:` for each pre-filled entry (what reasoning failure, which prompt section)
+     - Fill in `Dominant pattern:` (one sentence)
+     - Fill in `Fix hypothesis:` (what specific prompt change)
+     - **Save the completed MINE DIGEST — you will paste it into IDEATE as {REASONING_PATTERNS}**
 
      Counting directions without reading the reasoning is a meta-failure: you're optimizing blind.
+
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
@@ -127,7 +122,9 @@ LOOP:
      Also: if the previous IDEATE subagent returned a META_NOTE, evaluate it here and update
      meta-failures.md if the observation is warranted.
   4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
-     Give it the latest score summary and results log (from `npx tsx experiments/write-test-plan/scripts/results.ts --last 10`).
+     Give it: results log, per-task totals, AND **your completed MINE DIGEST as {REASONING_PATTERNS}**.
+     The MINE DIGEST is the primary signal — it gives IDEATE specific, quoted, quantified evidence
+     about what's failing and why, grounded in THIS run's results.
      It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
      It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
@@ -239,10 +236,10 @@ Results log (last 10 iterations):
 Top taxonomy patterns (from DIAGNOSE):
 {TOP_PATTERNS — e.g. "U1: can mock the API — 10 occurrences, impact 40"}
 
-Reasoning patterns from MINE (what the model actually said in thinking/justification):
-{REASONING_PATTERNS — e.g. "5 Integration→System errors anchored on MOCK-MISS: model
-decided 'module wiring' first, then REAL-INFRA didn't override. Thinking blocks show
-the model knew about real infra needs but dismissed them."}
+Reasoning patterns from MINE — your completed MINE DIGEST (paste it here verbatim):
+{REASONING_PATTERNS — paste the completed MINE DIGEST from step 1 here. It contains
+quoted justifications, persistence counts, identified patterns, and a fix hypothesis.
+This is the primary signal for creative generation — use it.}
 
 ## What to do
 

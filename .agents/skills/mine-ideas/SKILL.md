@@ -26,40 +26,41 @@ Before generating anything, read:
 - All files in `$IDEAS_DIR/` — existing ideas (to avoid duplicates)
 - `$EXPERIMENT_DIR/prompts/treatment.md` — current prompt being optimized
 
-### 3. Extract justifications AND thinking blocks
-
-Use the extract-thinking tool to get both layers of reasoning:
+### 3. Run the comprehensive mining report
 
 ```bash
-# Full error analysis — errors sorted by weight (HIGH IMPACT first), thinking + self-aware detection
-npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest
+# PRIMARY: one-command report — behavioral diff, cross-run persistence, loss breakdown, MINE DIGEST
+npx tsx $EXPERIMENT_DIR/scripts/mine-report.ts
 
-# Focus on a specific high-impact task (use when you need full context for one task)
-npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --task EC-30
-
-# Just the self-aware contradictions (model knew and overrode)
-npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --self-aware-only
-
-# Lines ready to append to taxonomy/
+# For taxonomy export (append to taxonomy/ files):
 npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines
 
-# Machine-readable for deeper analysis
-npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --json
+# For focused single-task deep read:
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --task EC-30
+
+# Self-aware contradictions only:
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --self-aware-only
 ```
 
-The tool pairs each behavior's structured output (justification, predicted level) with the model's internal thinking from the .log file. Errors are output sorted by GT level weight (highest impact first, labeled [HIGH IMPACT]). Aggregate counts appear at the END — read the individual behaviors before the summary.
+mine-report.ts outputs four sections:
+1. **Loss breakdown by confusion pair** — Δbaseline and Δprev for each pair
+2. **Behavioral diff** — new regressions, new improvements, persistent errors vs previous run
+3. **Cross-run persistence** — ALWAYS WRONG behaviors (wrong in N/N runs) are the core problem set
+4. **Pre-filled MINE DIGEST template** — justification quotes + persistence counts, blank Pattern/Trap/Fix
 
-**After running, produce a MINE DIGEST (required before step 4):**
+**Read the justification quotes in the MINE DIGEST section.** Focus on ALWAYS WRONG first (these are what no treatment has fixed), then NEW REGRESSIONS (what the last treatment broke).
+
+**After running, complete the MINE DIGEST template:**
 ```
 MINE DIGEST:
-- [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification — do not paraphrase>"
+- [TASK bN] [PRED→GT] [w=W, N/M runs]: "<direct quote from justification>"
   Pattern: <reasoning trap — e.g., "acknowledged LLM dependency then dismissed as mockable">
   Trap: <prompt phrase that caused it>
 ... (at least 5 errors)
 Dominant pattern: <one sentence>
 Fix hypothesis: <specific prompt change>
 ```
-If you cannot produce direct quotes, you have not read deeply enough — re-run with `--task` to focus.
+If you cannot produce direct quotes, re-run with `--task EC-XX` to focus on specific behaviors.
 
 ### 4. Classify reasoning patterns
 
