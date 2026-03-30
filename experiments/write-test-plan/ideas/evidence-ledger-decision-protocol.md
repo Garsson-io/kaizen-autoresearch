@@ -1,7 +1,7 @@
 ---
 id: evidence-ledger-decision-protocol
 title: Force an evidence ledger before level selection (observed vs hypothetical)
-status: proposed
+status: rejected
 effort: high
 expected_impact: high
 targets:
