@@ -1,7 +1,7 @@
 ---
 id: two-pass-dependency-extraction
 title: Two-pass — extract dependencies first, then classify
-status: proposed
+status: rejected
 effort: medium
 expected_impact: high
 targets:
