@@ -1,7 +1,7 @@
 ---
 id: system-environment-artifact-split
 title: Split Integration vs System by environment-dependent failure artifacts
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:
