@@ -1,7 +1,7 @@
 ---
 id: boundary-proof-obligation-framework
 title: Require a proof obligation to justify crossing each adjacent boundary
-status: proposed
+status: rejected
 effort: high
 expected_impact: high
 targets:
