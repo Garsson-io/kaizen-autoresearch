@@ -31,8 +31,11 @@ Before generating anything, read:
 Use the extract-thinking tool to get both layers of reasoning:
 
 ```bash
-# Full error analysis with thinking + self-aware detection
+# Full error analysis — errors sorted by weight (HIGH IMPACT first), thinking + self-aware detection
 npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest
+
+# Focus on a specific high-impact task (use when you need full context for one task)
+npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --task EC-30
 
 # Just the self-aware contradictions (model knew and overrode)
 npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --self-aware-only
@@ -44,7 +47,19 @@ npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-
 npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --json
 ```
 
-The tool pairs each behavior's structured output (justification, predicted level) with the model's internal thinking from the .log file. It automatically flags ⚠ SELF-AWARE cases where thinking contains correct reasoning the model overrides.
+The tool pairs each behavior's structured output (justification, predicted level) with the model's internal thinking from the .log file. Errors are output sorted by GT level weight (highest impact first, labeled [HIGH IMPACT]). Aggregate counts appear at the END — read the individual behaviors before the summary.
+
+**After running, produce a MINE DIGEST (required before step 4):**
+```
+MINE DIGEST:
+- [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification — do not paraphrase>"
+  Pattern: <reasoning trap — e.g., "acknowledged LLM dependency then dismissed as mockable">
+  Trap: <prompt phrase that caused it>
+... (at least 5 errors)
+Dominant pattern: <one sentence>
+Fix hypothesis: <specific prompt change>
+```
+If you cannot produce direct quotes, you have not read deeply enough — re-run with `--task` to focus.
 
 ### 4. Classify reasoning patterns
 

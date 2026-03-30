@@ -29,6 +29,27 @@ The loop in program.md has two kinds of steps:
 
 You execute the subagent's recommendation. If it sounds wrong, you can override — but document why in the commit message.
 
+## MINE checkpoint — gate before IDEATE
+
+**You must produce a MINE DIGEST before spawning the IDEATE subagent.** The digest proves you read individual behaviors, not just aggregate stats.
+
+Signs you have NOT actually mined (common failure modes):
+- You only ran `results.ts` or looked at loss/score numbers
+- You ran extract-thinking but only read the first screen of output
+- You can describe the confusion pair counts but cannot quote any justification text
+- You ran extract-thinking with `| head` or `| sed -n '1,32p'`
+
+If you cannot produce the MINE DIGEST format (from program.md) with direct justification quotes, **stop and re-run**:
+```bash
+# Read the top errors — they are now sorted by weight, HIGH IMPACT first
+npx tsx experiments/<name>/scripts/extract-thinking.ts --run-dir latest
+
+# Focus on a specific high-impact task if needed
+npx tsx experiments/<name>/scripts/extract-thinking.ts --run-dir latest --task EC-30
+```
+
+Only after producing the MINE DIGEST should you proceed to DIAGNOSE → META → IDEATE.
+
 ## Task list = inner loop visibility
 
 Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks for its inner loop steps (MINE, DIAGNOSE, META, IDEATE, EDIT+COMMIT, RUN+SCORE, LOG+COMMIT RUNS, → Next iteration). Mark each complete as you go. At "→ Next iteration", clear and recreate for the next iteration. Include iteration number and current score in task names.

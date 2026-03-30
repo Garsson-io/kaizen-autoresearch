@@ -99,15 +99,27 @@ LOOP:
      contains correct reasoning the model overrides. Append --taxonomy-lines output to taxonomy/.
 
      **CRITICAL: Don't just count error directions.** You MUST actually READ the thinking blocks
-     and justification text for at least the top 5–10 errors by weight. Identify:
-     - **What reasoning pattern led to the wrong answer?** (e.g., "anchored on MOCK-MISS and
-       never reconsidered REAL-INFRA", "acknowledged LLM dependency then dismissed it as mockable")
-     - **Which prompt section trapped the model?** (e.g., "MOCK-MISS set Integration floor and
-       REAL-INFRA didn't override it")
-     - **What would have fixed THIS specific error?** (e.g., "if the prompt said X, the model
-       would have picked System instead of Integration")
-     Summarize these patterns — they are the raw material for IDEATE. Counting directions without
-     reading the reasoning is a meta-failure: you're optimizing blind.
+     and justification text for at least the top 5–10 errors by weight. The tool now outputs
+     errors sorted by weight descending with HIGH IMPACT labels — read those first.
+
+     **After reading, you MUST produce a MINE DIGEST before proceeding to DIAGNOSE/IDEATE.
+     If you cannot produce this digest from reading, you have not mined — run the tool again
+     with `--task EC-XX` to focus on specific tasks. The digest format:**
+
+     ```
+     MINE DIGEST:
+     - [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification — do not paraphrase>"
+       Pattern: <what reasoning trap caused this — e.g., "anchored on MOCK-MISS, never tested REAL-INFRA">
+       Trap: <which prompt section or phrase led to this — e.g., "KEY-QUESTIONS integration floor">
+     - [TASK bN] [PRED→GT] [w=W]: "<direct quote from justification>"
+       Pattern: <...>
+       Trap: <...>
+     ... (at least 5 errors)
+     Dominant pattern: <one-sentence summary of the most common reasoning failure>
+     Fix hypothesis: <what specific prompt change would fix the dominant pattern>
+     ```
+
+     Counting directions without reading the reasoning is a meta-failure: you're optimizing blind.
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points

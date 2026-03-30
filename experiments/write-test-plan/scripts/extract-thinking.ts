@@ -199,7 +199,11 @@ export function processRun(runDir: string): BehaviorThinking[] {
   return results;
 }
 
-function printTable(results: BehaviorThinking[], selfAwareOnly: boolean) {
+const ROW_WEIGHT: Record<string, number> = {
+  Unit: 1, Integration: 2, System: 3, Agentic: 4, Workflow: 4,
+};
+
+function printTable(results: BehaviorThinking[], selfAwareOnly: boolean, runLabel: string) {
   const filtered = selfAwareOnly ? results.filter((r) => r.self_aware) : results.filter((r) => r.direction !== "correct");
 
   if (filtered.length === 0) {
@@ -207,21 +211,38 @@ function printTable(results: BehaviorThinking[], selfAwareOnly: boolean) {
     return;
   }
 
-  for (const r of filtered) {
+  // Sort by GT level weight descending — highest-impact errors first
+  const sorted = [...filtered].sort((a, b) => {
+    const wa = ROW_WEIGHT[a.gt ?? "Unit"] ?? 1;
+    const wb = ROW_WEIGHT[b.gt ?? "Unit"] ?? 1;
+    return wb - wa;
+  });
+
+  const HIGH_IMPACT_THRESHOLD = 10;
+  console.log(`\nERRORS SORTED BY WEIGHT — read each justification and thinking excerpt:\n`);
+
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const weight = ROW_WEIGHT[r.gt ?? "Unit"] ?? 1;
     const arrow = `${r.predicted}→${r.gt}`;
     const flag = r.self_aware ? " ⚠ SELF-AWARE" : "";
-    console.log(`\n${r.task} b${r.behavior_id} (${arrow})${flag}`);
-    console.log(`  Justification: "${r.justification.slice(0, 120)}"`);
+    const impact = i < HIGH_IMPACT_THRESHOLD ? ` [w=${weight} HIGH IMPACT]` : ` [w=${weight}]`;
+    console.log(`\n${r.task} b${r.behavior_id} (${arrow})${impact}${flag}`);
+    // Full justification for high-impact errors, truncated for the rest
+    const justTrunc = i < HIGH_IMPACT_THRESHOLD ? 400 : 200;
+    const thinkTrunc = i < HIGH_IMPACT_THRESHOLD ? 500 : 250;
+    console.log(`  Justification: "${r.justification.slice(0, justTrunc)}"`);
     if (r.self_aware && r.self_aware_evidence) {
-      console.log(`  Thinking KNEW: "${r.self_aware_evidence.slice(0, 150)}"`);
+      console.log(`  Thinking KNEW: "${r.self_aware_evidence.slice(0, thinkTrunc)}"`);
     }
     if (!r.self_aware && r.thinking_excerpt !== "(behavior not found in thinking)") {
-      console.log(`  Thinking: "${r.thinking_excerpt.slice(0, 150)}"`);
+      console.log(`  Thinking: "${r.thinking_excerpt.slice(0, thinkTrunc)}"`);
     }
   }
 
   const saCount = filtered.filter((r) => r.self_aware).length;
-  console.log(`\n--- ${filtered.length} errors, ${saCount} self-aware ---`);
+  // Aggregate summary at END so agents must read behaviors before seeing totals
+  console.log(`\n--- Run: ${runLabel} — ${results.length} behaviors, ${filtered.length} errors, ${saCount} self-aware ---`);
 }
 
 function printTaxonomyLines(results: BehaviorThinking[], runLabel: string) {
@@ -270,10 +291,7 @@ if (jsonOut) {
 } else if (taxonomyLines) {
   printTaxonomyLines(results, `run-${runDirName.slice(-6)}`);
 } else {
-  const errors = results.filter((r) => r.direction !== "correct");
-  const sa = errors.filter((r) => r.self_aware);
-  console.log(`Run: ${runDirName} — ${results.length} behaviors, ${errors.length} errors, ${sa.length} self-aware`);
-  printTable(results, selfAwareOnly);
+  printTable(results, selfAwareOnly, runDirName);
 }
 }
 
