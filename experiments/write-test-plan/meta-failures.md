@@ -36,7 +36,7 @@ Read this before iterating. These are the ways the process itself broke, not the
 
 **Symptom**: Taxonomy files had the same number of lines after each run instead of growing. Couldn't tell which patterns survived a prompt change.
 
-**Fix**: Taxonomy is append-only. Each line prefixed with `[runN]`. `taxonomy/README.md` documents the rule. Never delete old lines.
+**Fix**: Taxonomy is append-only. Each entry is one JSONL line (`{"run":"N","task":"EC-NN",...}`). `taxonomy/README.md` and `taxonomy-schema.ts` document the schema. Never delete old entries.
 
 **Lesson**: The history of failure patterns IS the data. Destroying it to "update" it defeats the purpose.
 
@@ -335,7 +335,7 @@ The root cause was invisible: the O taxonomy files had GT-Pred confusion_pairs (
 `--summary` showed U1/U2/U3 dominating and O files nearly empty. After the direction fix and `--reprocess-unmatched`, 51 blocks moved from unmatched.md into O1/O2/O3. O1 went from 1 entry to 52.
 
 **Lesson**:
-After any taxonomy structural change (direction fix, confusion_pair expansion, regex fix), discard all prior distribution assumptions and re-examine from scratch. The leaderboard treatment history was optimizing against a biased view of the error landscape. Before accepting "X is the dominant pattern," verify with `grep -c "^\[run" taxonomy/O*.md taxonomy/U*.md` that the file counts are plausible and that no category is suspiciously empty.
+After any taxonomy structural change (direction fix, confusion_pair expansion, regex fix), discard all prior distribution assumptions and re-examine from scratch. The leaderboard treatment history was optimizing against a biased view of the error landscape. Before accepting "X is the dominant pattern," verify with `npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary` that the file counts are plausible and that no category is suspiciously empty.
 
 ---
 
@@ -378,23 +378,19 @@ As a taxonomy file grows, check whether the J: texts across entries still descri
 
 ---
 
-### taxonomy-append.ts --summary regex silently undercounted ~400 legacy entries
+### taxonomy-append.ts --summary silently undercounted legacy entries
 
-**Status**: fixed — regex changed from `\[run\d+\]` to `\[run\S+\]`
+**Status**: fixed — all taxonomy files migrated to JSONL schema format
 
 **What happened**:
-The summary count regex `\[run\d+\]` matches integer-format labels (`[run6]`) but not the timestamp-format labels (`[run-204623]`, `[run-203945]`) used in early runs. Roughly 400 entries across all taxonomy files use the timestamp format. The `--summary` output showed counts that silently excluded these entries — the tool ran without errors and appeared to work correctly, but all older evidence was invisible to the counter.
-
-**Symptom**:
-`grep -c "^\[run" taxonomy/U1-can-mock-the-api.md` returns a higher count than `--summary` reports for U1. The gap equals the number of timestamp-format entries in the file.
+Multiple generations of entry format (very-old bare, medium single-line, block multi-line) made counting fragile. The summary regex only matched entries that had the `(Pred→GT)` pair in the routing key line. Entries from run1/run2 (which predated the pair format) were invisible to `--summary`, undercounting U2 by 18 and U3 by 22.
 
 **Fix**:
-Changed all three affected regexes in `printSummary()` to `\[run\S+\]`. The routing logic (which matches any `[run...]` prefix) was never broken — only the counter was wrong.
+All entries migrated to JSONL via `migrate-taxonomy.ts`. Every entry is now one JSON object per line validated by `TaxonomyEntrySchema` in `taxonomy-schema.ts`. The `--summary` tool uses `parseEntryLine()` (schema-driven) — no regex. Counting is exact by construction.
 
 **Lesson**:
-Any tool that counts entries in append-only accumulation files must be validated against the raw ground truth immediately after writing. The validation command is:
+Schema-driven I/O eliminates silent undercounting. Use `serializeEntry()` to write, `parseEntryLine()` to read — never format or parse entries by hand. The validation command is simply:
 ```bash
-grep -c "^\[run" experiments/write-test-plan/taxonomy/*.md
 npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
 ```
-Compare the per-file `grep` counts to the `--summary` matched totals. If they diverge, the tool is undercounting. Silent undercounting is worse than an error — it produces misleading confidence in the summary numbers.
+If `--summary` doesn't count an entry, that entry doesn't conform to `TaxonomyEntrySchema`. Fix the data, not the counter.

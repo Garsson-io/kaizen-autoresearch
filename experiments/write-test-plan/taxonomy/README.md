@@ -61,54 +61,41 @@ When a new run surfaces a pair that isn't listed but shows the same reasoning pa
 
 ---
 
-## Body format (current — multi-line blocks)
+## Body format — JSONL (one entry per line)
 
-Each entry is a **block** — a routing key line followed by indented content lines, separated from the next block by a blank line:
+Each entry is a single JSON object on one line, validated against `TaxonomyEntrySchema` in `scripts/taxonomy-schema.ts`.
 
-```
-[run6] EC-10 b4 (Integration→Agentic) [w=4] ⚠SELF-AWARE
-  J: "Full justification text — no truncation. This is what the model said publicly in the output JSON."
-  T: "Full thinking excerpt — the model's internal reasoning from the .log file. For self-aware cases, this is the sentence where the model acknowledges the correct level."
-
-[run6] EC-17 b2 (Integration→Agentic) [w=4]
-  J: "MOCK-MISS: The likely failure boundary is module handoff..."
-  T: "I need to verify whether the real KB lookup changes the output..."
+```jsonl
+{"run":"7","task":"EC-10","b":4,"pred":"Integration","gt":"Agentic","w":4,"j":"Full justification text...","t":"Full thinking excerpt...","sa":true}
+{"run":"7","task":"EC-17","b":2,"pred":"Integration","gt":"Agentic","w":4,"j":"MOCK-MISS: The likely failure boundary is module handoff..."}
 ```
 
-**First line (routing key)**: `[runN] TASK bBEHAVIOR (Pred→GT) [w=W] [⚠SELF-AWARE]`
-**J: line**: full justification text — what the model said in its structured output
-**T: line**: full thinking excerpt — what the model actually reasoned internally
-**⚠SELF-AWARE**: model's thinking contains correct level but public output chose wrong
+**Fields** (see `TaxonomyEntrySchema` for the authoritative schema):
+- `run` — run label, e.g. `"7"` or `"20260330-200818"` or `"pre-schema"` for pre-schema era entries
+- `task` — corpus task ID, e.g. `"EC-10"`
+- `b` — behavior number, e.g. `4`
+- `pred` — what the model predicted, e.g. `"Integration"`
+- `gt` — ground-truth level, e.g. `"Agentic"`
+- `w` — GT level weight (Unit=1 Integration=2 System=3 Agentic=4 Workflow=4)
+- `j` — full justification text (no truncation)
+- `t` — thinking excerpt (optional)
+- `sa` — self-aware: model's thinking had the right answer but public output chose wrong (optional)
 
-The routing key line is the only line parsed by `taxonomy-append.ts` for routing. All other lines are context.
-
-### Legacy format (pre-block era)
-
-Older entries use a single-line format:
-```
-[run3] EC-10 b4 (Integration→Agentic): "truncated justification at 150 chars..."
-[run3] EC-10 b4 THINKING: ⚠ SELF-AWARE "thinking excerpt..."
-```
-Or very old entries with no confusion pair at all:
-```
-[run1] EC-10 b4: "justification text..."
-```
-These are not routable by taxonomy-append (no `(Pred→GT)` format) and not counted by `--summary`. They are preserved for historical context.
+**Writing**: call `serializeEntry(entry)` from `taxonomy-schema.ts`. Never format by hand.
+**Reading**: call `parseEntryLine(line)` from `taxonomy-schema.ts`. Returns `null` for non-entry lines (frontmatter, blank lines, etc.).
+**Routing key** (used by `taxonomy-append.ts`): derived from `pred` and `gt` fields as `"pred-gt"`.
 
 ---
 
 ## unmatched.md
 
-`taxonomy/unmatched.md` accumulates all blocks that have no matching taxonomy file. It is append-only like all other taxonomy files.
+`taxonomy/unmatched.md` accumulates all entries that have no matching taxonomy file. Same JSONL format as other taxonomy files.
 
 ```
 ---
 note: "..."
 ---
-
-[run6] EC-01 b1 (Integration→Unit) [w=1]
-  J: "full justification..."
-  T: "full thinking..."
+{"run":"7","task":"EC-01","b":1,"pred":"Agentic","gt":"Integration","w":2,"j":"..."}
 ```
 
 **Never manually edit unmatched.md to route entries.** Instead, either update a taxonomy file's `confusion_pair` list and run `--reprocess-unmatched`, or create a new taxonomy file and run `--reprocess-unmatched`.

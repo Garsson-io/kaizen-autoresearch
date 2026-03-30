@@ -465,7 +465,7 @@ npx tsx experiments/write-test-plan/scripts/score.ts \
 | `verify.ts` | JSON `{score, loss}` | Machine-readable metric; pipe to `jq` |
 | `score.ts` | Human-readable table | Per-task breakdown; **not JSON, don't pipe to jq** |
 | `extract-thinking.ts --json` | JSON array of BehaviorThinking | MINE step analysis |
-| `extract-thinking.ts --taxonomy-lines` | Plain text lines | Append to taxonomy/ |
+| `extract-thinking.ts --taxonomy-lines` | JSONL (one `TaxonomyEntry` per line) | Pipe to `taxonomy-append.ts` |
 | `results.ts --json` | JSON array of IterationResult | History in machine-readable form |
 | `run-stats.ts --json` | JSON array of ProbeStats | Cost/token data in machine-readable form |
 | `explore.ts <id>` | Per-task heatmap table | Explore pre-screening results |
