@@ -1,7 +1,7 @@
 ---
 id: deterministic-assertion-trap-block
 title: Block "I can write a deterministic assertion" escape from Agentic demotion
-status: proposed
+status: kept
 effort: low
 expected_impact: high
 targets:
