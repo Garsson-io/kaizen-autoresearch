@@ -59,3 +59,27 @@ self_aware_note: Model often acknowledges the need for real AI in hedges then pi
 [run6] EC-32 b6 (Unit→Agentic) [w=4]
   J: "Core failure boundary is assertion logic correctness (schema/structure checks vs naive keyword matching). This can be tested with crafted outputs that include echoed keywords but wrong structure. No real infra required; no model non-determinism required. Rejection gate: Integration considered, but behavior text focuses on assertion semantics themselves, which are local logic."
 
+[run7] EC-04 b4 (System→Agentic) [w=4]
+  J: "REAL-INFRA: this behavior is about actual token consumption against configured budget, which is tied to real provider accounting/HTTP response usage fields and can differ from local estimates. MOCK-HIDE: mocked usage counters can always pass and miss real over-budget calls caused by provider-side tokenization or request envelope effects. LLM-DEP: not primarily about semantic quality/classification accuracy; it is usage accounting, so Agentic is not strictly required as minimum. MULTI-STEP: no chained agentic pipeline. REJECTION-GATE: Agentic rejected because behavior text targets budget compliance ('number of tokens consumed ... within budget'), not subjective/model-quality correctness."
+
+[run7] EC-10 b4 (Integration→Agentic) [w=4]
+  J: "Failure is a local contract/state consistency issue across modules (finding aggregator, inline-post result tracking, summary composer). It can be reproduced with module wiring and controlled API responses. INTEGRATION-BRAKE: (a) no mandatory real OS/network dependency to detect mismatch, (b) no model-quality dependency, (c) no multi-agentic chain requirement. Rejected System: behavior text focuses on correspondence invariant, not environment-specific behavior."
+
+[run7] EC-17 b2 (Integration→Agentic) [w=4]
+  J: "MOCK-MISS: The likely failure boundary is module handoff (draft claim extraction + KB lookup + contradiction logic), not a single pure function. REAL-INFRA: No behavior text requires real OS/network/subprocess; an in-process KB/repository fixture can expose mismatch bugs. MOCK-HIDE: Mocking only at function level could miss wiring/state mismatches, so Unit is too low. INTEGRATION-BRAKE: (a) no explicit real infra dependency, so not System; (b) behavior text does not state checker quality depends on real AI/ML output, so Agentic not required; (c) no multi-agentic chain, so not Workflow. REJECTION-GATE: Higher levels rejected because behavior text is about 'flags claims ... contradict entries in the knowledge base' and does not require real external environment or model-quality evaluation."
+
+[run7] EC-19 b2 (System→Agentic) [w=4]
+  J: "This behavior’s core failure can appear in real code execution and test-runner/process boundaries (compile/runtime errors, exit status handling, test invocation semantics), which in-process fakes can miss. Rejected higher level (Agentic) because this behavior can be validated with deterministic generated code fixtures (e.g., fail then pass) and does not require judging real model quality to verify pass-on-retry orchestration."
+
+[run7] EC-19 b3 (Integration→Agentic) [w=4]
+  J: "The bug is at a local module handoff boundary: test-result collector -> prompt builder -> LLM client request payload. No real OS/network/subprocess is required, and correctness does not depend on model output quality, only that failure text is propagated into the next prompt. Rejected higher levels: System/Agentic are disqualified by behavior text focusing on prompt content inclusion, not infrastructure quirks or model judgment."
+
+[run7] EC-30 b3 (Unit→Agentic) [w=4]
+  J: "Behavior is core ranking logic (weighting by browsing signal) and can fail within one algorithm boundary without module interaction. MOCK-MISS: no required cross-module handoff described. Rejected Integration because behavior text focuses on ranking rule itself, not data plumbing."
+
+[run7] EC-30 b5 (Unit→Agentic) [w=4]
+  J: "This is an algorithmic constraint on output composition; can be validated directly in ranking/diversification logic with deterministic fixtures. No required module interaction or real infra in text. Rejected Agentic: no LLM/model quality dependency is described."
+
+[run7] EC-32 b6 (Unit→Agentic) [w=4]
+  J: "Core failure boundary is assertion logic correctness (schema/structure checks vs naive keyword matching). This can be tested with crafted outputs that include echoed keywords but wrong structure. No real infra required; no model non-determinism required. Rejection gate: Integration considered, but behavior text focuses on assertion semantics themselves, which are local logic."
+

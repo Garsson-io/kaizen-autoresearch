@@ -14,3 +14,6 @@ EC-19 b1: "Code generation setup" — predicted Agentic, GT says Unit (testing t
 EC-21 b5: "Sentiment aggregation" — predicted Agentic, GT says Integration (aggregating scores is deterministic logic)
 [run6] EC-14 b1 (Agentic→System) [w=3]
   J: "The real failure boundary is STT diarization quality (LLM-DEP equivalent for speech model output): mocked transcripts hide mislabeled/missing speakers. Integration alone is insufficient because the core risk is model output correctness, not just local handoff. Workflow was considered, but the behavior text centers on STT output preservation; a single real-model step plus attribution assertions is enough to catch the target failure."
+[run7] EC-14 b1 (Agentic→System) [w=3]
+  J: "The real failure boundary is STT diarization quality (LLM-DEP equivalent for speech model output): mocked transcripts hide mislabeled/missing speakers. Integration alone is insufficient because the core risk is model output correctness, not just local handoff. Workflow was considered, but the behavior text centers on STT output preservation; a single real-model step plus attribution assertions is enough to catch the target failure."
+
