@@ -1,29 +1,10 @@
 #!/usr/bin/env npx tsx
 /**
- * taxonomy-append.ts — Route taxonomy-lines output to taxonomy files, persist unmatched,
+ * taxonomy-append.ts — Route JSONL taxonomy entries to taxonomy files, persist unmatched,
  * and support retroactive re-routing when new taxonomy files are added.
  *
- * NEW: Input is block-based (multi-line entries from extract-thinking --taxonomy-lines).
- * Each block: first line is the routing key "[runN] TASK bN (Pred→GT) [w=W]",
- * followed by indented "  J: ..." and "  T: ..." lines. Full text, no truncation.
- * Old single-line format is still accepted (treated as a one-line block).
- *
- * Unmatched blocks are persisted to taxonomy/unmatched.md (append-only).
- * Run --reprocess-unmatched after adding new taxonomy files to backfill history.
- *
- * Usage:
- *   # Append current run's errors to taxonomy files
- *   npx tsx scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
- *     npx tsx scripts/taxonomy-append.ts [--run N]
- *
- *   # Re-route historical unmatched after adding/updating taxonomy files
- *   npx tsx scripts/taxonomy-append.ts --reprocess-unmatched
- *
- *   # Show cumulative confusion pair counts across all taxonomy files + unmatched.md
- *   npx tsx scripts/taxonomy-append.ts --summary
- *
- *   # Preview without writing
- *   ... | npx tsx scripts/taxonomy-append.ts --dry-run
+ * Input format is JSONL only (one TaxonomyEntry per line), as emitted by
+ * extract-thinking.ts --taxonomy-lines. Legacy "[runN] ..."-style blocks are not supported.
  */
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "fs";
@@ -31,7 +12,7 @@ import { join } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { PATHS } from "./paths.js";
-import { parseEntryLine, entryPair, serializeEntry } from "./taxonomy-schema.js";
+import { parseEntryLine, entryPair, serializeEntry, type TaxonomyEntry } from "./taxonomy-schema.js";
 
 const UNMATCHED_PATH = join(PATHS.taxonomy, "unmatched.md");
 
@@ -41,29 +22,6 @@ note: "Auto-accumulated unmatched taxonomy lines. After creating new taxonomy fi
 ---
 
 `;
-
-// Schema for a taxonomy routing-key line.
-// Format: "[run7] EC-10 b4 (Integration→Agentic) [w=4] ⚠SELF-AWARE"
-// Lines without the (Pred→GT) pair are not routing keys and will fail parsing.
-const RoutingKeySchema = z.string().transform((line, ctx) => {
-  const m = line.match(/^\[run(\S+)\] (\S+) b(\d+) \((\w+)→(\w+)\)/);
-  if (!m) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Not a routing key line" });
-    return z.NEVER;
-  }
-  const wMatch = line.match(/\[w=(\d+)\]/);
-  return {
-    run: m[1],
-    task: m[2],
-    behavior: parseInt(m[3]),
-    pred: m[4],
-    gt: m[5],
-    pair: `${m[4]}-${m[5]}`,
-    weight: wMatch ? parseInt(wMatch[1]) : null,
-    selfAware: line.includes("⚠SELF-AWARE") || line.includes("SELF-AWARE"),
-  };
-});
-type RoutingKey = z.output<typeof RoutingKeySchema>;
 
 // Schema for taxonomy file frontmatter. confusion_pair and id are required for routing.
 const TaxonomyFrontmatterSchema = z.object({
@@ -80,10 +38,11 @@ interface TaxonomyFile {
 }
 
 interface Block {
-  lines: string[];      // first line is routing key, rest are indented context
-  key: string;          // first line (used for dedup check)
+  lines: string[];      // JSONL line(s) to append
+  key: string;          // dedup key (serialized JSONL line)
   confusionPair: string | null;
   isSelfAware: boolean;
+  entry: TaxonomyEntry;
 }
 
 // ─── Load taxonomy files ──────────────────────────────────────────────────────
@@ -123,90 +82,30 @@ function loadTaxonomyFiles(): TaxonomyFile[] {
   return files;
 }
 
-// ─── Detect run number ────────────────────────────────────────────────────────
-
-function detectRunNumber(taxFiles: TaxonomyFile[]): number {
-  let max = 0;
-  const allPaths = taxFiles.map(f => f.path);
-  if (existsSync(UNMATCHED_PATH)) allPaths.push(UNMATCHED_PATH);
-  for (const path of allPaths) {
-    const content = readFileSync(path, "utf8");
-    for (const m of content.matchAll(/\[run(\d+)\]/g)) {
-      max = Math.max(max, parseInt(m[1], 10));
-    }
-  }
-  return max + 1;
-}
-
-// ─── Parse input into blocks ──────────────────────────────────────────────────
-//
-// New format (multi-line block):
-//   [run-HHMMSS] EC-10 b4 (Integration→Agentic) [w=4]
-//     J: "full justification text"
-//     T: "full thinking text"
-//   <blank line>
-//
-// Old format (single line, backwards compatible):
-//   [run5] EC-10 b4 (Integration→Agentic): "truncated..."
-
-function parseConfusionPair(line: string): string | null {
-  const result = RoutingKeySchema.safeParse(line);
-  return result.success ? result.data.pair : null;
-}
+// ─── Parse input into blocks (JSONL only) ────────────────────────────────────
 
 function parseBlocks(rawInput: string): Block[] {
   const blocks: Block[] = [];
 
-  // New format: JSONL — one TaxonomyEntry per line (from extract-thinking --taxonomy-lines)
-  const lines = rawInput.split("\n");
-  const isJsonl = lines.some(l => l.trim().startsWith("{"));
-
-  if (isJsonl) {
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const entry = parseEntryLine(trimmed);
-      if (!entry) {
-        if (trimmed.startsWith("{")) console.warn(`Invalid entry JSON: ${trimmed.slice(0, 80)}`);
-        continue;
-      }
-      blocks.push({
-        lines: [serializeEntry(entry)],
-        key: serializeEntry(entry),
-        confusionPair: entryPair(entry),
-        isSelfAware: entry.sa ?? false,
-      });
+  for (const line of rawInput.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const entry = parseEntryLine(trimmed);
+    if (!entry) {
+      console.warn(`Skipping non-JSONL taxonomy line: ${trimmed.slice(0, 80)}`);
+      continue;
     }
-    return blocks;
-  }
-
-  // Legacy format: multi-line blocks separated by blank lines
-  const groups = rawInput.split(/\n[ \t]*\n/);
-  for (const group of groups) {
-    const groupLines = group.split("\n").filter(l => l !== "");
-    if (!groupLines.length) continue;
-
-    const keyIdx = groupLines.findIndex(l => /^\[run/.test(l));
-    if (keyIdx < 0) continue;
-
-    const keyLine = groupLines[keyIdx];
+    const serialized = serializeEntry(entry);
     blocks.push({
-      lines: groupLines.slice(keyIdx),
-      key: keyLine,
-      confusionPair: parseConfusionPair(keyLine),
-      isSelfAware: keyLine.includes("⚠SELF-AWARE") || keyLine.includes("SELF-AWARE"),
+      lines: [serialized],
+      key: serialized,
+      confusionPair: entryPair(entry),
+      isSelfAware: entry.sa ?? false,
+      entry,
     });
   }
 
   return blocks;
-}
-
-// ─── Relabel run number in block ──────────────────────────────────────────────
-
-function relabelBlock(block: Block, runN: number): Block {
-  const newLines = [...block.lines];
-  newLines[0] = newLines[0].replace(/^\[run\S+\]/, `[run${runN}]`);
-  return { ...block, lines: newLines, key: newLines[0] };
 }
 
 // ─── Match confusion pair to taxonomy files ───────────────────────────────────
@@ -221,10 +120,8 @@ function appendBlocks(filePath: string, blocks: Block[]): number {
   const existing = readFileSync(filePath, "utf8");
   const toAdd = blocks.filter(b => {
     if (existing.includes(b.key.trim())) return false;
-    // Validate routing key line against schema before writing
-    const validation = RoutingKeySchema.safeParse(b.key);
-    if (!validation.success) {
-      console.warn(`Skipping invalid routing key: ${b.key.slice(0, 80)}`);
+    if (parseEntryLine(b.key) === null) {
+      console.warn(`Skipping invalid taxonomy block key: ${b.key.slice(0, 80)}`);
       return false;
     }
     return true;
@@ -326,11 +223,21 @@ function reprocessUnmatched(taxFiles: TaxonomyFile[], dryRun: boolean): void {
 // Scans all taxonomy files + unmatched.md, counts occurrences per confusion pair.
 // Shows which pairs have enough history to warrant new taxonomy files.
 
-function parseRoutingKeys(content: string): RoutingKey[] {
-  const keys: RoutingKey[] = [];
+type ParsedKey = {
+  run: string;
+  task: string;
+  behavior: number;
+  pred: string;
+  gt: string;
+  pair: string;
+  weight: number | null;
+  selfAware: boolean;
+};
+
+function parseRoutingKeys(content: string): ParsedKey[] {
+  const keys: ParsedKey[] = [];
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
-    // New format: JSONL entry
     const entry = parseEntryLine(trimmed);
     if (entry) {
       keys.push({
@@ -343,17 +250,13 @@ function parseRoutingKeys(content: string): RoutingKey[] {
         weight: entry.w,
         selfAware: entry.sa ?? false,
       });
-      continue;
     }
-    // Legacy format: routing key line "[runN] EC-NN bN (Pred→GT) [w=W]"
-    const result = RoutingKeySchema.safeParse(line);
-    if (result.success) keys.push(result.data);
   }
   return keys;
 }
 
 function printSummary(taxFiles: TaxonomyFile[]): void {
-  // Count matched (in taxonomy files) — parse each line via RoutingKeySchema
+  // Count matched (in taxonomy files) from JSONL taxonomy entries.
   const matchedCounts = new Map<string, Map<string, number>>();  // pair → (file → count)
   for (const f of taxFiles) {
     const content = readFileSync(f.path, "utf8");
@@ -396,7 +299,18 @@ function printSummary(taxFiles: TaxonomyFile[]): void {
     console.log("\n  UNMATCHED (in unmatched.md):");
     const sorted = [...unmatchedCounts.entries()].sort((a, b) => b[1] - a[1]);
     for (const [pair, count] of sorted) {
-      const runs = [...(unmatchedRuns.get(pair) ?? [])].sort((a, b) => parseInt(a) - parseInt(b)).join(",");
+      const runs = [...(unmatchedRuns.get(pair) ?? [])]
+        .sort((a, b) => {
+          const an = Number.parseInt(a, 10);
+          const bn = Number.parseInt(b, 10);
+          const aNum = Number.isFinite(an);
+          const bNum = Number.isFinite(bn);
+          if (aNum && bNum) return an - bn;
+          if (aNum && !bNum) return -1;
+          if (!aNum && bNum) return 1;
+          return a.localeCompare(b);
+        })
+        .join(",");
       const flag = count >= 3 ? "  ← consider new category" : "";
       console.log(`    ${pair.padEnd(28)} ${String(count).padStart(3)} lines  runs:[${runs}]${flag}`);
     }
@@ -416,7 +330,6 @@ function printSummary(taxFiles: TaxonomyFile[]): void {
 
 function main() {
   const args = process.argv.slice(2);
-  const runArg = args.includes("--run") ? parseInt(args[args.indexOf("--run") + 1] ?? "0", 10) : null;
   const inputArg = args.includes("--input") ? args[args.indexOf("--input") + 1] : null;
   const dryRun = args.includes("--dry-run");
   const reprocess = args.includes("--reprocess-unmatched");
@@ -449,20 +362,15 @@ function main() {
 
   const blocks = parseBlocks(rawInput);
   if (blocks.length === 0) {
-    console.error("No blocks parsed from input. Expected lines starting with [run...].");
+    console.error("No taxonomy entries parsed from input. Expected JSONL TaxonomyEntry lines.");
     process.exit(1);
   }
-
-  const runN = runArg ?? detectRunNumber(taxFiles);
-
-  // Relabel blocks with correct run number
-  const relabeled = blocks.map(b => relabelBlock(b, runN));
 
   // Route blocks
   const matchedBlocks = new Map<string, Block[]>();
   const unmatchedBlocks: Block[] = [];
 
-  for (const block of relabeled) {
+  for (const block of blocks) {
     if (!block.confusionPair) continue;
     const files = matchFiles(block.confusionPair, taxFiles);
     if (files.length === 0) {
@@ -514,7 +422,7 @@ function main() {
   }
 
   if (!dryRun && totalAppended > 0) {
-    console.log(`\nAppended ${totalAppended} blocks across ${matchedBlocks.size} taxonomy files (run${runN})`);
+    console.log(`\nAppended ${totalAppended} blocks across ${matchedBlocks.size} taxonomy files`);
   }
 }
 
