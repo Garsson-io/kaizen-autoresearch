@@ -25,13 +25,8 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
-- **SEAM-MAP** (before choosing level):
-  - Name the highest boundary seam this behavior must cross: local function seam, module/interface seam, environment seam (OS/network/subprocess/external service), model-judgment seam, or multi-step orchestration seam.
-  - Choose the minimum level that actually exercises that seam.
-
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
-  If your level is lower than the seam you identified, raise it to the seam's minimum level.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
