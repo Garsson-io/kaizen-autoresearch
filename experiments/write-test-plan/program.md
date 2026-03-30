@@ -81,6 +81,18 @@ Report all three scores in `leaderboard.md`.
   - corpus/model/scoring changed and prior baseline is not comparable.
 - After any kept iteration, the new best kept loss becomes the comparison target for subsequent iterations.
 
+### Model/runner policy (permanent)
+
+- Default execution path is Codex: run evaluations with `--cli codex --model gpt-5.3-codex`.
+- IDEATE should prefer a Codex subagent by default.
+- Claude/Sonnet runs are allowed when explicitly chosen; always label the model in logs.
+
+### Run-artifact policy (permanent)
+
+- Never leave run artifacts uncommitted. Each completed run must be committed before starting the next cognitive step.
+- Required order after every run: `COMMIT RUNS` -> `COMMIT STATE`.
+- Recovery gate at loop start: if `git status` already contains uncommitted `runs/<timestamp>/` or `run-stats.jsonl`, commit recovery first, then continue.
+
 ```
 LOOP:
   1. MINE — run mine-report.ts for the full picture (diff, persistence, loss breakdown, MINE DIGEST):
@@ -154,7 +166,7 @@ LOOP:
          or how IDEATE should prioritize explored vs unexplored ideas.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
-  7. RUN — experiments/write-test-plan/run-eval.sh (or verify.ts). Monitor progress.
+  7. RUN — experiments/write-test-plan/run-eval.sh (defaults to Codex; override `--cli/--model` when needed) or verify.ts. Monitor progress.
   8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
      Until then, treat any loss decrease as signal. Update this after the first confirmation run.
@@ -190,10 +202,17 @@ LOOP:
      → Step 3 is the compounding value: new taxonomy files retroactively categorize all historical
      evidence in unmatched.md. See `taxonomy/README.md` § "The three-step MINE taxonomy flow" for the
      full cognitive procedure (what to read, how to classify, validation checklist).
-  10. COMMIT RUNS — git add the timestamped run dir and commit the output JSONs:
+  10. COMMIT RUNS (MANDATORY, immediate) — git add the timestamped run dir and commit run artifacts right after scoring:
       ```bash
-      git add experiments/write-test-plan/runs/<timestamp>/
+      git add experiments/write-test-plan/runs/<timestamp>/ \
+              experiments/write-test-plan/run-stats.jsonl
       git commit -m "experiment(runs): <timestamp> — <idea-id> <KEEP|DISCARD> loss <X>"
+      ```
+      If a run is partial/interrupted, commit it explicitly as recovery:
+      ```bash
+      git add experiments/write-test-plan/runs/<timestamp>/ \
+              experiments/write-test-plan/run-stats.jsonl
+      git commit -m "experiment(runs): recover interrupted run <timestamp> (partial outputs)"
       ```
   10.5. COMMIT STATE — commit all remaining dirty files so the working tree is clean:
       ```bash
@@ -247,7 +266,7 @@ Include the iteration number and the current score in each task name for context
 
 ### IDEATE subagent (step 4)
 
-Spawn a subagent with `subagent_type: "general-purpose"` and `model: "opus"`. Give it this prompt, filling in the `{PLACEHOLDERS}` from your MINE/DIAGNOSE output:
+Spawn a subagent with `subagent_type: "general-purpose"` and preferred `model: "gpt-5.3-codex"` (or another explicitly chosen model for this run). Give it this prompt, filling in the `{PLACEHOLDERS}` from your MINE/DIAGNOSE output:
 
 ```
 You are the IDEATE step of an experiment iteration loop. Your job is to decide
@@ -339,7 +358,7 @@ experiments/write-test-plan/run-eval.sh --round 3  # pressure noise
 
 - **Never edit corpus, ground-truth, scripts, or src** — only `prompts/treatment.md` changes.
 - **Never edit `leaderboard.md` without a score change**.
-- `runs/` is gitignored. Use GitHub Releases to archive a full run if needed.
+- `runs/` is versioned by timestamped directory; commit each run immediately after scoring.
 - One hypothesis per iteration.
 - **Before each iteration, read `leaderboard.md`** — it has the full score history. Use alongside `npx tsx experiments/write-test-plan/scripts/results.ts` and git log to avoid repeating failed approaches.
 

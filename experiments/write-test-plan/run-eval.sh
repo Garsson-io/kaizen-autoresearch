@@ -2,13 +2,13 @@
 # run-eval.sh — Run corpus tasks for a given prompt and score them.
 #
 # Usage:
-#   ./run-eval.sh                                    # treatment prompt, round 1 (neutral)
+#   ./run-eval.sh                                    # treatment prompt, round 1 (neutral), Codex defaults
 #   ./run-eval.sh --condition baseline               # built-in baseline prompt
 #   ./run-eval.sh --prompt prompts/treatment-l12.md  # custom prompt file
 #   ./run-eval.sh --round 2                          # round 2: unit-test anchoring noise
 #   ./run-eval.sh --round 3                          # round 3: "fast tests" + deferral noise
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
-#   ./run-eval.sh --model claude-haiku-4-5-20251001
+#   ./run-eval.sh --cli claude --model claude-haiku-4-5-20251001
 #   ./run-eval.sh --cli codex --model gpt-5.3-codex
 #   ./run-eval.sh -j 8                               # max 8 parallel probes (default: 6)
 #   ./run-eval.sh --no-latest                        # skip updating runs/latest symlink (explore mode)
@@ -21,8 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Defaults
 PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
-MODEL="claude-sonnet-4-6"
-CLI="claude"
+MODEL="gpt-5.3-codex"
+CLI="codex"
 MODEL_SET=false
 ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)

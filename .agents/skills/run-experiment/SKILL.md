@@ -40,7 +40,7 @@ Every step is either **perception** (tools compute structured evidence), **cogni
 3. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 
 **Subagent cognitive step** — IDEATE is pure creative generation:
-- Spawn opus subagent with the prompt template from program.md's "IDEATE subagent" section
+- Prefer a Codex subagent (`model: gpt-5.3-codex`) by default; Claude is also valid when explicitly chosen for this run
 - The subagent receives all context pre-assembled — it should NOT need to run any tool calls except optionally reading specific idea files or writing new ones
 - It returns: idea id, specific edit (with diff), rationale, skeptic view, optional meta-note
 
@@ -74,3 +74,12 @@ Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks
 ## Execute
 
 Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
+
+## Run-artifact hygiene (mandatory)
+
+- Never leave `runs/<timestamp>/` and `run-stats.jsonl` uncommitted after a run.
+- Immediately after each run + score decision, do `COMMIT RUNS`, then `COMMIT STATE`, before any new IDEATE/EDIT/RUN step.
+- On session start, if `git status` shows uncommitted run artifacts from a prior interrupted run, recover first:
+  1. Commit recovered run artifacts (`runs/<timestamp>/`, `run-stats.jsonl`) with a recovery message.
+  2. Update result logs or explicitly mark partial runs as interrupted in the commit message.
+  3. Only then continue the iteration loop.
