@@ -25,8 +25,13 @@ a real failure — not just to verify happy-path logic.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
+- **TWO-PASS DEPENDENCY CHECK** (internal):
+  - Pass 1: identify which dependency type this behavior truly needs to expose failure: PURE logic only, local module wiring, real environment/system behavior, real model judgment quality, or multiple agentic steps.
+  - Pass 2: map that dependency type to the minimum level and verify the mapping is consistent with KEY-QUESTIONS.
+
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
+  If your level does not match the dependency type from Pass 1, revise it.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
