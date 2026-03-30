@@ -24,6 +24,7 @@ a real failure — not just to verify happy-path logic.
     - Integration: "service routes requests to the correct model endpoint and retries on failure" — a stub endpoint catches this.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
     Also Agentic: if the behavior's execution path passes through a real AI/ML API call (LLM, classifier, ranker, scorer), default to Agentic — even when the test assertion is deterministic. A mock replaces the real model with a constant, so any bug that depends on what the model actually returns is invisible. Only demote to Integration if the behavior EXCLUSIVELY tests infrastructure around the call (routing, retries, latency, payload format) with zero dependence on model output content.
+    **Caution — deterministic-assertion trap**: That you CAN write a deterministic test assertion (check a score threshold, verify output structure, compare rankings) does NOT mean the behavior is free of model dependency. Ask: in production, does the system under test consume or produce AI/ML output (rankings, classifications, generated text, scores)? If yes, a deterministic fixture replaces the real model with a constant and hides quality failures — keep Agentic.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
