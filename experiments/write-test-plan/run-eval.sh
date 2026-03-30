@@ -21,8 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Defaults
 PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
-MODEL="gpt-5.3-codex"
-CLI="codex"
+MODEL="claude-sonnet-4-6"
+CLI="claude"
 MODEL_SET=false
 ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)
@@ -59,6 +59,8 @@ fi
 
 if [[ "$MODEL_SET" != "true" && "$CLI" == "codex" ]]; then
   MODEL="gpt-5.3-codex"
+elif [[ "$MODEL_SET" != "true" && "$CLI" == "claude" ]]; then
+  MODEL="claude-sonnet-4-6"
 fi
 
 IFS=',' read -ra CORPUS <<< "$CORPUS_CSV"

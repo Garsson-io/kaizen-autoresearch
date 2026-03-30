@@ -358,6 +358,32 @@ Key issues already mined (ideas in `ideas/` have source attribution):
 
 ---
 
+## Level taxonomy — canonical decision framework
+
+The five test levels map to three distinct things that can be tested in an AI-assisted system:
+
+**Category A — The code surrounding the LLM** (Unit / Integration / System with synthetic/fake LLM)
+- The orchestration, state machine, routing, retry logic, error handling AROUND the LLM
+- Tests use a stub/mock LLM that returns deterministic canned responses
+- Examples: "service routes requests to correct endpoint", "retry fires on 503", "pipeline state persists between steps"
+
+**Category B — The tools the LLM calls** (Unit / Integration / System with synthetic inputs)
+- The search tool, calculator, code executor, database query — tested independently
+- Tests use synthetic inputs representing what the LLM might pass; no real LLM needed
+- Examples: "search tool returns top-N results", "code executor handles timeout", "DB query paginates correctly"
+
+**Category C — The decisions the LLM itself makes** (Agentic / Workflow)
+- What the LLM classifies, generates, ranks, selects, or decides
+- A stub ALWAYS returns the same constant — it cannot verify whether the LLM decides correctly
+- Examples: "recommendations are relevant", "classification is accurate", "generated code compiles and passes tests", "summary preserves key facts"
+- Agentic = single LLM decision. Workflow = multiple sequential LLM decisions in a chain.
+
+**The Agentic test**: if the behavior's failure mode is "the LLM made the wrong decision" → Agentic/Workflow. If the failure mode is "the surrounding code/tools behaved wrong" → A or B (Unit/Integration/System with fake LLM).
+
+**Common trap**: "I can write a deterministic assertion for this" does NOT mean Category A/B. `assert ranking[0] == best_item` is a deterministic assertion about a Category C behavior. The assertion's determinism is irrelevant; what matters is whether you're verifying the LLM's judgment or the code around it.
+
+---
+
 ## Current failure analysis
 
 See [justification-taxonomy.md](justification-taxonomy.md) for the full pattern analysis. See [ideas/](ideas/) for hypotheses. See `taxonomy/README.md` for the current pattern table and cumulative evidence counts.
