@@ -147,7 +147,7 @@ function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 const ProbeModelOutput = z.object({
-  behaviors: z.array(BehaviorOutput).min(1).max(10),
+  behaviors: z.array(BehaviorOutput).min(1).max(20),
 });
 
 const PROBE_SCHEMA = JSON.stringify(zodToJsonSchema(ProbeModelOutput));

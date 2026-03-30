@@ -24,7 +24,7 @@ export const LEVEL_INDEX: Record<string, number> = Object.fromEntries(
 
 export const BehaviorOutput = z.object({
   /** Integer matching the behavior number in the issue (1-based) */
-  behavior_id: z.number().int().min(1).max(10),
+  behavior_id: z.number().int().min(1).max(20),
 
   /** Copy the behavior description verbatim from the issue */
   description: z.string().min(5),
@@ -78,7 +78,7 @@ export const ProbeOutput = z.object({
   /** "baseline" or "treatment" */
   condition: z.enum(["baseline", "treatment"]),
 
-  behaviors: z.array(BehaviorOutput).min(1).max(10),
+  behaviors: z.array(BehaviorOutput).min(1).max(20),
 });
 export type ProbeOutput = z.infer<typeof ProbeOutput>;
 
@@ -171,7 +171,7 @@ export const ExploreResult = z.object({
 export type ExploreResult = z.infer<typeof ExploreResult>;
 
 export const GroundTruthBehavior = z.object({
-  behavior_id: z.number().int().min(1).max(10),
+  behavior_id: z.number().int().min(1).max(20),
   ground_truth_level: Level,
   /** Why this level is the minimum — what failure would a lower level miss? */
   reasoning: z.string().optional(),
@@ -179,6 +179,6 @@ export const GroundTruthBehavior = z.object({
 
 export const GroundTruth = z.object({
   task_id: z.string().regex(/^EC-\d+$/),
-  behaviors: z.array(GroundTruthBehavior).min(1).max(10),
+  behaviors: z.array(GroundTruthBehavior).min(1).max(20),
 });
 export type GroundTruth = z.infer<typeof GroundTruth>;
