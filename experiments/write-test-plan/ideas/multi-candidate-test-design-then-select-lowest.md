@@ -17,11 +17,11 @@ change_type: structural
 risk: Token cost increases and candidate generation can become formulaic if constraints are weak.
 prereqs: Prompt must enforce concrete candidate structure (setup/assertion/catches/misses) before final choice.
 related: [write-test-first, pairwise-boundary-tournament, top2-runner-up-contrast-gate]
-explore_status: signal
-explore_tasks: [ec-05, ec-06, ec-07, ec-08, ec-03, ec-14]
-explore_baseline_loss: 70.71
-explore_loss: 59.47
-explore_delta: -11.24
+explore_status: concentrated-signal
+explore_tasks: [ec-15, ec-08, ec-35, ec-28, ec-32, ec-19]
+explore_baseline_loss: 77.83
+explore_loss: 74.58
+explore_delta: -3.25
 explore_date: 2026-04-10
 ---
 
@@ -47,14 +47,14 @@ This may inflate verbosity without improving correctness if candidate tests are 
 
 ## Epistemological status
 
-Explore subset (stratified): `ec-05, ec-06, ec-07, ec-08, ec-03, ec-14`  
-Baseline subset loss: `70.71`
+Explore subset (stratified): `ec-15, ec-08, ec-35, ec-28, ec-32, ec-19`  
+Baseline subset loss: `77.83`
 
 | Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
 |---|---:|---:|---|---|
-| v1-adjacent-two-candidates | 59.4707 | -11.2386 | improved 4, hurt 0, flat 2 | distributed |
-| v2-three-candidate-coverage | 61.6101 | -9.0991 | improved 3, hurt 1, flat 2 | distributed |
-| v3-candidate-plus-miss-proof | 70.3399 | -0.3694 | improved 2, hurt 1, flat 3 | distributed |
+| v1-adjacent-two-candidates | 80.2754 | +2.4443 | improved 3, hurt 2, flat 1 | n/a |
+| v2-three-candidate-coverage | 74.5771 | -3.2540 | improved 3, hurt 1, flat 2 | distributed |
+| v3-candidate-plus-miss-proof | 77.2459 | -0.5852 | improved 2, hurt 2, flat 2 | distributed |
 
-Winner: `v1-adjacent-two-candidates` by aggregate loss, classification is `signal`.  
-
+Winner: `v2-three-candidate-coverage` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
