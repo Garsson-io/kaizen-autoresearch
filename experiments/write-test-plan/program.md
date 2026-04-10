@@ -176,8 +176,10 @@ LOOP:
        ```bash
        git diff --unified=0 experiments/write-test-plan/prompts/treatment.md
        ```
-       If diff shape does not match declared edit type, fix the edit before commit.
+       If diff shape does not match declared edit type, STOP. Do not continue RUN/SCORE.
+       Return to IDEATE, correct the change, and record the mismatch as a process note.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
+     Include declared edit type in the subject, e.g. `(edit-type:add)`.
   7. RUN — experiments/write-test-plan/run-eval.sh (defaults to Codex; override `--cli/--model` when needed) or verify.ts. Monitor progress.
   8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.
      NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
@@ -354,7 +356,13 @@ The subagent runs the index script, reads 3-5 files, thinks, possibly writes new
 - ✓ Reorder key questions to promote Agentic/Workflow checks
 - ✗ Rewrite the whole prompt — too many variables, can't diagnose
 - ✗ Add generic "think carefully" language — no signal value
-- **Be explicit about add vs replace.** "Replace A with B" is a valid hypothesis, but say so clearly. Each commit message must state: adding X, removing X, or replacing X with Y.
+- **Effort labels are mandatory and concrete:**
+- `low` = local wording/rule tweak in one place (usually sentence/paragraph level)
+- `medium` = add/restructure a section or procedure without replacing core flow
+- `high` = full prompt restructure (major re-organization/rewrite of decision flow)
+- **Always distinguish ADD vs REPLACE vs DELETE.** Never describe a replace/delete as additive.
+- If you intended ADD but diff shows removed lines, treat it as a process error and restart from IDEATE.
+- Every commit message must state exactly one edit type and what changed: adding X, removing X, or replacing X with Y.
 - Each section/bullet in treatment.md has a **name** (e.g. `**LEVEL-DEFS**`, `**MOCK-CHECK**`). Reference sections by name in commit messages, ideas, and taxonomy.
 
 ### After achieving ≥75% on round 1

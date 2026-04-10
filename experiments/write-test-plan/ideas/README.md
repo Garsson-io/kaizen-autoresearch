@@ -41,7 +41,7 @@ explore_date: null             # ISO date of explore run
 | Field | Description |
 |-------|-------------|
 | `status` | `proposed` = untested idea. `trying` = currently being evaluated. `kept` = tried and improved score. `rejected` = tried and didn't help. `parked` = interesting but not worth trying now. |
-| `effort` | `low` = change a few words/reorder. `medium` = restructure a section. `high` = rewrite the prompt or change the eval pipeline. |
+| `effort` | `low` = local wording/rule tweak in one place (typically a sentence/paragraph add/replace). `medium` = add or restructure a section/procedure without replacing the core prompt flow. `high` = full prompt restructure (major re-organization/rewrite of decision flow). |
 | `targets` | Failure modes from `leaderboard.md`: `agentic_underprediction`, `workflow_gap`, `unit_overprediction`, `consistency_failures`, `noise_sensitivity`. |
 | `confusion_pairs` | The specific label boundaries this idea targets. |
 | `change_type` | `structural` = reorder/restructure. `representational` = change how levels are described. `framing` = change the task framing. `meta-cognitive` = add self-check/reasoning steps. `ensemble` = run multiple variants. |
