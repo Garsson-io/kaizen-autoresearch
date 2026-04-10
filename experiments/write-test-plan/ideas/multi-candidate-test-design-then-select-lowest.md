@@ -1,7 +1,7 @@
 ---
 id: multi-candidate-test-design-then-select-lowest
 title: Generate multi-level candidate tests, then choose the lowest that still catches the failure
-status: proposed
+status: rejected
 effort: medium
 expected_impact: high
 targets:

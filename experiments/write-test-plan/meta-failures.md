@@ -415,3 +415,33 @@ If `--summary` doesn't count an entry, that entry doesn't conform to `TaxonomyEn
 - Default selection policy should favor small, additive `KEY-QUESTIONS` edits that sharpen Agentic/LLM failure boundaries.
 - Treat heavy reasoning-framework ideas as high-risk by default unless supported by distributed explore signal and a strong mechanism argument.
 - Treat `concentrated-signal` explore wins as weak evidence only; require broader validation before full-corpus promotion.
+
+---
+
+### Lesson-first: avoid false explore wins (Apr 10-11) by requiring stability before promotion
+
+**Status**: confirmed (runs on 2026-04-10 and 2026-04-11)
+
+**Core lesson**:
+Most recent failures were not "bad wording only"; they were **promotion errors**. We promoted ideas whose explore signal was unstable (split across subsets or single-slice), then paid large full-corpus regressions.
+
+**Examples**:
+- `integration-contract-invariant-gate`:
+  - Explore winner came from a single subset (`v3`, delta `-6.93`).
+  - Full run `20260410-235407` regressed badly (`+70.81` loss, discard).
+- `competitive-critique-seeding`:
+  - Explore had mixed behavior by subset/variant (e.g., `v1` looked strong on one slice).
+  - Full run `20260411-002056` still regressed (`+28.57` loss, discard).
+- `determinism-test`:
+  - Winner was selected from one slice (`v1`, delta `-4.96`), not cross-slice stable.
+  - Full run `20260411-010159` regressed hardest (`+77.15` loss, discard).
+- Cross-example instability:
+  - `ai-api-equals-agentic-rule` had split signal in **all 3 variants** (improves on one subset, worsens on another), showing how easy it is to overfit a subset.
+
+**Operational rule**:
+- Do not promote a winner if it is `single-slice` or `split-signal`.
+- Promote only when the winner is non-positive delta on both stratified subsets and has no sign flip.
+- If no stable winner exists, log `no-promote` and ideate again (do not force a full run).
+
+**Why this matters**:
+Apr 10-11 regressions show the largest losses came from false-positive promotions, not from idea scarcity. Stability gating is higher leverage than inventing more variants.
