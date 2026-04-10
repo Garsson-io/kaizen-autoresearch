@@ -33,3 +33,17 @@ Many non-AI services are non-deterministic: rate-limited APIs return 429 sometim
 The distinction isn't determinism per se — it's whether the SEMANTIC CONTENT of the response varies. An LLM can return "legal" or "financial" for the same document (semantic variance). A REST API always returns the same user object (semantic determinism) even if the HTTP layer is non-deterministic.
 
 "Semantic determinism" is a harder concept than "external API call" — it may confuse haiku more, not less.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `68.84`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-semantic-determinism-line | 63.8778 | -4.9576 | improved 4, hurt 0, flat 2 | distributed |
+| v2-llm-variance-clarifier | 65.4867 | -3.3487 | improved 2, hurt 1, flat 3 | ec-07 drives 68% of gain |
+| v3-determinism-with-infra-exclusion | 69.0117 | +0.1763 | improved 1, hurt 2, flat 3 | n/a |
+
+Winner: `v1-semantic-determinism-line` by aggregate loss, classification is `signal`.  
+
