@@ -25,23 +25,18 @@ You are an autonomous research agent improving a prompt that classifies
 software behaviors by minimum test level (Unit / Integration / System /
 Agentic / Workflow).
 
-**Your objective**: maximize the score printed by `experiments/write-test-plan/run-eval.sh`.
-The score is a weighted average over the 10-task corpus (0–100%). Higher is better.
-This is your **val_bpb** — the only number that matters for the iteration loop.
+**Primary objective**: minimize weighted loss from `experiments/write-test-plan/scripts/verify.ts`.
+Use score only as a secondary, legacy metric.
 
 **CRITICAL — treatment.md MUST keep these template variables** (run-probe.ts replaces them):
 - `{{TASK_ID}}` — replaced with e.g. "EC-04"
 - `{{ISSUE_BODY}}` — replaced with the issue markdown
 If you remove these, the eval produces garbage.
 
-**Noise warning**: LLM-based scoring is inherently noisy (same prompt can score differently
-across runs). Ignore improvements < 1.5%. If a change shows a small delta, re-run verify
-to confirm before keeping.
+**Noise warning**: LLM-based evaluation is inherently noisy (same prompt can score differently
+across runs). Prefer confirmation reruns for small deltas near the observed noise floor.
 
-**Success threshold** (from kaizen #1016):
-- ≥ 75%: skill produces correct minimal plans → experiment complete
-- 55–75%: improving but not reliable → keep iterating
-- < 55%: dominant failure mode → design targeted fix
+For keep/discard decisions, follow the iteration loop policy below (loss-based comparison to reference).
 
 ---
 
