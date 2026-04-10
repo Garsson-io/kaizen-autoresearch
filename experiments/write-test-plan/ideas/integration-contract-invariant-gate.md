@@ -1,7 +1,7 @@
 ---
 id: integration-contract-invariant-gate
 title: Require a concrete cross-module contract/invariant for Integration
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:
