@@ -30,6 +30,13 @@ interface IdeaFrontmatter {
   file: string;
 }
 
+function canonicalIdeaStatus(status: string): string {
+  if (status === "keep") return "kept";
+  if (status === "discard") return "rejected";
+  if (status === "no-op") return "parked";
+  return status;
+}
+
 export function parseFrontmatter(content: string): Record<string, unknown> {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return {};
@@ -144,7 +151,8 @@ function printTable(ideas: IdeaFrontmatter[]) {
   console.log("-".repeat(100));
 
   for (const idea of ideas) {
-    const s = statusEmoji[idea.status] || "?";
+    const canonical = canonicalIdeaStatus(idea.status);
+    const s = statusEmoji[canonical] || "?";
     console.log(
       `[${s}]  ${idea.id.padEnd(32)} ${idea.effort.padEnd(7)} ${idea.expected_impact.padEnd(7)} ${idea.change_type.padEnd(14)} ${idea.targets.join(", ")}`
     );
@@ -158,7 +166,8 @@ function printTable(ideas: IdeaFrontmatter[]) {
 
   const counts = ideas.reduce(
     (acc, i) => {
-      acc[i.status] = (acc[i.status] || 0) + 1;
+      const canonical = canonicalIdeaStatus(i.status);
+      acc[canonical] = (acc[canonical] || 0) + 1;
       return acc;
     },
     {} as Record<string, number>
@@ -173,7 +182,8 @@ function printTable(ideas: IdeaFrontmatter[]) {
 function printByStatus(ideas: IdeaFrontmatter[]) {
   const groups: Record<string, IdeaFrontmatter[]> = {};
   for (const idea of ideas) {
-    (groups[idea.status] ||= []).push(idea);
+    const canonical = canonicalIdeaStatus(idea.status);
+    (groups[canonical] ||= []).push(idea);
   }
 
   const order = ["kept", "trying", "proposed", "rejected", "parked"];
@@ -200,10 +210,11 @@ function printByTarget(ideas: IdeaFrontmatter[]) {
   for (const [target, targetIdeas] of Object.entries(groups).sort()) {
     console.log(`\n## ${target} (${targetIdeas.length} ideas)\n`);
     for (const idea of targetIdeas) {
+      const canonical = canonicalIdeaStatus(idea.status);
       const s =
-        idea.status === "kept"
+        canonical === "kept"
           ? "+"
-          : idea.status === "rejected"
+          : canonical === "rejected"
             ? "x"
             : " ";
       console.log(

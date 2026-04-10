@@ -64,6 +64,7 @@ explore_date: null             # ISO date of explore run
 
 1. Read all ideas before starting an autoresearch loop
 2. Update `status` after each attempt
+   Prefer canonical values: `proposed|trying|kept|rejected|parked`. Tooling also normalizes legacy aliases (`keep|discard|no-op`) for indexing output.
 3. One idea per iteration (atomic)
 4. Before committing a full run: if `explore_status` is null, run `npx tsx scripts/explore.ts <idea-id>` first (or `/explore`)
 5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`.
