@@ -490,4 +490,4 @@ Apr 10-11 regressions show the largest losses came from false-positive promotion
 
 **Lesson**:
 - "Looks improved" in both passes is still insufficient when concentration and winner identity are unstable.
-- Winner-flip + concentrated gain should be treated as hard `no-promote`, not as weak justification to proceed.
+- Winner-flip should not auto-promote a single variant. If both winners are meaningfully negative across independent slices, treat as `family-signal` and run a merge/selector follow-up explore; otherwise keep `no-promote`.

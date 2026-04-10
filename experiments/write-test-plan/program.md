@@ -158,12 +158,21 @@ LOOP:
          b. Run: npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id>
             (see scripts/explore.ts header for all options: --dry-run, --tasks, --seed, etc.)
        **PROMOTION-EVIDENCE GATE (MANDATORY):**
-       - Promote to EDIT only on distributed/stable evidence.
-       - `signal` (exit 0): candidate for promotion, but must pass one independent holdout check
-         (different task subset and/or seed) with no sign flip for the chosen winner.
-       - `concentrated-signal` (exit 3): do NOT promote. Re-run once on a different subset/seed.
-         If still concentrated or if winner flips, record `no-promote` and return to IDEATE.
-       - `no-signal` (exit 2): do NOT edit. Record `no-promote` and return to IDEATE.
+       - Promote to EDIT only on **stable and meaningful** evidence, not one-pass outliers.
+       - Use one independent holdout check (different task subset and/or seed) before any promotion.
+       - Define practical effect threshold: treat deltas better than `-2.0` loss as meaningful
+         on explore subsets; values in `(-2.0, 0)` are weak/noisy evidence.
+       - Hard `no-promote` cases:
+         - any pass is `no-signal` (exit 2), or
+         - best deltas are weak/noisy on either pass (>-2.0), or
+         - holdout reverses sign for the chosen candidate.
+       - `concentrated-signal` (exit 3) is **not auto-fail**. It is promotable only if holdout
+         confirms the same candidate with meaningful negative delta and reduced concentration.
+       - Winner flip handling:
+         - if winner flips and only one candidate has meaningful negative holdout delta -> `no-promote`.
+         - if winner flips but both candidates are meaningfully negative across passes -> treat as
+           **family-signal** (idea family works, single winner unstable). Do not promote a single
+           variant yet; create a merge/selector follow-up idea and re-run explore.
        - `no-promote` is a valid outcome. Never force a winner just to continue the loop.
        Already-set: use the recorded explore result — no new run needed.
        After any explore run, commit the output dirs:
