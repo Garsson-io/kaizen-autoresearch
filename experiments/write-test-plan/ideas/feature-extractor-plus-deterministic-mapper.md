@@ -18,12 +18,12 @@ change_type: structural
 risk: If extracted features are wrong, the deterministic mapper confidently produces the wrong level.
 prereqs: The model can reliably extract a compact set of binary/ordinal signals with quoted evidence.
 related: [signal-scoring-rubric, boundary-proof-obligation-framework, reject-higher-must-justify]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-15, ec-08, ec-35, ec-28, ec-32, ec-19]
+explore_baseline_loss: 77.83
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-10
 ---
 
 ## Core idea
@@ -69,3 +69,16 @@ This may just move the problem: feature extraction is itself classification in d
 It can also become brittle. Real behaviors often satisfy multiple signals (e.g., real infra + model judgment + orchestration). Hard precedence may overfit the current corpus and fail on new tasks.
 
 Finally, this is expensive to integrate into the current eval harness and may break comparability unless carefully staged as an optional alternate scorer.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-15, ec-08, ec-35, ec-28, ec-32, ec-19`  
+Baseline subset loss: `77.83`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-feature-precedence | 89.8649 | +12.0339 | improved 2, hurt 3, flat 1 | n/a |
+| v2-feature-quote-obligation | 99.5830 | +21.7519 | improved 1, hurt 3, flat 2 | n/a |
+| v3-feature-conservative-agentic | 101.9113 | +24.0802 | improved 0, hurt 4, flat 2 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
