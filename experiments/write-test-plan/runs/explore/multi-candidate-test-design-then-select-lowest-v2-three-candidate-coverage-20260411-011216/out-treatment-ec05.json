@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "CANDIDATE-TEST-CHECK: Low(Unit): call sort function with filenames, assert sorted output; catches bad comparator, misses file discovery/filtering and execution order handoff. Current(Integration): create temp migrations dir with out-of-order files (e.g., 010,002,001), run runner against test Postgres, assert _migrations rows and side-effect tables show 001->002->010 execution; catches discovery+parse+sort+apply wiring bugs. High(System): invoke CLI as subprocess; catches process boot issues but not needed for stated failure. Chosen lowest that catches stated failure mode is Integration. INTEGRATION-BRAKE: (a) no required OS/network/subprocess behavior beyond local fs/db wiring; (b) no AI/ML output; (c) no multi-agentic chain; (d) no LLM stages. REJECTION-GATE: rejected System because behavior text is only about filename-prefix ordering, not subprocess/runtime behavior.",
+      "test_description": "Using a real temp filesystem and test Postgres schema, place SQL files with numeric prefixes out of lexical order; run migration runner once; verify applied order via _migrations.version sequence and ordered data side effects proving execution happened in ascending numeric prefix order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "CANDIDATE-TEST-CHECK: Low(Unit): test function that filters pending versions against mocked applied set; catches set-diff logic bug, misses persistence/readback across runs. Current(Integration): run runner twice on same test DB and migration files; assert second run executes zero SQL changes and _migrations has no duplicate row; catches metadata table read/write/idempotency wiring bugs. High(System): two CLI invocations as subprocesses; adds process boundary but not required for this behavior. Chosen lowest is Integration. INTEGRATION-BRAKE: (a) no required real subprocess/OS primitive for failure mode; (b) no AI/ML; (c) no multi-agentic chain; (d) no LLM orchestration. REJECTION-GATE: rejected System because behavior text says 'subsequent run' and 'not re-executed' (state/idempotency), not process-launch semantics.",
+      "test_description": "Prepare one migration that inserts a sentinel row. Run runner once, confirm sentinel exists and _migrations has version. Run runner again, confirm sentinel count unchanged and _migrations still has single record for that version.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "CANDIDATE-TEST-CHECK: Low(Unit): mock transaction wrapper to assert rollback called on thrown error; catches control-flow bug, misses real SQL failure/transaction semantics. Current(Integration): use real Postgres with migration A (valid partial writes then failing statement) followed by migration B (valid); run runner, assert A effects absent (rolled back), B not applied, and only prior successful versions recorded; catches transaction boundary and stop-on-failure integration bugs. High(System): run via subprocess and inspect exit code/logs; useful for CLI contract but not required for this DB-consistency failure. Chosen lowest is Integration. INTEGRATION-BRAKE: (a) no required OS/subprocess behavior; local DB transaction semantics are the core and fit Integration; (b) no AI/ML; (c) no multi-agentic chain; (d) no LLM orchestration. REJECTION-GATE: rejected System because behavior text focuses on rollback and migration sequencing inside one run, not on CLI/subprocess behavior.",
+      "test_description": "Create migration 001 with BEGIN-managed statements where one statement intentionally fails and another statement before it would leave observable data if not rolled back; create migration 002 valid. Execute runner and verify: no side effects from 001 remain, 002 side effects absent, and _migrations does not record 001/002 as applied.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "CANDIDATE-TEST-CHECK: Low(Integration): run two runner calls concurrently in same process with shared mocks/fakes; catches some race logic, misses inter-process locking/timing behavior. Current(System): launch two separate runner processes simultaneously against same Postgres, then assert each migration side effect appears once and _migrations has one row per version; catches real cross-process race/locking bugs. High(Workflow): not applicable since no agentic multi-step model pipeline. Chosen lowest is System because behavior explicitly requires 'separate processes'. MOCK-HIDE: in-process mocks can serialize access and hide real race failures. REJECTION-GATE: rejected Integration due to concrete text 'separate processes' and 'at the same time', which requires real process-level concurrency.",
+      "test_description": "Start with fresh test DB and deterministic migrations that each insert unique sentinel rows with uniqueness constraints. Spawn two OS processes running the migration command concurrently (barrier-synchronized start). Wait for both exits, then assert one successful application per version globally: exactly one _migrations record per version and one sentinel row per migration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.9,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the _migrations table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "CANDIDATE-TEST-CHECK: Low(Unit): test bootstrap function call order with mocked repo; catches local ordering bug, misses real first-run DB state and DDL interaction. Current(Integration): run against empty Postgres/schema with at least one migration; assert _migrations exists and first migration applied successfully with metadata recorded, proving bootstrap-before-apply path works end-to-end. High(System): subprocess CLI invocation; adds startup coverage but not required for this specific failure. Chosen lowest is Integration. INTEGRATION-BRAKE: (a) no mandatory subprocess/OS behavior for failure boundary; (b) no AI/ML; (c) no multi-agentic chain; (d) no LLM orchestration. REJECTION-GATE: rejected System because behavior text is DB initialization order on first run, not process/runtime concerns.",
+      "test_description": "Against a brand-new test database (no _migrations table), run runner with one simple migration. Verify _migrations table exists after run and contains the applied version; also verify migration side effect exists, confirming creation happened before application path attempted metadata writes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
