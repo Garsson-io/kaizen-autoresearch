@@ -70,3 +70,4 @@ explore_date: null             # ISO date of explore run
 5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`.
 6. Promotion to EDIT/full run follows `program.md` gates (including holdout/no-promote rules).
 7. To view past explore results: `npx tsx scripts/explore.ts <idea-id> --summary`
+8. To validate idea metadata shape: `npx tsx scripts/ideas-index.ts --table` (the script uses Zod validation and reports frontmatter issues to stderr).

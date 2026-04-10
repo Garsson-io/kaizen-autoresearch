@@ -13,6 +13,7 @@
 import { readdirSync, readFileSync } from "fs";
 import { join, basename } from "path";
 import { fileURLToPath } from "url";
+import { z } from "zod";
 import { PATHS } from "./paths.js";
 
 interface IdeaFrontmatter {
@@ -29,6 +30,33 @@ interface IdeaFrontmatter {
   related?: string[];
   file: string;
 }
+
+const IdeaStatusSchema = z.enum([
+  "proposed",
+  "trying",
+  "kept",
+  "rejected",
+  "parked",
+  // Legacy aliases tolerated for backward compatibility.
+  "keep",
+  "discard",
+  "no-op",
+]);
+
+const IdeaFrontmatterSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  status: IdeaStatusSchema,
+  effort: z.string(),
+  expected_impact: z.string(),
+  targets: z.array(z.string()),
+  confusion_pairs: z.array(z.string()),
+  change_type: z.string(),
+  risk: z.string(),
+  prereqs: z.string().optional(),
+  related: z.array(z.string()).optional(),
+  file: z.string(),
+});
 
 function canonicalIdeaStatus(status: string): string {
   if (status === "keep") return "kept";
@@ -99,7 +127,7 @@ export function loadIdeas(dir: string): IdeaFrontmatter[] {
   return files.map((f) => {
     const content = readFileSync(join(dir, f), "utf8");
     const fm = parseFrontmatter(content);
-    return {
+    const candidate = {
       id: (fm.id as string) || basename(f, ".md"),
       title: (fm.title as string) || "",
       status: (fm.status as string) || "unknown",
@@ -112,6 +140,18 @@ export function loadIdeas(dir: string): IdeaFrontmatter[] {
       prereqs: (fm.prereqs as string) || undefined,
       related: (fm.related as string[]) || undefined,
       file: f,
+    };
+    const parsed = IdeaFrontmatterSchema.safeParse(candidate);
+    if (parsed.success) return parsed.data;
+
+    // Keep tooling resilient: warn and keep row visible with permissive fallback.
+    const issues = parsed.error.issues
+      .map((i) => `${i.path.join(".") || "<root>"}: ${i.message}`)
+      .join("; ");
+    console.error(`ideas-index: invalid frontmatter in ${f}: ${issues}`);
+    return {
+      ...candidate,
+      status: (fm.status as string) || "unknown",
     };
   });
 }
