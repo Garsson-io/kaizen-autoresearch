@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is summary-write logic + findings repository for the same round. A pure unit test of a validator can miss real mismatches in round-scoped reads/writes. Higher levels were considered, but behavior text only requires checking stored findings consistency (no real OS/network/subprocess, no LLM output dependency, no multi-agent sequence).",
+      "test_description": "Use a local test DB/repository. Seed round R with at least one dimension verdict FAIL. Call the real summary storage service/API to persist a PASS summary for round R. Assert rejection and that no PASS summary is committed for that round.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.68,
+        "System": 0.06,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "The bug appears at module handoff: gate computation vs stored findings vs summary text. Need real wiring between gate service and persistence layer. System/Agentic/Workflow are disqualified by behavior text: this is data-source selection logic over stored records, not real infra timing or model judgment.",
+      "test_description": "Seed inconsistent state: summary text says all PASS, but stored findings for the same round contain FAIL. Run stop-gate verdict computation through the real service path. Assert gate result blocks PASS based on stored findings, not summary text.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "Requires coordination of request handling, policy enforcement, and audit persistence. A unit test can prove flag-check logic but not that warning records are actually emitted/stored. Higher levels are not required by text: no real OS/network/subprocess and no LLM-dependent correctness.",
+      "test_description": "Exercise summary submission twice via service/API: (1) manual override text without override flag -> rejected; (2) with override flag -> accepted and warning audit record written (actor, round, reason/timestamp). Verify audit sink contains the warning.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.06,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the gate requires a review round identifier produced after the latest fix commit before PASS can be finalized.",
+      "minimum_level": "Integration",
+      "justification": "Core failure is ordering/association between fix-commit metadata and review-round metadata across modules (commit tracking + gate policy). System was considered, but behavior text does not require real git subprocess/network semantics; this can be caught with in-process wiring and persisted metadata. No model-output dependence or multi-agent chain is required by the behavior itself.",
+      "test_description": "Seed commit metadata with latest fix commit C2 and review rounds tied to commits (old round on C1, new round on C2). Attempt PASS finalization with only pre-C2 round id -> blocked. Provide post-C2 round id -> allowed (assuming other checks pass).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.66,
+        "System": 0.13,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "In the live review loop, PASS cannot finalize unless a fresh review-agent round runs on the updated diff.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior explicitly requires a live review-agent round on updated diff; execution path includes a real model call. Under the deterministic-assertion trap, mocking the agent can hide failures where the live agent step is skipped/fails. Workflow was considered, but behavior text requires one fresh round gate, not necessarily multiple agentic decisions in sequence.",
+      "test_description": "Run the real live review loop against an updated diff after a fix commit. Try to finalize PASS without running a new agent round -> must fail. Run a real review-agent round on the updated diff, obtain fresh round id, then verify PASS can only proceed with that fresh round.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.18,
+        "System": 0.04,
+        "Agentic": 0.62,
+        "Workflow": 0.13
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings in stored results, the outcome is escalation rather than PASS.",
+      "minimum_level": "Integration",
+      "justification": "Decision is based on persisted round counters + stored MUST-FIX findings; real failure boundary is policy engine + storage wiring. Agentic was considered but disqualified by behavior text ('stored results') since correctness here does not depend on fresh model output quality.",
+      "test_description": "Seed state with max rounds reached and unresolved MUST-FIX findings in stored results. Run outcome resolution/finalization logic. Assert result is escalation and PASS is blocked.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.17,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "In a live multi-round review workflow, exhausted rounds with unresolved MUST-FIX findings still block PASS and emit escalation.",
+      "minimum_level": "Workflow",
+      "justification": "Behavior explicitly targets a live multi-round review workflow: multiple agentic rounds plus final gate/escalation handoff. A single-step agentic or integration test can miss cross-round state carryover and end-of-pipeline escalation behavior.",
+      "test_description": "Execute end-to-end live pipeline for multiple rounds with real review-agent runs, keep at least one MUST-FIX unresolved across rounds, and exhaust allowed rounds. Assert PASS finalization remains blocked and escalation artifact/event is emitted with unresolved findings context.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.28,
+        "Workflow": 0.6
+      }
+    }
+  ]
+}
