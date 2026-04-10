@@ -167,6 +167,16 @@ LOOP:
        - READ `ideas/README.md` WHEN you need to understand explore_status field semantics
          or how IDEATE should prioritize explored vs unexplored ideas.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
+     **EDIT-TYPE GATE (MANDATORY, ALWAYS):**
+     - Before editing, declare intent in notes/commit text as exactly one of: `ADD`, `REPLACE`, `DELETE`.
+     - `ADD` means insert-only (no removed lines in diff).
+     - `REPLACE` means both remove+add for the same logic block (intentional replacement).
+     - `DELETE` means remove-only (no added replacement text for that rule).
+     - Before commit, validate diff shape:
+       ```bash
+       git diff --unified=0 experiments/write-test-plan/prompts/treatment.md
+       ```
+       If diff shape does not match declared edit type, fix the edit before commit.
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
   7. RUN — experiments/write-test-plan/run-eval.sh (defaults to Codex; override `--cli/--model` when needed) or verify.ts. Monitor progress.
   8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.

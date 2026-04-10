@@ -77,6 +77,19 @@ Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks
 Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
 Do not proceed to EDIT until META has been consulted **and** write-back (or explicit no-update decision) is completed.
 
+## Edit-type discipline (mandatory, always)
+
+For every treatment edit, explicitly classify the change as exactly one:
+- `ADD` = insert-only; no `-` lines in treatment diff
+- `REPLACE` = intentional remove+add of existing rule text
+- `DELETE` = remove-only; no replacement text for the deleted rule
+
+Before committing a treatment change, run:
+```bash
+git diff --unified=0 experiments/write-test-plan/prompts/treatment.md
+```
+If the diff shape does not match the declared type, stop and correct the edit before commit.
+
 ## Run-artifact hygiene (mandatory)
 
 - Never leave `runs/<timestamp>/` and `run-stats.jsonl` uncommitted after a run.
