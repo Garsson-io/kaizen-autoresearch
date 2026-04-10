@@ -53,7 +53,7 @@ explore_date: null             # ISO date of explore run
 | `targets` | Failure modes from `leaderboard.md`: `agentic_underprediction`, `workflow_gap`, `unit_overprediction`, `consistency_failures`, `noise_sensitivity`. |
 | `confusion_pairs` | The specific label boundaries this idea targets. |
 | `change_type` | `structural` = reorder/restructure. `representational` = change how levels are described. `framing` = change the task framing. `meta-cognitive` = add self-check/reasoning steps. `ensemble` = run multiple variants. |
-| `explore_status` | `null` = not yet explored. `signal` = candidate only (exit code 0): use as a promotion candidate, then require one independent holdout check (different subset/seed) before EDIT/full-run promotion. `concentrated-signal` = weak evidence (exit code 3): do not promote without rerun confirmation. `no-signal` = flat or worse (exit code 2). Auto-set by `explore.ts`. See `docs/explore-tool.md` "Signal classification" for the exact rules. |
+| `explore_status` | `null` = not yet explored. `signal` = aggregate delta negative with distributed improvement (exit code 0). `concentrated-signal` = aggregate negative but concentrated in a small outlier subset (exit code 3). `no-signal` = flat or worse (exit code 2). Auto-set by `explore.ts`. See `docs/explore-tool.md` "Signal classification" for exact computation. Promotion policy is defined in `program.md` (not here). |
 | `explore_tasks` | Task IDs used in the explore run (typically 4). Auto-selected by `explore.ts` stratification or overridden with `--tasks`. |
 | `explore_baseline_loss` | Baseline loss on `explore_tasks` from `runs/latest/`. Computed by `explore.ts`. |
 | `explore_loss` | Best variation loss on `explore_tasks`. Set by `explore.ts`. |
@@ -66,6 +66,6 @@ explore_date: null             # ISO date of explore run
 2. Update `status` after each attempt
 3. One idea per iteration (atomic)
 4. Before committing a full run: if `explore_status` is null, run `npx tsx scripts/explore.ts <idea-id>` first (or `/explore`)
-5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`, but `signal` is not auto-promotion: it still requires holdout confirmation before EDIT/full-run.
-6. `no-promote` is a valid iteration outcome even when `explore_status` is `signal` (for example: holdout sign-flip or concentrated follow-up).
+5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`.
+6. Promotion to EDIT/full run follows `program.md` gates (including holdout/no-promote rules).
 7. To view past explore results: `npx tsx scripts/explore.ts <idea-id> --summary`

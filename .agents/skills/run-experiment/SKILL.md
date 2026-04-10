@@ -44,8 +44,7 @@ Every step is either **perception** (tools compute structured evidence), **cogni
 
 **Your cognitive steps** — where judgment actually matters:
 1. **Complete the MINE DIGEST** (light): read the pre-filled template from mine-report.ts, fill in `Pattern:`, `Trap:`, `Dominant pattern:`, `Fix hypothesis:`. This is the only place you form judgment in MINE/DIAGNOSE/META.
-2. **Apply dominant-loss targeting** (hard gate): from the latest mine-report loss table, identify top-2 confusion pairs by weighted loss. IDEATE candidates must explicitly target at least one of these pairs. If not, reject and ideate again. Do not substitute raw taxonomy counts for this step.
-3. **Apply promotion-evidence gating** (hard gate): promote an explored idea to EDIT only when explore evidence is stable/distributed. Treat concentrated or split evidence as `no-promote` unless a holdout rerun (different subset/seed) confirms the same winner without sign flip.
+2. **Apply policy gates from program.md** (hard gate): enforce dominant-loss targeting and promotion-evidence gating exactly as defined in `program.md` LOOP steps 2 and 4.5.
 4. **Taxonomy pattern discovery** (after `--summary`): for each confusion pair with ≥3 cumulative unmatched occurrences, read those full blocks from `unmatched.md` (full justification + thinking — no truncation) and the existing taxonomy file descriptions. Decide: does this fit an existing pattern (update its `confusion_pair` list) or is it a new reasoning trap (create new file)? After any change, run `--reprocess-unmatched` to backfill history. → Full procedure: `taxonomy/README.md` § "The three-step MINE taxonomy flow".
 5. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 6. **META write-back is mandatory**: after each run, update `experiments/<name>/meta-failures.md` with whether the current result confirms, weakens, or falsifies a process hypothesis (with concrete run IDs and deltas). If no meta update is warranted, add a brief "no new meta evidence" note in the iteration log/commit message.
@@ -81,13 +80,7 @@ Before IDEATE, explicitly record the top-2 weighted-loss confusion pairs and ens
 
 ## Edit-type discipline (always)
 
-- Before editing `treatment.md`, declare intended edit type: `ADD`, `REPLACE`, or `DELETE`.
-- Validate the actual diff shape before commit:
-  - `ADD` = insert-only
-  - `REPLACE` = remove+add
-  - `DELETE` = remove-only
-- Never describe a change as additive if any relevant line was removed or modified.
-- If declared type and observed diff type do not match, stop and return to IDEATE; do not proceed to RUN/SCORE on that edit.
+- Follow the EDIT-TYPE gate exactly as defined in `program.md` LOOP step 5 (`ADD`/`REPLACE`/`DELETE` + diff-shape verification).
 
 ## Task list = inner loop visibility
 
