@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Failure boundary is backoff math/state progression in one retry-policy function/object (MOCK-MISS: no cross-module handoff required). REAL-INFRA/LLM-DEP/MULTI-STEP are absent. Rejected Integration because behavior text is strictly delay calculation + cap, which can fail without wiring other modules.",
+      "test_description": "Call the backoff calculator (or retry-policy object) with consecutive failure counts and assert delays follow 2^n growth and clamp at configured max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "This failure appears at a module boundary: HTTP response classification (e.g., 429/headers) must feed retry-delay computation (MOCK-MISS yes). In-process fakes are sufficient; no real OS/network/subprocess required (REAL-INFRA no). No AI dependency.",
+      "test_description": "Wire retry module with a stub transport that returns a rate-limit response (status/header variants) and assert retry decision=true plus computed wait matches policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Requires interaction of timer/scheduler, retry orchestrator, and request transport; unit-only logic would miss resend/handoff bugs (MOCK-MISS yes). Real network is not required because a stub transport plus controllable clock reproduces failure mode (REAL-INFRA no).",
+      "test_description": "Use fake clock + stub transport: first response rate-limited, second response success. Assert original request payload is resent after expected delay and caller receives final success without manual retry handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.24,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Behavior depends on retry counter exhaustion plus error mapping at orchestration boundary, not just a standalone constructor check (MOCK-MISS yes). No real infra needed; deterministic stub failures can drive exhaustion path. Higher levels are disqualified because behavior text is about typed error after retry count, not real HTTP/network behavior.",
+      "test_description": "Configure max retries N, have stub transport always return rate-limit, run `call()`, and assert rejection is `QuotaExhaustedError` with expected metadata (attempts/wait info) instead of generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "This is explicitly cross-module chain behavior (retry + backoff + quota tracker), so unit is too low (MOCK-MISS yes). Still in-process: controllable clock and stub transport can detect non-termination without real OS/network (REAL-INFRA no). No AI/agent pipeline.",
+      "test_description": "Run `call()` with persistent rate-limit responses under fake time advancement; assert total attempts and total scheduled waits are bounded and promise settles with expected terminal error instead of hanging/retrying forever.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure occurs in shared-state handoff across concurrent callers and quota manager module (MOCK-MISS yes). Behavior text explicitly scopes to same process, so no real distributed/OS boundary is required (REAL-INFRA no).",
+      "test_description": "Start multiple concurrent `call()` invocations against one client instance with a deterministic stub API/quota signals; assert aggregate consumption is enforced globally (not per-caller) and excess calls are delayed/failed according to shared bucket state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.85,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering bugs arise from queue + scheduler + dispatcher interaction under async contention, beyond single-function logic (MOCK-MISS yes). Real network is unnecessary; stub transport and deterministic scheduling can expose reorder defects. No AI dependency.",
+      "test_description": "Enqueue several calls while quota blocks dispatch, then release capacity stepwise; assert send order matches submission order (FIFO) by inspecting dispatch timestamps/sequence IDs from the stub transport.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
