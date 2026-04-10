@@ -128,6 +128,12 @@ LOOP:
      Counting directions without reading the reasoning is a meta-failure: you're optimizing blind.
 
   2. DIAGNOSE — read taxonomy/ for top patterns by impact, read ideas/ for candidates
+     **DOMINANT-LOSS TARGETING GATE (MANDATORY):**
+     - Use the latest `mine-report.ts` loss table as the primary selector (weighted loss, not counts).
+     - Extract the top 2 confusion pairs by weighted loss.
+     - The selected idea must explicitly target at least one of those top-2 pairs.
+     - If not, reject the idea and return to IDEATE.
+     - Pattern counts from taxonomy are tie-breakers only after this gate is satisfied.
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
@@ -337,12 +343,13 @@ Return EXACTLY this:
 
 IDEA: {idea id — existing or newly created}
 EDIT: {symbolic description — which named section, adding/removing/replacing what}
+TARGET_LOSS_PAIR: {which top-2 weighted-loss confusion pair(s) this idea directly targets}
 DIFF:
 ```diff
 - {exact lines to remove, if any}
 + {exact lines to add}
 ```
-RATIONALE: {one sentence — why this targets the top taxonomy pattern}
+RATIONALE: {one sentence — why this should reduce the targeted weighted-loss pair(s)}
 SKEPTIC: {one sentence — the strongest argument against this idea}
 EXPLORE: {yes|skip}   — yes if explore_status is null, skip if already set or trivial reorder
 META_NOTE: {optional — any observation about process patterns, e.g. "3 rejections from replacements confirms add-not-replace hypothesis"}
