@@ -105,110 +105,110 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 3/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE (top-2 unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META
+- [x] IDEATE (selected `non-negotiable-boundary-gates`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `concentrated-signal`, delta -4.72 -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 4/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `agentic-floor-content-dependence-gate`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `concentrated-signal`, delta -1.02 -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 5/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `sub-agentic-demotion-proof-gate`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `no-signal` -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 6/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `top2-runner-up-contrast-gate`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `no-signal` -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 7/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `system-agentic-negative-contrast`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `no-signal` -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 8/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `global-stated-failure-only-rule`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `no-signal` -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 9/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `under-testing-red-team-critic-pass`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (already-set: `no-signal` -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 10/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Loop complete (10/10)
+- [x] MINE
+- [x] DIAGNOSE
+- [x] META
+- [x] IDEATE (selected `ai-api-equals-agentic-rule`)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (epistemology already records `no-signal` outcome -> no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (used existing epistemic log evidence)
+- [x] COMMIT RUNS (not needed; no new run artifacts)
+- [x] COMMIT STATE
+- [x] → Loop complete (10/10)
