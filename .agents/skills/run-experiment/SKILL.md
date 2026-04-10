@@ -38,6 +38,7 @@ Every step is either **perception** (tools compute structured evidence), **cogni
 1. **Complete the MINE DIGEST** (light): read the pre-filled template from mine-report.ts, fill in `Pattern:`, `Trap:`, `Dominant pattern:`, `Fix hypothesis:`. This is the only place you form judgment in MINE/DIAGNOSE/META.
 2. **Taxonomy pattern discovery** (after `--summary`): for each confusion pair with ≥3 cumulative unmatched occurrences, read those full blocks from `unmatched.md` (full justification + thinking — no truncation) and the existing taxonomy file descriptions. Decide: does this fit an existing pattern (update its `confusion_pair` list) or is it a new reasoning trap (create new file)? After any change, run `--reprocess-unmatched` to backfill history. → Full procedure: `taxonomy/README.md` § "The three-step MINE taxonomy flow".
 3. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
+4. **META write-back is mandatory**: after each run, update `experiments/<name>/meta-failures.md` with whether the current result confirms, weakens, or falsifies a process hypothesis (with concrete run IDs and deltas). If no meta update is warranted, add a brief "no new meta evidence" note in the iteration log/commit message.
 
 **Subagent cognitive step** — IDEATE is pure creative generation:
 - Prefer a Codex subagent (`model: gpt-5.3-codex`) by default; Claude is also valid when explicitly chosen for this run
@@ -74,6 +75,7 @@ Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks
 ## Execute
 
 Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
+Do not proceed to EDIT until META has been consulted **and** write-back (or explicit no-update decision) is completed.
 
 ## Run-artifact hygiene (mandatory)
 

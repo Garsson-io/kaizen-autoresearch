@@ -133,6 +133,8 @@ LOOP:
      to be treated as confirmed, and ≥2 contradicting data points to be disproved. One run proves nothing.
      Also: if the previous IDEATE subagent returned a META_NOTE, evaluate it here and update
      meta-failures.md if the observation is warranted.
+     META is a hard gate: do not proceed to IDEATE/EDIT until you either (a) committed a meta-failures.md
+     update, or (b) explicitly recorded "no new meta evidence" for this iteration in the state log.
   4. IDEATE — spawn a subagent for this step (see "IDEATE subagent" section below).
      Give it: results log, per-task totals, AND **your completed MINE DIGEST as {REASONING_PATTERNS}**.
      The MINE DIGEST is the primary signal — it gives IDEATE specific, quoted, quantified evidence

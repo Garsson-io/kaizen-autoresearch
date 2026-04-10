@@ -394,3 +394,24 @@ Schema-driven I/O eliminates silent undercounting. Use `serializeEntry()` to wri
 npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
 ```
 If `--summary` doesn't count an entry, that entry doesn't conform to `TaxonomyEntrySchema`. Fix the data, not the counter.
+
+---
+
+### Idea selection has predictable winners/losers — use evidence, not taste
+
+**Status**: confirmed (history mining on 41 scored idea trials in `autoresearch-results.jsonl`, 2026-04-11)
+
+**What happened**:
+- Heuristic family **agentic/LLM disambiguation** had the best outcomes: `9/14` keeps (64%), average delta `-6.34`.
+- **Heavy structure/process overlays** (two-pass frameworks, proof ledgers, seam/process scaffolds) had `0/6` keeps, average delta `+46.62`.
+- **Integration/System/Unit boundary rewrites** underperformed: `2/11` keeps, average delta `+37.17`.
+- Section-level pattern: edits in `KEY-QUESTIONS` were most reliable (`7/14` keeps), while `SELF-CHECK` changes were risky (`1/6` keeps, average delta `+23.59`).
+- Explore produced multiple false positives on full corpus:
+  - `precision-failure-boundary`: explore best `-29.20`, full run `+40.46`
+  - `integration-contract-invariant-gate`: explore best `-6.93`, full run `+70.81`
+  - `competitive-critique-seeding`: explore best `-9.87`, full run `+28.57`
+
+**Lesson**:
+- Default selection policy should favor small, additive `KEY-QUESTIONS` edits that sharpen Agentic/LLM failure boundaries.
+- Treat heavy reasoning-framework ideas as high-risk by default unless supported by distributed explore signal and a strong mechanism argument.
+- Treat `concentrated-signal` explore wins as weak evidence only; require broader validation before full-corpus promotion.
