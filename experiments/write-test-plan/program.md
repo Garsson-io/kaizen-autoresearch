@@ -1,5 +1,14 @@
 # Autoresearch Program: Write-Test-Plan
 
+## Canonical ownership (this file)
+
+- **Canonical for:** this experiment's iteration loop, promotion gates, and keep/discard decision policy.
+- **Not canonical for:** global repo ownership map, or generic idea frontmatter schema definitions.
+- **Refer to for repo-wide ownership:** `.agents/AGENTS.md`.
+- **Refer to for skill execution wrapper:** `.agents/skills/run-experiment/SKILL.md`.
+- **Refer to for idea schema/explore field semantics:** `experiments/write-test-plan/ideas/README.md`.
+- **Conflict rule:** if this file conflicts with skill guidance for this experiment, this file wins.
+
 Goal: Minimize weighted cross-entropy loss on 30-task classification corpus
 Scope: experiments/write-test-plan/prompts/treatment.md
 Metric: Weighted cross-entropy loss (lower is better) — see discussion #3

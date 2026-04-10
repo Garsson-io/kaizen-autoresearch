@@ -5,6 +5,13 @@ The loop: edit one file → measure a scalar metric → keep if improved, revert
 
 ---
 
+## Canonical ownership (this file)
+
+- **Canonical for:** repo-wide documentation ownership map (which file is authoritative for each topic).
+- **Not canonical for:** experiment-specific loop details or field-level experiment schemas.
+- **Refer to for execution policy:** `experiments/<name>/program.md`.
+- **Refer to for skill behavior:** `.agents/skills/run-experiment/SKILL.md`.
+
 ## Canonical sources
 
 This is the map. Each topic has exactly one canonical file — read it there, edit it there.

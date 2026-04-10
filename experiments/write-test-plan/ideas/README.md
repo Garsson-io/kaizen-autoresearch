@@ -2,6 +2,14 @@
 
 Each `.md` file is one prompt-improvement hypothesis with frontmatter metadata.
 
+## Canonical ownership (this file)
+
+- **Canonical for:** idea file frontmatter schema and `explore_*` field semantics.
+- **Not canonical for:** whether an explored idea may be promoted to EDIT/full run.
+- **Refer to for promotion/iteration policy:** `experiments/write-test-plan/program.md`.
+- **Refer to for executor workflow wrapper:** `.agents/skills/run-experiment/SKILL.md`.
+- **Conflict rule:** if this file conflicts with `program.md` on promotion policy, `program.md` wins.
+
 ## Frontmatter Schema
 
 ```yaml

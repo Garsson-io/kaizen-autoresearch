@@ -4,6 +4,14 @@ description: Run the full experiment iteration loop with mandatory MINE, META, a
 argument-hint: "<experiment-name> [--iterations N]"
 ---
 
+## Canonical ownership (this file)
+
+- **Canonical for:** skill-level execution checklist for `/run-experiment` (how to run the loop reliably).
+- **Not canonical for:** experiment policy decisions or idea schema definitions.
+- **Refer to for experiment policy authority:** `experiments/<name>/program.md`.
+- **Refer to for idea schema and explore field meanings:** `experiments/<name>/ideas/README.md`.
+- **Conflict rule:** if this file conflicts with `program.md`, `program.md` wins.
+
 ## Setup
 
 Parse `$ARGUMENTS` for experiment name (default: `write-test-plan`) and optional `--iterations N` (default: unbounded).
