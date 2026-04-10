@@ -1,7 +1,7 @@
 ---
 id: competitive-critique-seeding
 title: Seed competitor/bogus answers and force evidence-based critique before final classification
-status: proposed
+status: rejected
 effort: medium
 expected_impact: medium
 targets:
