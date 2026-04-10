@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is pure backoff math/policy: \"wait time ... doubles ... up to a configured maximum.\" A single function/object test catches real failures (wrong exponent, cap off-by-one) without module wiring. Rejected higher levels: no behavior text requiring real OS/network/subprocess, and the issue is a \"third-party REST API\" wrapper (deterministic plumbing, not model-output quality), so not System/Agentic/Workflow.",
+      "test_description": "Test `computeBackoff(attempt)` directly across attempts (e.g., 1..N) and assert exponential growth with clamp at configured max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.84,
+        "Integration": 0.14,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is module handoff: response classification + retry policy calculation (\"identifies a rate-limit response and computes ... wait time\"). A unit test of either piece alone can miss wiring bugs (wrong status/header mapping into backoff). Rejected System: can reproduce with in-process fake HTTP responses/headers; no real network needed. Rejected Agentic/Workflow: behavior is REST retry plumbing, not AI output content.",
+      "test_description": "Wire retry middleware with a fake transport returning 429 (and retry metadata such as reset/retry-after where supported). Assert classifier marks it retryable and next delay equals policy output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.73,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This requires orchestration across timer/backoff + request replay + response propagation; real failures are in interaction (request body/params not preserved, result not unwrapped). Rejected System: fake clock + in-process fake transport reproduces failure without real HTTP/OS timing. Rejected Agentic/Workflow: \"REST API\" retry behavior is deterministic and excludes model judgment.",
+      "test_description": "Use fake timers and a stub transport that returns rate-limit once, then success. Assert second call receives the original request payload and `call()` resolves to the success value with no retry details leaked.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.82,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Typed error emission depends on retry-loop state reaching terminal condition and mapping to domain error. Unit-testing only constructor/type can miss loop-to-error wiring bugs. Rejected System: can force repeated 429 via stub transport, no real network required. Rejected Agentic/Workflow: no AI/ML dependency; behavior text is deterministic retry/error handling.",
+      "test_description": "Configure max retries=N, stub transport to always return rate-limit, run `call()`, and assert rejection is specifically `QuotaExhaustedError` with expected metadata/cause.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly spans multiple local components (\"initial call, backoff retries, quota tracking\"); interaction bugs can create non-termination. Rejected System: indefinite-loop risk is reproducible with fake clock + deterministic stub transport; no OS/network primitive required. Rejected Agentic/Workflow: chain is non-LLM control flow, not agentic decisions.",
+      "test_description": "With fake timers and always-rate-limited stub, execute `call()` and advance time through all scheduled waits; assert exactly `maxRetries+1` attempts and final terminal error, with no further scheduled retries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.76,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at shared-state boundary across concurrent callers (\"multiple async callers in the same process\" + \"same shared quota bucket\"). Unit tests of quota math alone miss race/order handoff issues between caller paths and bucket manager. Rejected System: same-process async concurrency can be reproduced in-process (Promises/microtasks) without real network/OS. Rejected Agentic/Workflow: REST quota accounting has no model-output dependence.",
+      "test_description": "Instantiate one client/shared bucket, fire concurrent `call()` invocations via `Promise.all`, and use deterministic stub responses/counters to verify all calls consume from one common quota state rather than per-caller buckets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.84,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This is queueing behavior across submit path + waiting queue + dispatcher; ordering bugs are interaction defects, not single-function math. Rejected System: FIFO dispatch can be validated with fake timers and stub transport; no real HTTP/OS needed. Rejected Agentic/Workflow: behavior is deterministic scheduling in a REST client, not AI decision quality.",
+      "test_description": "Queue several calls while quota is unavailable, then release capacity and advance fake time; assert transport send order matches submission order exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.81,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
