@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is module handoff: CSV reader must preserve row index, validator must reject, and DLQ writer must persist both payload and original row number. A Unit test of validator logic alone would miss row-number propagation bugs. No real OS/network/subprocess is required if S3/DB are replaced with in-process fakes; no AI dependency.",
+      "test_description": "Candidate Unit (rejected): call `validateRow()` with missing field; assert invalid. Catches schema-rule bugs but misses wrong row number passed to DLQ. Candidate Integration (chosen): run reader->validator->DLQ-writer with a small in-memory CSV fixture (including header offset); assert DLQ record contains the exact original CSV row number and raw row. This catches off-by-one and mapping-loss failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.24,
+        "Integration": 0.7,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "Behavior is isolated transformation logic (parse/normalize date formats) with no required cross-module boundary, external infra, or model output. A pure function test is sufficient to catch real failures.",
+      "test_description": "Candidate Unit (chosen): table-driven test for representative valid/invalid ISO/US/EU inputs; assert canonical output (and explicit failure for ambiguous/invalid forms). This catches parser precedence and locale-order bugs. Candidate Integration (rejected): run full pipeline on CSV and inspect transformed output; broader but not necessary for this specific failure mode.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Higher level rejected because behavior text is strictly about format conversion correctness, not inter-module handoff or infra effects.",
+      "level_probabilities": {
+        "Unit": 0.86,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "Failure depends on real runtime characteristics (memory pressure, GC behavior, wall-clock timeout, streaming/backpressure) that mocks cannot faithfully reproduce. This is an OS/process-level boundary.",
+      "test_description": "Candidate Integration (rejected): in-process test with reduced dataset and mocked clock/memory; can pass while real run OOMs or exceeds timeout. Candidate System (chosen): execute pipeline as real process against a generated 500k-row CSV and real timeout config; assert completion before timeout and peak RSS stays below budget/no OOM exit. This catches buffering and leak regressions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.14,
+        "System": 0.86,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "System",
+      "justification": "Behavior is defined at a real external API boundary (S3 503 semantics). Using only mocked client errors can hide mismatches in how HTTP 503 responses are surfaced/classified by the SDK and retry middleware. No AI dependency.",
+      "test_description": "Candidate Integration (rejected): stub storage client to throw retryable error; assert retry calls/backoff schedule. Useful but can miss real SDK error-shape/HTTP mapping failures. Candidate System (chosen): point pipeline at an HTTP endpoint emulating S3 that returns 503 then success; assert exponential backoff timing windows and eventual batch success without global failure. This catches retry-classification and transport-integration bugs.",
+      "plan_consistent": true,
+      "plan_consistent_note": "System kept because behavior text explicitly requires handling real S3-style 503 responses at the API boundary.",
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.39,
+        "System": 0.61,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "System",
+      "justification": "Requires durable state across process restarts plus real PostgreSQL write semantics (transactions/upsert/idempotency/checkpoint recovery). In-process mocks often hide restart and DB-specific duplication failures.",
+      "test_description": "Candidate Integration (rejected): single-process test with fake repo/checkpoint; assert dedupe logic. Misses real restart recovery and Postgres constraint/transaction behavior. Candidate System (chosen): run pipeline against real PostgreSQL, force stop mid-batch, restart with same input, then assert target table has exactly one row per business key and no duplicates. This catches checkpoint atomicity and idempotency gaps.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.18,
+        "System": 0.82,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

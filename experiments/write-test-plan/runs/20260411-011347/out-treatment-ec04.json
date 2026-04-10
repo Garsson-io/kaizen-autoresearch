@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is module-to-client handoff: prompt/request builder + API adapter wiring. No real OS/network/model quality needed. Candidate tests: Integration setup: module with stub API client; assertion: captured outbound payload contains every configured label; catches dropped-label bug during request assembly. Unit alternative setup: test prompt-builder function directly; assertion: returned string/list contains labels; misses bug where built prompt is not what client actually sends. Rejected higher levels: behavior text is only about request contents, not live network/model decisions.",
+      "test_description": "Wire classifier module to a fake in-process API client that records requests; invoke classify() with a taxonomy; assert recorded request includes the full taxonomy label set exactly once before dispatch.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.67,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Real failure can occur at response parsing/normalization handoff, not only inside a pure mapper. No real infra/model output quality required because response is controlled. Candidate tests: Integration setup: stub API returns invalid label; assertion: public classify() returns \"unknown\"; catches bypass-of-normalizer bug. Unit alternative setup: call normalizeLabel('weird'); assertion: returns \"unknown\"; misses bug where classify() returns raw provider value without normalization. Rejected higher levels: behavior text specifies handling of an explicit invalid returned value, not model judgment quality.",
+      "test_description": "Use an in-process fake provider that returns a non-taxonomy label; call classify(); assert the caller-facing result is exactly \"unknown\".",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "Behavior is pure determinism of normalization logic for identical inputs; single function/object boundary, no I/O. Candidate tests: Unit setup: call normalization twice with same raw response fixture; assertion: outputs equal expected canonical label; catches nondeterministic/parsing-state bug. Integration alternative setup: full module + stub provider returning same payload; assertion: same output; catches same bug but adds unnecessary wiring. Rejected higher levels: behavior text is explicitly about normalization step determinism, not infrastructure or live model variability.",
+      "test_description": "Directly test normalization function/object with repeated identical raw response fixtures and assert stable canonical output each run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.09,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "This explicitly depends on repeated live AI API behavior; mocks hide real model/provider variability. Candidate tests: Agentic setup: run N live classify() calls against real provider on fixed input; assertion: output label unchanged across calls unless captured raw provider response differs; catches real nondeterministic-label drift. System alternative setup: call a deterministic fake HTTP server repeatedly; assertion: stable label; misses model-side inconsistency entirely. Rejected Workflow: multiple calls are repeated single-step classification, not a multi-stage agent pipeline.",
+      "test_description": "Execute repeated live classifications (same document/taxonomy) against the real AI API, log raw responses and final labels, and assert label stability conditioned on unchanged provider response payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.18,
+        "Agentic": 0.78,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "Failure is in local module interactions (token estimator/policy + dispatcher): ensure budget enforcement happens before outbound call. Real network/model not required. Candidate tests: Integration setup: over-budget document + fake API client; assertion: truncate/reject policy applied and dispatch behavior matches policy (e.g., no call on reject); catches pre-dispatch guard regression. Unit alternative setup: test token-budget function only; assertion: returns over-budget; misses bug where classify() ignores function result and still dispatches. Rejected higher levels: behavior text is pre-dispatch enforcement, not provider/model output correctness.",
+      "test_description": "Compose classifier with real budget policy module and fake API client; send over-budget input; assert documented truncate/reject behavior and verify whether outbound call occurred per policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.64,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "System",
+      "justification": "Needs real external API/token accounting; in-process fakes cannot reproduce provider tokenizer/accounting mismatches. Candidate tests: System setup: live provider call with representative document; assertion: provider-reported usage <= configured budget; catches real over-budget usage from provider tokenization differences. Integration alternative setup: stub usage metadata; assertion: within budget; misses real provider accounting drift. Rejected Agentic: behavior text is about provider-reported token usage limits, not label/classification quality or model decision correctness.",
+      "test_description": "Run classify() against the real provider using a representative document and read provider usage metadata; assert reported total/prompt tokens do not exceed configured budget.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.06,
+        "System": 0.76,
+        "Agentic": 0.17,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Behavior is retry/backoff orchestration across modules; can be validated with deterministic stub errors and fake clock/timer. Real network not required for core failure mode. Candidate tests: Integration setup: fake API client returns rate-limit error then success; assertion: module waits/backoffs (via fake clock advance) and eventually returns success; catches no-retry/immediate-fail bug. System alternative setup: hit real provider until 429; assertion: retries; catches same class but flaky, expensive, and not required to expose logic bug. Rejected higher levels: behavior text concerns control flow on rate-limit signal, not model output quality.",
+      "test_description": "Use a stub provider that emits a rate-limit response on first call and success on second, with controllable clock; assert retry delay is honored and caller receives success without surfacing initial error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

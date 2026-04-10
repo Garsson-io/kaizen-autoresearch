@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA/MOCK-HIDE: this failure commonly occurs at the real watcher boundary (recursive watch semantics differ by OS and watcher backend). A mocked watcher can emit a synthetic subdirectory event and always pass, hiding real non-recursive behavior. CANDIDATE-TEST-CHECK: (Integration candidate) setup watcher service with fake event source emitting `subdir/a.txt`; assert pipeline called once; catches routing bugs but misses OS recursive-watch failures. (System candidate) start daemon against real temp dir, create `root/sub/a.txt`; assert output file appears; catches real watcher recursion/inode path issues. Rejection-gate for higher levels: behavior text is filesystem-only and contains no AI/model decision or multi-agent sequence, so Agentic/Workflow are disqualified.",
+      "test_description": "Run daemon as a real process watching a temp root directory; create a nested subdirectory and write a file there; assert exactly one transformed output is written for that nested file path within timeout.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.22,
+        "System": 0.74,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at module handoff (request intake -> dedup store -> scheduler/processor), not pure algorithm only. REAL-INFRA: no real OS/network/subprocess required if requests are injected in-process with controlled clock/time window. CANDIDATE-TEST-CHECK: (Unit candidate) setup dedup map function with two same-path calls; assert second returns duplicate; catches key/window math bugs but can miss wiring bugs where scheduler still executes. (Integration candidate) wire request handler + dedup + processor spy, send same-path requests within window; assert processor invoked once; catches real duplicate-execution bug at module boundary. Rejection-gate for System: behavior text says “processing request” and “configurable time window” without requiring real filesystem events; in-process wiring can reproduce stated failure. Rejection-gate for Agentic/Workflow: no model output or agent pipeline in behavior text.",
+      "test_description": "Instantiate daemon modules in-process with fake clock; submit two processing requests for identical canonical path within dedup window; assert only first reaches processor and second is explicitly dropped/logged as duplicate.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.34,
+        "Integration": 0.58,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "Behavior explicitly states OS emits duplicate events, so REAL-INFRA points to System. MOCK-HIDE: fake watcher events do not reproduce real burst patterns/coalescing/ordering from kernel APIs, so tests may pass while production duplicates occur. CANDIDATE-TEST-CHECK: (Integration candidate) inject two identical events; assert single processing; catches local dedup bug but not OS-specific event burst timing issues. (System candidate) run daemon with real watcher, perform one write pattern known to trigger multiple events, assert one output artifact; catches real duplicate-trigger failures. Rejection-gate for higher levels: no AI/ML or multi-agent steps in text.",
+      "test_description": "With daemon running against a real temp directory, perform a single file write/rename sequence that yields multiple watcher events; assert processing side effect (output or processor count) occurs exactly once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.18,
+        "System": 0.77,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: directory removal/recreation changes real filesystem objects/inodes and watcher subscriptions; this boundary is OS-level. MOCK-HIDE: mocked FS/watcher typically skips unsubscribe/rebind edge cases and inode replacement semantics, masking failures. CANDIDATE-TEST-CHECK: (Integration candidate) call internal `onDirectoryRecreated` hook and emit fake event; assert processing resumes; catches recovery logic bugs only. (System candidate) delete watched dir on disk, recreate same path, create new file, assert daemon processes it without restart; catches real rewatch/rebind failures. Rejection-gate for higher levels: behavior text contains no model-dependent decision or agent chain.",
+      "test_description": "Start daemon watching real temp directory; remove directory, recreate it at same path, then write a new file; assert file is processed after recreation without restarting daemon process.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.88,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: ordering depends on interaction between watcher event timing, metadata read (`birthtime`/ctime semantics), and queueing. REAL-INFRA: creation timestamp behavior and resolution are filesystem/OS-dependent; in-process fakes may impose idealized ordering and hide drift/ties. CANDIDATE-TEST-CHECK: (Integration candidate) inject three requests with synthetic timestamps; assert sorted processing; catches queue sort bug but misses real timestamp resolution/event-race failures. (System candidate) create multiple files nearly simultaneously on real FS, then assert observed processing order matches filesystem creation timestamps with deterministic tie-break rule; catches real metadata/order boundary bugs. Rejection-gate for higher levels: no AI/ML correctness dependency or multi-agent sequence in behavior text.",
+      "test_description": "Run daemon on real temp directory; create multiple files concurrently, record filesystem-reported creation timestamps, and assert processing order follows timestamp ordering (plus defined tie-breaker if equal).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.34,
+        "System": 0.58,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: this is a live write/read race with real file handles and event timing. MOCK-HIDE: mocked writes/events usually complete atomically and cannot reproduce partial-write visibility or lock/flush timing. CANDIDATE-TEST-CHECK: (Integration candidate) simulate “incomplete” flag then “complete” event; assert delayed processing; catches state-machine bugs but not true IO race. (System candidate) open file, write partial content, keep handle open, emit natural arrival via watcher, finish write/close, assert processing starts only after completion and uses full content; catches real premature-read failures. Rejection-gate for higher levels: behavior text is OS/filesystem timing only, no AI/model dependence or multi-step agent pipeline.",
+      "test_description": "With real daemon and filesystem, write a file in chunks while keeping stream open; verify no processing occurs before close/settle condition, then verify exactly one processing run after completion with full final content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.14,
+        "System": 0.82,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

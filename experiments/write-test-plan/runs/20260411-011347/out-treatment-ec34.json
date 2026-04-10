@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-34",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Branch staleness detection correctly identifies branches with commits not in main, older than the configured age threshold, and no open PR.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: failure is at git-state + PR-state handoff, not a single function. REAL-INFRA/MOCK-HIDE: commit ancestry/age is often computed via real `git` subprocess output; mocks can hide parsing/rev-list edge failures. CANDIDATE-TEST-CHECK: (System) setup temporary repo with real commits/ages and PR-state source, assert branch is classified stale, catches real git graph/parsing bugs. (Integration adjacent) setup mocked git graph + mocked PR client, assert stale, catches pure logic bugs but can miss subprocess/output-shape failures. REJECTION-GATE: rejected Integration because behavior text requires identifying commits not in main and age threshold, which depends on real commit graph semantics.",
+      "test_description": "Create a temp repo, create a branch with commits not reachable from `main`, backdate commit timestamps past threshold, ensure no open PR in PR-state source, run detector end-to-end through real git calls, assert `stale-no-pr` candidate is emitted for that branch.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.27,
+        "System": 0.62,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Session-start setup emits a stale-work warning with actionable branch context when the current branch is stale.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is wiring between session bootstrap, detector result, and warning formatter. REAL-INFRA: no required real OS/network behavior in the stated failure mode; stale state can be injected. CANDIDATE-TEST-CHECK: (Integration) setup bootstrap with detector returning stale branch context, assert warning payload includes branch name/age/action text, catches orchestration/format regressions. (Unit adjacent) test formatter alone, assert string content, catches text logic only and misses bootstrap-hook wiring. REJECTION-GATE: rejected System because behavior text is about emitted warning content, not real subprocess/network semantics.",
+      "test_description": "Run session-start initialization in-process with a fixture stale branch state and captured notifier sink; assert one warning is emitted containing actionable context (branch identifier and stale reason).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.16,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A local status-classifier function maps computed branch state to labels (`clean`, `stale-no-pr`) deterministically.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: behavior is explicitly one local classifier function. REAL-INFRA/LLM/MULTI-STEP: none. CANDIDATE-TEST-CHECK: (Unit) setup state fixtures, assert exact label mapping, catches decision-table regressions. (Integration adjacent) wire through status service, assert same labels, adds no unique failure coverage for this behavior.",
+      "test_description": "Table-driven unit test for classifier inputs (clean state, stale-no-pr state, boundary states) asserting exact deterministic labels.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "`/kaizen-wip` against live repo and PR state distinguishes \"clean\" from \"has commits but no PR (STALE)\" in rendered output.",
+      "minimum_level": "System",
+      "justification": "Behavior text says \"against live repo and PR state\". REAL-INFRA/MOCK-HIDE: requires real git/CLI and real PR-state retrieval path; mocks can pass while real command/API wiring fails. CANDIDATE-TEST-CHECK: (System) run command in real repo context with live PR-state source, assert rendered output class differs between clean and stale scenarios, catches end-to-end integration/IO defects. (Integration adjacent) mocked repo and PR client, assert rendering, misses live wiring and protocol issues. REJECTION-GATE: rejected Integration due explicit \"live repo and PR state\" requirement.",
+      "test_description": "Execute `/kaizen-wip` end-to-end in a controlled real repo fixture and real PR-state integration path; verify rendered status text is `clean` in one scenario and includes `STALE` for unPRed commits in another.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.14,
+        "System": 0.78,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Branches with open or merged PRs are not flagged as stale-no-PR false positives.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is cross-module (branch state + PR status filtering). REAL-INFRA: can be caught with in-process fixtures for PR statuses (open/merged) and branch candidates; real network not required for this specific rule. CANDIDATE-TEST-CHECK: (Integration) setup detector + PR-status adapter fixture returning open/merged states, assert no stale-no-pr flag, catches status-handoff bugs. (Unit adjacent) test single predicate function, assert true/false, misses adapter mapping mistakes between PR payload and internal enum. INTEGRATION-BRAKE: no required OS/subprocess/network, no LLM, no multi-agent chain.",
+      "test_description": "Wire staleness detector with PR-status module fixture covering open and merged PR cases for candidate branches; assert result excludes `stale-no-pr` for both.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.63,
+        "System": 0.27,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Staleness detection remains correct across rebases or squash merges where commit hashes change but branch state should no longer be classified as unPRed stale work.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA/MOCK-HIDE: rebases and squash merges are git graph transformations best validated with real git operations; mocked commit sets can miss ancestry equivalence edge cases after hash changes. CANDIDATE-TEST-CHECK: (System) create repo, open branch, then rebase/squash-merge into main and rerun detector, assert branch not stale-no-pr, catches real graph-resolution bugs. (Integration adjacent) synthetic graph objects with changed hashes, assert not stale, may miss actual git ancestry behavior and command-output interpretation defects. REJECTION-GATE: rejected Integration because behavior text explicitly targets rebases/squash merges where commit hashes change.",
+      "test_description": "In a temp real git repo, perform branch commits, then simulate rebase and squash-merge paths that change hashes while integrating work into `main`; run detector and assert branch is no longer classified as unPRed stale.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}

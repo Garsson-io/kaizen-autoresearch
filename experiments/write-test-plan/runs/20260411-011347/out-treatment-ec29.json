@@ -1,0 +1,214 @@
+{
+  "task_id": "EC-29",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Required fields are validated before downstream processing; missing fields return one error listing all missing items.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at module handoff (validator must gate insurance/triage/scheduling), not just field-check logic. REAL-INFRA/LLM/MULTI-STEP: none required. Candidate Integration test: setup intake request missing DOB+insurance ID with downstream services stubbed; assert error lists both fields and no downstream calls happened; catches bug where pipeline continues despite validation errors. Candidate Unit test: setup validator-only call; assert missing-field list; catches formatting bug but misses accidental downstream invocation. Rejection gate: System rejected because behavior text has no real OS/network requirement; Agentic/Workflow rejected because no model-output dependence.",
+      "test_description": "Run the intake orchestrator with missing required fields and spies/stubs for downstream modules; verify aggregated missing-field error and zero downstream invocations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "DOB validation rejects future dates, >150-year-old dates, and non-date strings.",
+      "minimum_level": "Unit",
+      "justification": "Behavior is pure validation logic at one function boundary (MOCK-MISS says Unit floor). No infra, no model, no pipeline coupling needed. Candidate Unit test: setup table of invalid DOB strings/dates; assert validator returns correct error codes/messages; catches boundary and parsing defects. Candidate Integration test would also pass but adds no unique failure detection for this behavior. Rejection gate: higher levels disqualified because behavior text is exclusively local parsing/range rules.",
+      "test_description": "Table-driven unit test for DOB validator covering future date, 150+ years old cutoff, and malformed string inputs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Insurance eligibility call sends correct patient ID/plan code and maps eligible/not eligible/pending correctly.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: behavior targets request/response contract with external payer API; real HTTP serialization/status handling can fail while mocks pass (MOCK-HIDE). Candidate System test: setup local HTTP test server emulating payer responses and inspect received payload; assert outbound patient ID+plan code and status mapping for 3 responses; catches wire-format or transport-layer mapping bugs. Candidate Integration test with mocked client asserts method args but may miss actual HTTP payload/encoding mismatches. Rejection gate: Agentic/Workflow disqualified by behavior text (deterministic API states, no AI decision chain).",
+      "test_description": "Exercise insurance client against a real HTTP test endpoint that validates payload fields and returns each eligibility state; verify mapped intake status.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.35,
+        "System": 0.55,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If payer API is unreachable, intake marks eligibility pending and continues instead of blocking.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: unreachable condition is a network/transport failure mode; mocked success/error objects can hide real timeout/connection exceptions (MOCK-HIDE). Candidate System test: setup payer URL to non-routable/test server down; assert eligibility becomes pending and orchestration continues to triage/scheduling; catches unhandled socket/timeout exceptions. Candidate Integration test: mock client throws UnreachableError; asserts fallback, but can miss real exception classes/timeout paths from HTTP stack. Rejection gate: Agentic/Workflow rejected because no AI-output correctness requirement in behavior text.",
+      "test_description": "Run intake with real HTTP failure conditions for payer call and verify fallback-to-pending plus continued downstream pipeline execution.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.75,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Triage invocation payload includes reported symptoms and configured emergency rubric.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is module wiring (payload builder + triage client), not model judgment. LLM-DEP disqualified: behavior checks request composition only. Candidate Integration test: setup configured rubric + symptoms and stub model endpoint recording request body; assert both appear in payload; catches dropped-config or field-mapping bugs. Candidate Unit test on serializer alone may miss orchestrator forgetting to pass rubric. Rejection gate: Agentic rejected by behavior text focusing on invocation payload, not output quality; System rejected because in-process stub can expose this failure.",
+      "test_description": "Invoke triage service end-to-end with stubbed model client and assert outgoing payload contains symptoms and rubric fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Live AI triage assigns high urgency for emergency symptom combinations (e.g., chest pain + shortness of breath).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: correctness depends on real model medical reasoning output; deterministic stubs always hide this failure. Candidate Agentic test: submit emergency symptom cases to live triage model repeatedly/with threshold policy; assert urgency is high; catches model/prompt regression in clinical urgency classification. Candidate Integration test with stubbed 'high' response only verifies plumbing and cannot detect misclassification. Rejection gate: Workflow rejected because behavior is a single model decision, not multiple agentic stages.",
+      "test_description": "Run live triage calls on emergency symptom fixtures and assert returned urgency category is high under production prompt/model settings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.84,
+        "Workflow": 0.06
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Triage result parser stores a clinician-readable explanation field, not only a numeric score.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is parser-to-storage handoff (field persistence), not just parsing function. No required real OS/network/model quality. Candidate Integration test: setup triage response fixture with score+explanation, persist through parser/repo layer, assert DB record contains explanation text column; catches dropped-field mapping bug. Candidate Unit test on parser output misses repository schema/write omission. Rejection gate: System rejected since local in-process DB/module wiring is sufficient; Agentic rejected because explanation content quality is not evaluated here.",
+      "test_description": "Feed deterministic triage response through parser plus persistence layer and verify stored record includes non-empty explanation field.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "Live AI triage explanation cites case-specific symptoms and urgency rationale, not generic boilerplate.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: this is output-quality behavior (specificity/rationale), impossible to validate with fixed mocks. Candidate Agentic test: send varied symptom cases to live model; assert explanation references case symptoms and urgency reasoning rubric (not generic template); catches prompt/model drift to boilerplate output. Candidate Integration test with canned response always passes and cannot detect real quality regression. Rejection gate: Workflow rejected because requirement concerns one model output step.",
+      "test_description": "Evaluate live triage explanations for symptom-specific rationale using real model responses across representative cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.01,
+        "Agentic": 0.86,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "Scheduling picks first available slot matching urgency SLA (high same-day, medium within 48h).",
+      "minimum_level": "Integration",
+      "justification": "Failure appears when scheduling logic interacts with calendar data ordering/availability windows. No mandatory real OS/network/model. Candidate Integration test: setup calendar DB with mixed occupied/free slots across today/next 48h; assert chosen slot is earliest meeting urgency SLA; catches query/order or SLA-window bugs. Candidate Unit test of pure selector can miss repository query filtering/timezone handoff issues. Rejection gate: System rejected because local DB wiring can reproduce behavior; Agentic/Workflow rejected (no AI dependence).",
+      "test_description": "Run scheduler against seeded calendar data and verify selected appointment is earliest slot satisfying urgency-specific time constraints.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "Scheduling does not double-book when two patients are processed concurrently.",
+      "minimum_level": "Integration",
+      "justification": "Core failure is concurrency/transaction handling across scheduler + shared calendar DB modules. Can be reproduced with local DB and concurrent workers; no external network/model required. Candidate Integration test: setup one free slot, run two intake scheduling attempts concurrently, assert only one booking succeeds and second gets next slot/error; catches race/locking defects. Candidate System test adds OS/process realism but not strictly required for this behavior boundary. Rejection gate: System rejected because behavior text centers shared calendar DB consistency, reproducible in-process with real DB transactions; Agentic/Workflow disqualified.",
+      "test_description": "Execute concurrent scheduling operations against shared calendar DB and assert unique slot assignment under race conditions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.74,
+        "System": 0.2,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 11,
+      "description": "Confirmation includes patient name, appointment time, provider name, and visit-type-specific prep instructions.",
+      "minimum_level": "Integration",
+      "justification": "Behavior spans data handoff from scheduling/patient context into confirmation renderer; unit template test may miss missing upstream fields. No real infra or model dependency needed. Candidate Integration test: setup completed intake record for visit type, generate confirmation, assert all required fields and correct prep instructions included; catches mapping omissions between modules. Candidate Unit test on message template alone cannot catch orchestrator passing incomplete data. Rejection gate: System/Agentic/Workflow rejected by behavior text (deterministic message composition).",
+      "test_description": "Generate confirmation from integrated intake/scheduling outputs and verify required fields plus visit-type preparation instructions are present.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.36,
+        "Integration": 0.58,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 12,
+      "description": "Pipeline orchestration (validate→insurance→triage→schedule→confirm) completes correctly with deterministic stubbed triage output.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly scopes to deterministic stubbed triage, so LLM-output correctness is out of scope. This is multi-module orchestration/state handoff, ideal Integration. Candidate Integration test: setup stubs for payer+triage and local DB, run full pipeline, assert stage order, propagated statuses, and final confirmation produced; catches orchestration regressions. Candidate System test with real services is heavier but unnecessary for stated failure mode. Rejection gate: Agentic rejected by explicit text 'deterministic stubbed triage output'; Workflow rejected because no real agentic steps.",
+      "test_description": "Run end-to-end intake orchestration with deterministic stubs and verify correct stage transitions, persisted state, and final confirmation artifact.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.88,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 13,
+      "description": "Full live intake pipeline completes for a real patient submission without manual intervention.",
+      "minimum_level": "Agentic",
+      "justification": "Includes live triage model call inside full pipeline; LLM-DEP applies because real model response can alter downstream path/success. Candidate Agentic test: submit real patient-like payload through production-like stack (live payer + live triage), assert pipeline reaches confirmed appointment automatically; catches failures dependent on real model output and integration. Adjacent Integration test with stub triage may pass while live model output format/content breaks downstream parsing/routing. Rejection gate: Workflow considered but rejected because behavior text includes one agentic decision point (triage), not multiple sequential agentic decisions.",
+      "test_description": "Execute the live end-to-end intake flow using real external dependencies and verify unattended completion from submission to confirmation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.15,
+        "Agentic": 0.56,
+        "Workflow": 0.24
+      }
+    }
+  ]
+}
