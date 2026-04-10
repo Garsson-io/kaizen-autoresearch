@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Failure boundary is local retry-policy math/state (attempt N -> delay), with no required module handoff. MOCK-MISS: not primarily an inter-module bug. REAL-INFRA/MOCK-HIDE: real network/OS/subprocess is unnecessary; a pure in-process test can reproduce wrong doubling or cap logic exactly. LLM-DEP/MULTI-STEP: none. Rejection gate: Integration was considered, but behavior text is algorithmic ('doubles ... up to a configured maximum') and does not require transport/timer wiring.",
+      "test_description": "Unit-test the backoff calculator/state object directly across consecutive failures (e.g., attempts 1..k), asserting exact exponential sequence and max-cap saturation.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at module boundary: HTTP/error classification + retry policy handoff. MOCK-MISS: a unit test of either classifier or backoff alone can miss miswiring between them. REAL-INFRA: no real network required; synthetic HTTP responses in-process are sufficient. INTEGRATION-BRAKE: (a) no OS/network/subprocess requirement, (b) no AI output dependence, (c) no multi-agentic chain, (d) no LLM stage orchestration.",
+      "test_description": "Integration-test retry orchestrator with a stub transport returning a 429-like response (and relevant headers/body), then assert it is recognized as rate-limit and scheduled delay equals expected policy/header-derived wait.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This is cross-module behavior (timer/scheduler + request replay + response propagation). Unit tests on replay logic alone can miss incorrect original-request preservation or return-path wiring. REAL-INFRA/MOCK-HIDE: fake clock + in-process stub transport can expose failures; real HTTP is not required. Rejection gate for System: behavior text does not require real network conditions, only correct resend and transparent return.",
+      "test_description": "Integration-test `call()` with first response as rate-limited, advance fake time to trigger retry, verify second transport invocation receives the same request payload, and assert caller gets successful result without extra wrapping.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is retry-loop counter + terminal error mapping handoff. A unit test of error class alone misses misclassification at orchestrator boundary. REAL-INFRA: no OS/network/subprocess needed; repeated stubbed rate-limit responses reproduce it. INTEGRATION-BRAKE checks pass (no System/Agentic/Workflow trigger).",
+      "test_description": "Integration-test `call()` with transport always returning rate-limit until retry budget is exhausted; assert final rejection is specifically `QuotaExhaustedError` (type/instance) and not a generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly spans several local modules (retry state machine, backoff, quota accounting), so Unit is too low (MOCK-MISS). REAL-INFRA: can be validated in-process with fake timers and bounded attempts; no real OS/network required. Rejection gate for System: text requires chain termination logic, not real infrastructure faults.",
+      "test_description": "Integration-test end-to-end retry chain with persistent rate-limit responses, advance controlled time, assert attempt count and elapsed backoff progression stop at configured limit, and verify promise settles with terminal error (no infinite pending/loop).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.78,
+        "System": 0.17,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Core failure is shared-state coordination across callers/modules, not single-function logic. Unit tests on bucket math alone can miss orchestration races. REAL-INFRA/MOCK-HIDE: in-process concurrent async calls with controlled stubs are enough to reveal incorrect per-caller isolation; real network is not inherently required by behavior text ('same process'). Rejection gate for System: no explicit OS/network/subprocess dependency.",
+      "test_description": "Integration-test by launching multiple concurrent `call()` invocations against one client/account, forcing quota pressure via stubbed responses, then assert a single shared quota counter/bucket governs all callers consistently.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering bugs arise at queue + dispatcher + async scheduling boundaries. Unit-testing queue container alone can miss real dispatch handoff errors. REAL-INFRA: deterministic in-process scheduler/fake timers can validate FIFO dispatch; no real HTTP/OS primitives required. Rejection gate for System: behavior specifies submission-order dispatch semantics, not real network behavior.",
+      "test_description": "Integration-test by enqueueing several `call()` requests under quota-blocked conditions, then releasing capacity stepwise and asserting transport dispatch order matches original submission order exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

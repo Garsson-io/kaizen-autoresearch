@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is retry-orchestrator state + backoff policy interaction across attempts (not a single pure function). Integration-brake: (a) no real OS/network/subprocess required; this can be driven with fake timers and stubbed failures, so not System. (b) no AI/ML output dependency, so not Agentic. (c) no multi-agentic chain, so not Workflow. Rejection-gate: rejected System because behavior text only requires \"wait time between retries\" and \"configured maximum,\" which are local scheduling/policy concerns.",
+      "test_description": "Wire retry controller + backoff policy + fake clock + stub transport that fails repeatedly; assert observed delays are 1x, 2x, 4x... capped at configured max across consecutive failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.62,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Bug appears at module handoff: HTTP response classification (rate-limit vs other errors) feeding wait-time computation. Integration-brake: no real network is required to reproduce classification/computation mistakes; a stubbed response object is sufficient, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System because behavior text is about \"identifies a rate-limit response\" and \"computes wait time,\" both testable via in-process response fixtures.",
+      "test_description": "Connect response parser/classifier with retry policy; feed synthetic 429/headers and non-429 errors; assert only rate-limit responses trigger retry and computed wait matches policy/header rules.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Requires coordination of timer/scheduler + request replay + result propagation; this is a multi-module interaction failure boundary. Integration-brake: real HTTP is unnecessary; a stub transport can verify resend payload identity and eventual returned value, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System because behavior text says \"resends the original request\" and \"returns the successful result,\" which can be validated with in-process fakes.",
+      "test_description": "Use fake clock and stub transport that first returns rate-limit then success; assert second attempt reuses original request parameters and `call()` resolves with the success payload without extra caller-visible handling.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.86,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Needs retry-attempt counting + termination + error mapping working together; a single-function test can miss boundary miswiring. Integration-brake: no real OS/network required; deterministic stub failures can drive max-retry exhaustion, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System because behavior text is limited to \"configured maximum number of retries\" and typed error surface, both local-process concerns.",
+      "test_description": "Stub transport to always return rate-limit; run through configured max retries with fake clock; assert final rejection is `QuotaExhaustedError` (type and fields) and not the raw upstream/generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.71,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "This explicitly spans multiple local components (retry loop + backoff + quota tracker), so minimum is module-integration. Integration-brake: infinite-loop risk can be caught with fake timers/step bounds in-process; no real OS/network needed, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System because behavior text names only local chain elements \"initial call, backoff retries, quota tracking\" with no real-infra requirement.",
+      "test_description": "Compose full client stack with always-throttled stub transport and fake clock; advance time until termination; assert finite attempt count, no unbounded scheduling, and final surfaced `QuotaExhaustedError` within expected virtual-time bound.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure exists at shared-state boundary across concurrent callers and quota manager; single-unit tests can miss race/coordination bugs. Integration-brake: behavior text says \"same process,\" so no real distributed/network infra is required; concurrency can be reproduced in-process, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System based on explicit \"same process\" wording.",
+      "test_description": "Instantiate one client/quota bucket; fire many concurrent `call()` invocations with controlled stub transport; assert combined consumed tokens/permits reflect one shared bucket and no caller gets isolated quota state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering bug occurs at queue + dispatcher + async scheduling interaction, beyond a single isolated function in most implementations. Integration-brake: can be validated with in-process queue and stub sender; no real OS/network/subprocess needed, so not System. No AI/ML dependency, so not Agentic/Workflow. Rejection-gate: rejected System because behavior text focuses on submission/dispatch order only, with no real-infra dependency.",
+      "test_description": "Queue multiple blocked requests with known submission order under throttled conditions; release permits/time and assert transport send order is FIFO and matches original submission sequence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.88,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}
