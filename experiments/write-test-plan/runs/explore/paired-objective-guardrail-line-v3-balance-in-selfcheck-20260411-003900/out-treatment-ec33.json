@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is module handoff between summary-write path and findings storage/query for the same round. Unit tests on a single validator can miss join/filter/state bugs across repository + gate service. Rejected System because behavior text is only about \"stored ... finding\" consistency (no real OS/network/subprocess). Rejected Agentic/Workflow because verdict source is stored deterministic data, not model output.",
+      "test_description": "Wire summary service + findings repository against a local test DB. Seed one round with mixed dimension verdicts including FAIL, attempt to persist PASS summary, assert write is rejected and error references failing dimensions in that round.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "Real bug was wrong data source selection across components (gate computation + persistence). Need wired modules with conflicting inputs to catch fallback-to-summary regressions. Rejected higher levels: behavior text says \"reads ... stored findings\" and \"hand-written summary text\"; no OS/network/subprocess and no dependence on model judgment.",
+      "test_description": "In an integration test, persist findings with at least one FAIL and a contradictory PASS summary text. Run stop-gate computation and assert final verdict is non-PASS based on stored findings, with explicit evidence summary text was ignored as authority.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "This is policy enforcement across request handling + persistence of audit records. A pure unit test can miss missing transaction/audit wiring. Rejected System because auditable record can be verified in local in-process DB/files without real external infra. Rejected Agentic/Workflow because no model-output correctness requirement in behavior text.",
+      "test_description": "Call summary-finalization API/service twice: once without override flag (expect rejection), once with override flag (expect allowed path) and assert warning/audit record is persisted with actor, timestamp, and reason fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.07,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the gate requires a review round identifier produced after the latest fix commit before PASS can be finalized.",
+      "minimum_level": "Integration",
+      "justification": "Core failure is freshness check across fix metadata and review-round metadata (state/ordering logic across modules). Rejected System because behavior can be validated with stored commit/review identifiers and ordering in local fixtures; text does not require real git subprocess semantics. Rejected Agentic/Workflow because requirement is identifier recency, not model output quality.",
+      "test_description": "Seed fix commit metadata and review rounds where latest round predates fix commit; assert PASS finalize is blocked. Then seed a round identifier tied to a post-fix commit and assert PASS can proceed.",
+      "plan_consistent": true,
+      "plan_consistent_note": "If implementation derives commit order via real git CLI instead of stored metadata, this should be upgraded to System.",
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.62,
+        "System": 0.2,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "In the live review loop, PASS cannot finalize unless a fresh review-agent round runs on the updated diff.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior explicitly requires a real \"review-agent round\" in live loop. Mocking the agent call can falsely pass while missing failures where live agent run state/freshness is not actually produced. Rejected Workflow because text requires one fresh round gate condition, not multiple model decisions chained for correctness.",
+      "test_description": "Run a live end-to-end review-loop test against updated diff: attempt finalize without running agent round (expect block), then execute a real review-agent round and assert finalize path can continue only after that fresh run is recorded.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.27,
+        "System": 0.1,
+        "Agentic": 0.5,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings in stored results, the outcome is escalation rather than PASS.",
+      "minimum_level": "Integration",
+      "justification": "Deterministic gate rule over persisted findings + round counters; failure appears at module boundary (round manager + findings store + gate policy). Rejected System: no required real OS/network/subprocess in behavior text. Rejected Agentic/Workflow: uses \"stored results\" and unresolved MUST-FIX flags, not model-output evaluation.",
+      "test_description": "Seed stored results containing unresolved MUST-FIX and set round counter to exhausted. Execute gate decision path and assert escalation outcome plus explicit non-PASS verdict.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.7,
+        "System": 0.08,
+        "Agentic": 0.06,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "In a live multi-round review workflow, exhausted rounds with unresolved MUST-FIX findings still block PASS and emit escalation.",
+      "minimum_level": "Workflow",
+      "justification": "Behavior names a \"live multi-round review workflow\" and validates exhaustion + unresolved findings across rounds; this is a sequenced agent pipeline property, not a single-call check. Mocked single-step tests can hide cross-round carryover bugs. Rejected lower Agentic because correctness here depends on multi-step progression/state across rounds, not just one model step.",
+      "test_description": "Execute full multi-round live loop: run successive review rounds on evolving diffs until round budget is exhausted while keeping at least one MUST-FIX unresolved in stored findings. Assert finalization is blocked and escalation event is emitted with round-history context.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.14,
+        "System": 0.05,
+        "Agentic": 0.25,
+        "Workflow": 0.55
+      }
+    }
+  ]
+}

@@ -17,12 +17,12 @@ change_type: framing
 risk: A broad balancing sentence may be too weak to move behavior or too vague to be actionable.
 prereqs: Keep it short and near KEY-QUESTIONS where escalation decisions are made.
 related: [mock-miss-scope-clarification, global-stated-failure-only-rule, system-environment-artifact-split]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-13, ec-08, ec-33, ec-26, ec-31, ec-20]
+explore_baseline_loss: 58.36
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-10
 ---
 
 ## Steelman
@@ -37,3 +37,15 @@ This keeps pressure on overcalled Integration while protecting higher-level corr
 
 This may be too generic to produce measurable improvement and could act as contradictory guidance if placed near strong Unit disambiguators. Without concrete examples, the model may acknowledge the rule but still default to existing habits.
 
+## Epistemological status
+
+Explore subset (stratified): `ec-13, ec-08, ec-33, ec-26, ec-31, ec-20`  
+Baseline subset loss: `58.36`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-short-balance | 59.0123 | +0.6514 | improved 2, hurt 1, flat 3 | n/a |
+| v2-balance-in-mockmiss | 62.7709 | +4.4099 | improved 3, hurt 2, flat 1 | n/a |
+| v3-balance-in-selfcheck | 65.9556 | +7.5947 | improved 1, hurt 3, flat 2 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.

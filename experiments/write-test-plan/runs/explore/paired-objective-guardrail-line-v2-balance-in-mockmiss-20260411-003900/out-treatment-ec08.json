@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Failure boundary is local backoff math/state progression. No module handoff, real I/O, or external timing primitive is required to expose wrong doubling/cap logic.",
+      "test_description": "Test the backoff calculator (or retry-state function) with consecutive failure counts and config max; assert sequence like 100,200,400,... then capped value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "This behavior is specifically at a module boundary: HTTP response classification feeds retry policy timing. Unit-only tests of classifier or calculator can miss handoff/contract mismatches.",
+      "test_description": "Wire retry orchestrator + response parser + backoff policy using stubbed transport responses (e.g., 429 with headers/body variants). Assert it classifies as rate-limit and schedules expected delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.72,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Real failure appears in orchestration across retry state, timer/scheduler, and request execution. Real network is not required; in-process stubs plus controllable clock can reproduce it.",
+      "test_description": "Use fake clock + stub transport that returns rate-limit then success. Call `call()` once; advance time; assert second send uses same request payload and final resolved value equals successful response.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.84,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Typed error emerges from combined retry counting + terminal error mapping in `call()` flow. A pure unit of the error class is insufficient to catch miswired propagation.",
+      "test_description": "Stub transport to always return rate-limit. Execute `call()` through max retries; assert rejection is instance of `QuotaExhaustedError` (and not generic Error) with expected metadata.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.77,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly spans multiple internal modules (retry loop + backoff + quota tracker). No real OS/network/subprocess needed; controlled in-process dependencies can expose non-termination bugs.",
+      "test_description": "Run `call()` with always-rate-limited stub and fake clock; advance through all scheduled waits; assert promise settles after expected attempts and no extra retries are enqueued.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.86,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure mode is shared-state coordination across concurrent callers and quota manager module. Unit tests of isolated functions miss cross-caller state interaction.",
+      "test_description": "Instantiate one client/quota bucket, fire multiple concurrent `call()` invocations with stub transport, and assert observed permit/retry behavior reflects one shared quota (not per-caller independent quotas).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.87,
+        "System": 0.09,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering bug appears at queue/scheduler boundary under concurrency, not within one pure function alone. Real infrastructure is unnecessary; deterministic in-process scheduling is enough.",
+      "test_description": "Queue several calls while quota blocks sends, then release capacity stepwise via stubbed quota/clock; assert transport send order matches submission order (FIFO).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

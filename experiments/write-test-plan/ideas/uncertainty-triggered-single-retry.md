@@ -16,12 +16,12 @@ change_type: structural
 risk: Hedging language may be stylistic rather than true uncertainty, causing unnecessary retries.
 prereqs: Uncertainty cues must be explicitly defined and enforced in output format.
 related: [two-step-review-loop, remove-self-check, dual-rationale-consensus-gate]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-13, ec-08, ec-33, ec-25, ec-31, ec-20]
+explore_baseline_loss: 58.06
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-10
 ---
 
 ## Core idea
@@ -42,3 +42,16 @@ It also gives a clean ablation: compare always-two-pass vs conditional-two-pass.
 Models can game this by using confident language even when uncertain. Then the retry never triggers where it's needed most.
 
 Conversely, if uncertainty cues are too broad, this collapses back into always-two-pass behavior.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-13, ec-08, ec-33, ec-25, ec-31, ec-20`  
+Baseline subset loss: `58.06`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-selfcheck-cues | 61.8104 | +3.7477 | improved 1, hurt 2, flat 3 | n/a |
+| v2-confidence-tag | 62.9575 | +4.8948 | improved 1, hurt 2, flat 3 | n/a |
+| v3-adjacent-only-retry | 64.4418 | +6.3792 | improved 0, hurt 2, flat 4 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: failure is in backoff math itself (retry_n -> delay), a single local algorithm boundary. REAL-INFRA/MOCK-HIDE: no real OS/network/subprocess needed; fake clock inputs are enough. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected Integration/System because behavior text is only about delay progression and cap (pure computation), not module handoff or real timer behavior.",
+      "test_description": "Test a pure backoff calculator (or equivalent method) with consecutive failure counts and config cap; assert delays are 1x, 2x, 4x... and then clamped at max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.16,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this failure appears at module boundary (response classifier + retry policy + scheduler input), not just one function. REAL-INFRA brake: no real network/OS needed; a stub transport can return 429/headers and expose computed delay. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected System because behavior text focuses on identifying rate-limit responses and computing wait time, which in-process stubs reproduce exactly.",
+      "test_description": "Wire retry orchestrator with a stub HTTP client returning rate-limit responses (e.g., 429 with retry metadata) and verify computed next-wait passed to scheduler/backoff module.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: requires interaction across retry timing, request replay, and response unwrapping. A unit test of one function can miss request reconstruction/state carryover bugs. REAL-INFRA brake: fake timers + stub transport can prove resend and transparent return without real HTTP. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected System because behavior text does not require real socket/timeouts, only correct resend flow.",
+      "test_description": "Use fake timers and a stub client that returns rate-limit once then success; assert same request payload is sent again after delay and `call()` resolves to success value without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.14,
+        "Integration": 0.74,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: retry counter exhaustion and error mapping are commonly split across modules; boundary bugs produce wrong error type. REAL-INFRA brake: deterministic stub responses can force max-retry path; no real network required. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected System because behavior text is about typed error outcome at retry limit, reproducible with in-process stubs.",
+      "test_description": "Configure low max retries, stub repeated rate-limit failures, run `call()`, and assert rejection is `QuotaExhaustedError` (type and key fields) instead of generic transport error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: explicit behavior is cross-module orchestration (call loop + backoff + quota tracker), so Unit is too low. REAL-INFRA brake: fake clock and bounded stub responses can detect non-termination and retry-count drift without real OS/network. LLM-DEP/MULTI-STEP: no AI steps. Rejection gate: rejected System because behavior text does not require real subprocess/network conditions, only correct in-process termination logic.",
+      "test_description": "Run orchestrator with fake timers and always-rate-limited stub; assert attempt count equals configured limit, promise settles with expected error, and no extra scheduled retries remain.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.7,
+        "System": 0.16,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is shared-state handoff/race across concurrent callers and quota manager, a multi-module boundary. REAL-INFRA brake: can be reproduced in-process with concurrent promises and deterministic stub transport; no real network required. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected System because behavior text explicitly scopes to 'same process' shared quota logic, not real external infra behavior.",
+      "test_description": "Create one client instance with shared quota bucket, fire multiple `call()` promises concurrently, and assert consumed tokens/retry gating reflect a single global bucket rather than per-call isolated counters.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: ordering bugs arise in queue + scheduler + dispatcher interaction under contention; single-function tests miss async interleavings. REAL-INFRA brake: deterministic in-memory queue with fake timers can validate FIFO dispatch; real OS/network not required. LLM-DEP/MULTI-STEP: none. Rejection gate: rejected System because behavior text concerns internal dispatch order, reproducible with in-process instrumentation.",
+      "test_description": "Enqueue several blocked requests, release capacity gradually, and assert transport send order matches submission order exactly (FIFO) across async callers.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.8,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is backoff math/policy logic at a single function boundary (attempt count + config -> delay). Behavior text is purely computational; no module handoff is required to expose failure. Higher levels were rejected because the behavior does not require real HTTP, timers, or cross-module state.",
+      "test_description": "Test `computeBackoffDelay(attempt, baseDelay, maxDelay)` (or equivalent) with consecutive failure counts and assert exponential growth then cap at max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.11,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at a module boundary: HTTP response classification (rate-limit detection) must feed retry/backoff policy correctly. A single pure-function unit test can miss wiring errors (wrong status/header mapping, wrong handoff). System was rejected because in-process stub responses reproduce this failure; no real network/OS behavior is required by the behavior text.",
+      "test_description": "Wire retry middleware + response parser + backoff policy with a stub transport returning a rate-limit response (e.g., 429 and optional retry metadata). Assert retry branch is taken and computed wait matches policy/config.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This verifies orchestration across retry scheduler, request replay, and result propagation. The real failure is often in handoff/state preservation (method/body/headers/caller promise resolution), not one local function. System rejected: behavior text does not require real HTTP stack; deterministic stub transport + controlled clock catches resend/path bugs.",
+      "test_description": "Use fake timers and a stub transport that returns rate-limit once, then success. Assert the second attempt reuses the original request payload and `call()` resolves with the success value without caller-visible retry plumbing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.87,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "The typed error is an external contract produced after retry-loop exhaustion, so you need loop counting + exhaustion path + error mapping wired together. Unit-only checks of the error class can miss off-by-one or wrong terminal-path mapping. System rejected because repeated stubbed rate-limit responses reproduce the exact failure without real network.",
+      "test_description": "Configure low max retries; stub transport to always rate-limit. Execute `call()` and assert rejection is specifically `QuotaExhaustedError` after expected attempt count (not generic/transport error).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "This is multi-module local orchestration (retry state machine + quota tracker + termination condition). Real failure is typically in state handoff/termination guards, which unit tests on isolated helpers can miss. System rejected because fake timers and stub transport can deterministically detect non-termination/over-retry without OS/network dependencies.",
+      "test_description": "Run the complete in-process chain with always-rate-limited responses and fake clock. Assert attempts stop at configured bound, quota state reaches expected terminal condition, and error surfaces; fail if extra attempts occur.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly depends on shared state across concurrent callers and module wiring (client instances/call sites -> shared quota manager). Unit tests on one object method cannot reliably expose cross-caller sharing bugs. System rejected by behavior text 'in the same process': no real external infra is required; in-process concurrency tests reproduce failure.",
+      "test_description": "Launch multiple concurrent `call()` invocations using a shared client/quota manager with stub transport. Assert global quota consumption reflects combined demand and no caller bypasses the shared bucket.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.93,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering is a queue/orchestrator property across async scheduling + dispatcher modules, not a single pure algorithm in isolation. Unit tests may validate comparator logic but miss enqueue/dequeue race wiring bugs. System rejected because deterministic in-process scheduler/fake timers can expose FIFO violations without real network/OS primitives.",
+      "test_description": "Queue several calls rapidly while quota/rate-limit forces waiting; use stub transport and controlled clock. Assert dispatch start order matches submission order (FIFO) under contention.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.89,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
