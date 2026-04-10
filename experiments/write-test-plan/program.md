@@ -153,9 +153,14 @@ LOOP:
          a. Write N variation treatment.md files into runs/explore/ dirs
          b. Run: npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id>
             (see scripts/explore.ts header for all options: --dry-run, --tasks, --seed, etc.)
-       Signal (exit 0): proceed to EDIT using the winning variation's diff.
-       Concentrated-signal (exit 3): weak evidence — re-run with different tasks or proceed cautiously.
-       No-signal (exit 2): do NOT edit. Return to IDEATE with a new idea.
+       **PROMOTION-EVIDENCE GATE (MANDATORY):**
+       - Promote to EDIT only on distributed/stable evidence.
+       - `signal` (exit 0): candidate for promotion, but must pass one independent holdout check
+         (different task subset and/or seed) with no sign flip for the chosen winner.
+       - `concentrated-signal` (exit 3): do NOT promote. Re-run once on a different subset/seed.
+         If still concentrated or if winner flips, record `no-promote` and return to IDEATE.
+       - `no-signal` (exit 2): do NOT edit. Record `no-promote` and return to IDEATE.
+       - `no-promote` is a valid outcome. Never force a winner just to continue the loop.
        Already-set: use the recorded explore result — no new run needed.
        After any explore run, commit the output dirs:
        ```bash
