@@ -68,6 +68,16 @@ npx tsx experiments/<name>/scripts/extract-thinking.ts --run-dir latest --task E
 
 Only after producing the MINE DIGEST should you proceed to DIAGNOSE → META → IDEATE.
 
+## Edit-type discipline (always)
+
+- Before editing `treatment.md`, declare intended edit type: `ADD`, `REPLACE`, or `DELETE`.
+- Validate the actual diff shape before commit:
+  - `ADD` = insert-only
+  - `REPLACE` = remove+add
+  - `DELETE` = remove-only
+- Never describe a change as additive if any relevant line was removed or modified.
+- If declared type and observed diff type do not match, stop and return to IDEATE; do not proceed to RUN/SCORE on that edit.
+
 ## Task list = inner loop visibility
 
 Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks for its inner loop steps (MINE, DIAGNOSE, META, IDEATE, EDIT+COMMIT, RUN+SCORE, LOG+COMMIT RUNS, → Next iteration). Mark each complete as you go. At "→ Next iteration", clear and recreate for the next iteration. Include iteration number and current score in task names.
@@ -76,19 +86,6 @@ Use tasks to show the CURRENT iteration's progress. Each iteration creates tasks
 
 Follow `program.md`. If no baseline run exists, run one first. If `--iterations N`, stop after N and run `/post-run-report <experiment>`.
 Do not proceed to EDIT until META has been consulted **and** write-back (or explicit no-update decision) is completed.
-
-## Edit-type discipline (mandatory, always)
-
-For every treatment edit, explicitly classify the change as exactly one:
-- `ADD` = insert-only; no `-` lines in treatment diff
-- `REPLACE` = intentional remove+add of existing rule text
-- `DELETE` = remove-only; no replacement text for the deleted rule
-
-Before committing a treatment change, run:
-```bash
-git diff --unified=0 experiments/write-test-plan/prompts/treatment.md
-```
-If the diff shape does not match the declared type, stop and correct the edit before commit.
 
 ## Run-artifact hygiene (mandatory)
 

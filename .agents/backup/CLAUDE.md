@@ -44,6 +44,21 @@ When new experiments are added, add a row here.
 
 ## Repo-wide rules
 
+### Prompt edit-type discipline (always)
+
+For any treatment prompt change, declare edit intent before editing:
+- `ADD`: insert-only
+- `REPLACE`: intentional remove+add of existing rule text
+- `DELETE`: remove-only
+
+Then verify the diff shape before commit:
+```bash
+git diff --unified=0 experiments/write-test-plan/prompts/treatment.md
+```
+
+If declared edit type and diff shape do not match, stop and fix before running eval or committing.
+Never call a change "additive" if any relevant line was removed or modified.
+
 ### Structured outputs — never grep/awk for values
 
 Write a TypeScript file with Zod instead. Reference: `scripts/verify.ts`, `scripts/run-probe.ts`.
