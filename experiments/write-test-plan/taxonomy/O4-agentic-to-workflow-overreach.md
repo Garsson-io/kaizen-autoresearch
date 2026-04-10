@@ -17,3 +17,9 @@ description: Model upgrades single-step model-quality checks to multi-step workf
 
 {"run":"run-002056","task":"EC-19","b":5,"pred":"Workflow","gt":"Agentic","w":4,"j":"Needs at least two real agentic generations with context carryover; correctness is the model's behavioral response to prior failure feedback. Mocked outputs can trivially differ and miss real non-response-to-feedback failures. Adversarial critique: textual difference alone could be tested with deterministic stubs (Integration); behavior explicitly says 'live attempt' and 'in response to prior failure context', which requires real model behavior across steps. Rejection gate: Agentic rejected because this is not one isolated generation; it is sequential adaptation across attempts."}
 
+{"run":"run-010159","task":"EC-13","b":6,"pred":"Workflow","gt":"Agentic","w":4,"j":"MULTI-STEP applies: the behavior explicitly requires repeated submissions and consistency across multiple agentic decisions over time/window state. LLM-DEP also applies because 'borderline' consistency depends on real model behavior plus pipeline memory/cache/handoff. Rejected Agentic-only because a single-call agentic test cannot validate cross-submission consistency guarantees."}
+
+{"run":"run-010159","task":"EC-19","b":3,"pred":"Workflow","gt":"Agentic","w":4,"j":"Requires multiple real agentic steps in sequence (generate -> test feedback -> refine -> retest). Mocking model outputs would hide the real recovery behavior. Rejected Agentic-only: behavior explicitly depends on iterative loop success across attempts, not one model call."}
+
+{"run":"run-010159","task":"EC-19","b":5,"pred":"Workflow","gt":"Agentic","w":4,"j":"Needs sequential agentic dependence: second model output must reflect first failure context. A stub can force different code and hide whether context actually drives change. Rejected Agentic-only because behavior requires at least two linked model steps (initial + context-aware retry)."}
+

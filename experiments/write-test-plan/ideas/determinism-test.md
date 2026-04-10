@@ -1,7 +1,7 @@
 ---
 id: determinism-test
 title: Add "is the dependency's output deterministic?" as the Agentic/System decision point
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:

@@ -69,3 +69,7 @@ self_aware_note: Model often acknowledges the need for real AI in hedges then pi
 
 {"run":"run-002056","task":"EC-30","b":5,"pred":"Integration","gt":"Agentic","w":4,"j":"MOCK-MISS: this is a diversification constraint across candidate generation + ranking/re-ranking, not just one math line. REAL-INFRA: no. LLM-DEP: no ML model call required by behavior text. MULTI-STEP agent pipeline: no. Adversarial critique: could be Unit if a single reranker function enforces the rule. Rejection gate for Unit: behavior is about final surfaced results ('surfaces at least one'), implying end-of-pipeline composition."}
 
+{"run":"run-010159","task":"EC-30","b":3,"pred":"Unit","gt":"Agentic","w":4,"j":"This behavior is algorithm scoring/ranking logic within one boundary; it does not require module interaction to fail. Rejected higher levels because behavior text focuses on ranking rule itself, not external infra or model-call quality."}
+
+{"run":"run-010159","task":"EC-30","b":5,"pred":"Integration","gt":"Agentic","w":4,"j":"Serendipity is typically enforced after core ranking via diversification logic; failure appears when history analysis, candidate generation, and reranking interact. Rejected Agentic: behavior text describes deterministic recommendation logic, not a real AI/ML API call."}
+

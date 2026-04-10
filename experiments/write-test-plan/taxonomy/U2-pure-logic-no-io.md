@@ -56,3 +56,11 @@ description: Model classifies multi-module wiring as pure function logic testabl
 
 {"run":"run-002056","task":"EC-23","b":7,"pred":"Unit","gt":"Integration","w":2,"j":"Core failure is deterministic merge logic on provided inputs; no I/O or model call needed to expose overwrite/attribution bugs. Higher levels rejected by behavior text focusing on merge rule ('merge step preserves both assessments with attribution'), independent of how assessments were produced."}
 
+{"run":"run-010159","task":"EC-06","b":2,"pred":"Unit","gt":"Integration","w":2,"j":"Behavior text is local dedup policy for same-path requests within a time window; this is primarily map/time-window logic and can be validated at a single object/function boundary with a fake clock. Integration/System were considered but disqualified because the behavior does not require real OS/network/subprocess, real model output, or multi-step agent pipeline."}
+
+{"run":"run-010159","task":"EC-14","b":2,"pred":"Unit","gt":"Integration","w":2,"j":"This is deterministic parsing/structuring logic on transcript text. The behavior text does not require real network, subprocess, or model judgment; module-local parser failures are catchable in-process."}
+
+{"run":"run-010159","task":"EC-14","b":4,"pred":"Unit","gt":"Integration","w":2,"j":"Behavior text focuses on routing logic after decisions are identified. This is schema-mapping logic that can fail within local code boundaries without real infra or model variability."}
+
+{"run":"run-010159","task":"EC-23","b":7,"pred":"Unit","gt":"Integration","w":2,"j":"Behavior is merge logic for conflict preservation/attribution and can be validated at one local function boundary with crafted inputs (MOCK-MISS no). No real infra needed (REAL-INFRA no). No dependence on live model judgment because reviewer outputs are fixtures (LLM-DEP no). Rejected Integration because behavior text is specifically about merge-step conflict handling, an algorithmic local rule."}
+
