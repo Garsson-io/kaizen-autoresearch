@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-18",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Log entries with the same trace ID are grouped together regardless of which microservice emitted them.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely in the grouping algorithm — a function that partitions a list of log records by a key field. No module boundary is involved; a single grouping function or data structure handles this. REAL-INFRA: No OS, network, or subprocess is involved. MOCK-HIDE: No external dependency to mock; test inputs are plain in-memory structs. LLM-DEP: No AI/ML. MULTI-STEP: No. The only thing needed is a list of records from different services sharing trace IDs and an assertion on the output grouping.",
+      "test_description": "Construct a list of log record objects (from at least 3 simulated microservices) where several share the same trace ID and several have unique IDs. Call the grouping function directly. Assert that (a) every group key equals the trace ID of every record in that group, (b) records from different services appear in the same group when they share a trace ID, and (c) records with unique trace IDs each form their own singleton group.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.88,
+        "Integration": 0.1,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The timeline view orders entries by timestamp, correctly handling clock skew of up to 500ms between services.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode lives inside the sorting/normalization algorithm — a function that takes a group of records and returns them in causal order even when clocks differ by up to 500ms. This is pure in-memory algorithmic logic; no module handoff is required. REAL-INFRA: Wall-clock time is not read during the sort; timestamps are data fields on records. No OS primitives needed. MOCK-HIDE: Nothing to mock — the function takes records and returns a sorted list. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE for Integration: the behavior names a single transformation (sort with skew tolerance), not a pipeline of modules exchanging state.",
+      "test_description": "Build sets of log record objects whose timestamps deliberately straddle the 500ms skew boundary across two services (e.g., service A at T+0ms and service B at T+450ms where B logically precedes A, plus a boundary case at exactly 500ms and one at 501ms). Call the timeline-sort function. Assert that the returned order reflects logical causal order within the tolerance window, that entries outside the tolerance remain in raw timestamp order, and parametrize edge cases (all same timestamp, all skew exactly at limit, negative skew).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A latency spike (p99 above 3x the baseline) is detected and flagged in the anomaly report.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure modes are (a) incorrect p99 calculation, (b) incorrect baseline derivation, and (c) incorrect threshold comparison. Each is a deterministic arithmetic operation. 'Flagged in the anomaly report' could span a detection module and a reporting module, but both are in-process and the failure is in the numeric logic, not in a cross-module state handoff. REAL-INFRA: No. MOCK-HIDE: Baseline and latency values are input data, not external calls. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE for Integration: 'flagged in the anomaly report' does not require wiring separate services; it is a return value or field on the analysis result.",
+      "test_description": "Create sets of latency samples: (a) baseline window of N samples with a known p99, then a spike window where p99 exceeds 3× that baseline, (b) a window where p99 is exactly 3× (boundary — should trigger), (c) a window where p99 is 2.99× (should not trigger), and (d) a flat distribution with no spike. Call the anomaly-detection function directly. Assert that cases (a) and (b) produce an anomaly record with the correct trace/window reference and that cases (c) and (d) produce no anomaly. Verify p99 computation against a hand-calculated reference.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Malformed JSON log entries are skipped without crashing the pipeline, and the count of skipped entries is reported.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is the error-handling path in the parser: a JSONDecodeError (or equivalent) must be caught, the entry must be skipped, and a counter must be incremented. This is localized to the parsing stage. 'Without crashing the pipeline' needs verification that later stages still receive valid entries, but that is an invariant on the parser's output, not on cross-module state. REAL-INFRA: No filesystem or network I/O is required; inputs are in-memory byte strings. MOCK-HIDE: Nothing upstream to mock. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE for Integration: 'the pipeline' does not require wiring to a downstream module to verify the skip-and-count behavior; the parser's return value (valid records + skip count) is the unit under test.",
+      "test_description": "Call the log-parsing function with a mixed list: some well-formed JSON records, some strings that are not valid JSON, and some JSON that lacks required fields (if schema validation is part of the parser). Assert that (a) valid entries are parsed into the expected model objects, (b) malformed entries produce no model object in the output, (c) the returned skip count equals exactly the number of malformed inputs, and (d) no exception propagates to the caller. Parametrize over truncated JSON, empty strings, binary noise, and missing required keys.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The tool handles a burst of 10,000 log entries per second without dropping entries or falling behind.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Throughput failures emerge from real interaction between the ingestion, buffering, and processing modules — thread contention, queue backpressure, and memory pressure only manifest when multiple real modules run under load simultaneously. A single-function unit test cannot reproduce these. REAL-INFRA: The failure does not require real network or subprocess; all components are in-process. A controlled in-process generator producing 10k entries and measuring wall-clock processing lag is sufficient to surface the failure. MOCK-HIDE: Mocking the processing stage would trivially pass by removing all actual work — a no-op always handles any rate. The real pipeline modules must run for the test to be meaningful. LLM-DEP: No. MULTI-STEP: No. REJECTION-GATE for System: no real HTTP endpoint, real subprocess, or real OS filesystem event is required; the entire pipeline can be driven in-process. System is therefore disqualified by the absence of any external infrastructure dependency in this behavior.",
+      "test_description": "Wire together the real ingestion, parsing, trace-correlation, and output modules without mocks. Use an in-process producer to emit exactly 10,000 pre-generated valid log records as fast as possible, then submit them to the pipeline in a single burst. Measure wall-clock elapsed time from first submission to last record acknowledged by the output stage. Assert that (a) no records are dropped (output count equals input count), (b) total processing time does not exceed 1 second (i.e., the pipeline sustains ≥10k entries/s), and (c) no exceptions or backpressure-related errors are raised. Run with a large enough burst (≥50k records) to expose buffering issues that might not appear at exactly 10k.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.72,
+        "System": 0.22,
+        "Agentic": 0,
+        "Workflow": 0.03
+      }
+    }
+  ]
+}

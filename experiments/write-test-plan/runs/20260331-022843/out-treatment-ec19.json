@@ -1,0 +1,134 @@
+{
+  "task_id": "EC-19",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The generated function signature matches the expected interface (parameter names, types, return type) specified in the description.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure mode here is that the real LLM generates a signature that deviates from the expected interface. LLM-DEP: Correctness depends entirely on what the real LLM produces — a stubbed LLM always returns the same canned code and will always pass or always fail, hiding whether the actual model honors the interface spec. REAL-INFRA: No OS/network primitives needed beyond the LLM API call. MULTI-STEP: A single LLM generation call suffices; no chained agentic steps required. REJECTION-GATE: Integration is disqualified because a stub replaces the model's judgment with a constant — any divergence in how the real LLM interprets the description's interface spec is invisible. The behavior is specifically about what the LLM generates, not about parsing or routing logic around it.",
+      "test_description": "Submit a natural language description with a precisely specified interface (e.g., `def compute(a: int, b: int) -> float`) to the real LLM-backed generation endpoint. Extract the generated function's signature and assert that parameter names, types, and return type exactly match the spec. Run multiple times to detect nondeterministic deviations.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.05,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Orchestration executes attempts in order and returns immediately on the first passing attempt.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode is in the orchestration control flow — does the loop actually stop early when tests pass, rather than continuing unnecessarily? This only manifests when the orchestrator, stub LLM, and stub test runner are wired together so you can observe attempt count and return timing. LLM-DEP: No — the LLM can be stubbed; the behavior under test is the control flow, not model output quality. REAL-INFRA: No OS/network primitives required. MULTI-STEP: Multiple LLM calls occur but they are all stubbed. INTEGRATION-BRAKE: (a) No real OS/network. (b) No real LLM needed. (c) No chained real agentic steps. Wiring the orchestrator with a stub LLM and stub test runner at the module boundary is sufficient to observe whether early exit fires correctly.",
+      "test_description": "Wire the orchestrator with a stub LLM that returns passing code on attempt 2 and a stub test runner that returns failure for attempt 1 and success for attempt 2. Assert the orchestrator returns the attempt-2 result, records exactly 2 attempts, and does not invoke the LLM a third time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For a function that a single call usually fails, the live iterative loop can still produce a passing implementation within the allowed attempts.",
+      "minimum_level": "Workflow",
+      "justification": "LLM-DEP: 'Usually fails' is a probabilistic statement about the real LLM's first-pass quality — a stub cannot model this. MULTI-STEP: Verifying the iterative loop requires running the full generate→test→refine→generate→test sequence with a real LLM, which is multiple real agentic steps chained in order. REJECTION-GATE: Agentic (single step) is disqualified because the claim is specifically about the iterative loop converging across attempts — a single LLM call cannot test whether the chained refinement process recovers from an initial failure.",
+      "test_description": "Provide a known target function that the real LLM reliably fails on the first attempt (e.g., a tricky algorithmic problem). Run the full live iterative pipeline against a real test suite. Assert that within 3 attempts, a passing implementation is produced and the service returns a success result. Track attempt count to confirm the loop advanced past attempt 1.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.04,
+        "Agentic": 0.18,
+        "Workflow": 0.75
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When tests fail, the refinement prompt builder includes the failed test names and failure messages in the next LLM prompt.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure mode is purely in the prompt construction function — does it embed the right fields from the test result object into the output string? This is algorithmic/formatting logic isolated to one function. LLM-DEP: No real LLM is needed; we only need to inspect the prompt text the builder produces. REAL-INFRA: No OS or network. INTEGRATION-BRAKE: (a-d) all no. The function takes structured test-failure data as input and returns a string; its correctness is fully observable at the unit boundary. REJECTION-GATE: Integration would be needed only if the test result data must pass through a module handoff to reach the builder, but the behavior targets the builder's own logic, not module wiring.",
+      "test_description": "Construct a deterministic test-failure payload (test name, failure message, traceback) using model classes. Call the refinement prompt builder directly with that payload. Assert the returned prompt string contains the exact test name and failure message as substrings, and that each failed test is represented.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.22,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The next live attempt changes implementation content in response to prior failure context rather than resubmitting the same code.",
+      "minimum_level": "Workflow",
+      "justification": "LLM-DEP: Whether the real LLM actually changes its output when given failure context is a question about model behavior — a stub always returns a constant, making this comparison meaningless with fakes. MULTI-STEP: Verifying the change requires running the full sequence: real LLM call 1 → test runner → real LLM call 2 with enriched prompt. Two sequential real agentic calls are required. REJECTION-GATE: Agentic (single step) is disqualified because the behavior is specifically comparative across two sequential model calls — you cannot observe 'changed in response to context' without running both calls in pipeline order. Integration is disqualified because a stubbed LLM always returns the same code regardless of the prompt, so the assertion would trivially fail or trivially pass.",
+      "test_description": "Run the full live pipeline on a function where the first attempt reliably fails tests. Capture the generated code from attempt 1. Let the pipeline proceed to attempt 2 using the real LLM with the failure-enriched prompt. Assert that the source code in attempt 2 differs from attempt 1 (e.g., different function body, different algorithm), confirming the model responded to failure context rather than echoing prior output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.04,
+        "Agentic": 0.22,
+        "Workflow": 0.7
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The service stops after 3 failed attempts and returns a structured error with all three attempts and their test results.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode involves the orchestrator's loop counter, the handoff of per-attempt results to the error builder, and the final structured error shape — this requires wiring those modules together with a stub LLM that always returns failing code. A single unit test on the loop counter alone would not catch missing attempt data in the error payload. LLM-DEP: No real LLM required; stub the LLM to always return syntactically valid but behaviorally failing code. REAL-INFRA: No OS/network needed. INTEGRATION-BRAKE: (a-d) all no. REJECTION-GATE: System and Agentic are disqualified because the behavior's correctness depends on module state handoff (accumulating attempt records), not real infrastructure or real model output quality.",
+      "test_description": "Wire the orchestrator with a stub LLM that always returns code that fails the test suite, and a stub test runner that always returns failure with distinct test names and messages for each attempt. Invoke the service. Assert it returns a structured error object, that the error contains exactly 3 attempt records, and that each record holds the generated code and the corresponding test failure details.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.06,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The full non-agentic pipeline wiring (generate call, test execution, attempt bookkeeping) works end to end with deterministic stubbed model outputs.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The behavior explicitly targets module wiring — whether the generate call, test executor, and bookkeeping components hand data to each other correctly. This only manifests when all three are wired together; unit tests on each component individually would not catch interface mismatches between them. LLM-DEP: The behavior itself says 'deterministic stubbed model outputs', explicitly ruling out real LLM dependency. REAL-INFRA: Test execution could involve a real subprocess, but the behavior scopes to 'non-agentic pipeline wiring' with stubs, so an in-process fake test executor suffices. REJECTION-GATE: System is disqualified by the behavior's own text ('deterministic stubbed model outputs'), which indicates in-process stubs are intended. Agentic/Workflow are disqualified by the same text.",
+      "test_description": "Wire all pipeline components (generator, test runner, bookkeeper) using deterministic stubs: the stub LLM returns a fixed valid implementation on call 1 and a different fixed implementation on call 2; the stub test runner returns failure for implementation 1 and success for implementation 2. Invoke the full pipeline and assert: attempt 1 result is recorded with failure details, attempt 2 result is recorded with success, and the service returns the attempt-2 implementation as its final output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The full live loop (generate, test, refine, retest) solves at least one known hard function that fails in the first attempt.",
+      "minimum_level": "Workflow",
+      "justification": "LLM-DEP: Correctness depends on the real LLM's ability to generate passing code and respond to refinement prompts — stubs replace the model's reasoning with a constant and cannot test whether the real pipeline converges. MULTI-STEP: The full pipeline requires at minimum: real LLM generate → real test execution → real LLM refine → real test execution. Multiple real agentic steps in sequence. REJECTION-GATE: Agentic (single step) is disqualified because the behavior requires the full iterative loop including at least one refinement cycle with a real test failure feeding back into a real LLM call. Integration/System are disqualified because real LLM output quality governs whether the loop converges.",
+      "test_description": "Select a curated 'hard' target function known to fail on the LLM's first attempt. Run the full live pipeline end-to-end with the real LLM and a real test suite. Assert that the service returns a passing result within 3 attempts, and that the passing implementation actually passes all tests when executed independently. Log all attempts for debugging non-deterministic failures.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.1,
+        "Workflow": 0.85
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not at a module boundary — it is at the STT model itself. If diarization is not enabled or the model fails to separate speakers in the audio, no speaker labels appear in the output. REAL-INFRA: Requires a real HTTP call to the STT API with real audio. LLM-DEP: Speaker diarization is an AI/ML model task. Per the LLM-DEP rule, if the execution path passes through a real AI/ML API call and the assertion depends on model output content (the presence of speaker labels), default to Agentic. A mock STT always returns whatever labels we define, hiding whether the real diarization model actually identifies and labels speakers from the audio. REJECTION-GATE: Considered System (real HTTP call) — rejected because the correctness of this behavior depends on what the ML diarization model produces, not merely that an HTTP round-trip succeeds. Could not demote to System because the assertion is on content quality (labels present and attributable), not on infrastructure.",
+      "test_description": "Submit a real audio file containing two or more identifiable speakers to the live STT API (with diarization enabled). Assert that the returned transcript contains at least two distinct speaker labels and that consecutive utterances are attributed to different speakers where the audio clearly alternates. Run with a short but realistic multi-speaker clip to keep cost low.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.05,
+        "System": 0.2,
+        "Agentic": 0.68,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Transcript parsing extracts explicit task assignments (assignee + task text) into the summary input structure.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior targets parsing logic that processes transcript text — not a boundary between modules. The input is a string (the transcript) and the output is a structured object. REAL-INFRA: No OS, network, or subprocess required. LLM-DEP: The behavior says 'explicit task assignments,' implying patterns that are textually unambiguous (e.g., 'Alice will own the deployment'). The extraction is a deterministic transformation that can be driven by rules or patterns, not by LLM inference. MOCK-HIDE: No dependency to mock — the parser takes text and returns structure. REJECTION-GATE: Considered Integration (parser wired into pipeline) — rejected because the failure mode is the parser's own logic, not a handoff between modules. Considered Agentic (LLM-based extraction) — the word 'explicit' and the framing of 'parsing' as a distinct step distinct from the LLM summarization step both disqualify it; explicit patterns do not require ML inference to identify.",
+      "test_description": "Call the transcript parsing function directly with synthetic transcript text containing explicit task assignments of the form 'Bob will write the spec by Friday' and 'Alice, please set up the demo environment.' Assert that each returned assignment object has a non-empty assignee field matching the name spoken and a task field containing the task text. Also assert that utterances with no assignment produce no assignment records.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.2,
+        "System": 0.02,
+        "Agentic": 0.14,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The live summary output contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure does not live in the module wiring; it lives in the LLM's generation. REAL-INFRA: The summary is produced by the LLM. LLM-DEP: Whether the LLM includes an action item for every assigned attendee depends entirely on what the model generates. A deterministic stub always produces the response we define, making the test trivially pass regardless of whether the real model would miss an attendee's action items. MOCK-HIDE: Mocking the LLM hides exactly the failure this behavior targets — the LLM omitting or merging action items. REJECTION-GATE: Considered Integration — rejected because there is no module-boundary failure to catch here; the behavior is a claim about LLM output completeness, and a stub reply makes that claim vacuous. Considered Workflow — rejected because this tests a single LLM summarization call, not a sequence of multiple agentic steps.",
+      "test_description": "Feed the live summarization LLM a realistic transcript in which three distinct attendees each receive an explicit task assignment. Assert that the returned structured summary's action_items list contains at least one entry whose assignee field matches each of the three attendees' names. Run the test with the real LLM endpoint to catch hallucination or omission.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.83,
+        "Workflow": 0.13
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Decision extraction logic routes identified decisions into the `decisions` section schema rather than generic narrative fields.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior is about routing logic — given already-identified decisions, does the code place them into the correct schema field instead of a catch-all narrative? This is a single function's responsibility. REAL-INFRA: No I/O required. LLM-DEP: The behavior says 'identified decisions' — the identification step is already done; what is under test is the routing/mapping code. The routing is a deterministic data-transformation (matching a decision type to a schema slot). MOCK-HIDE: Nothing to mock — the input is a pre-built set of decision records. REJECTION-GATE: Considered Agentic (LLM decides what is a decision) — rejected because the behavior text explicitly scopes to what happens after decisions are identified ('routes identified decisions'), not the identification itself. The routing is deterministic.",
+      "test_description": "Construct a list of pre-identified decision objects (e.g., Decision(text='We will migrate to PostgreSQL')) along with action items and narrative text. Pass this list to the schema-routing function. Assert that each decision object ends up in the output structure's decisions field, and that no decision text leaks into the narrative or action_items fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.58,
+        "Integration": 0.24,
+        "System": 0.02,
+        "Agentic": 0.14,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Key decisions mentioned in the transcript appear in the live summary's `decisions` section, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure is not in the routing code (covered by behavior 4); it is in whether the LLM correctly recognizes a decision and places it in the right output section. REAL-INFRA: The summary is produced by the real LLM. LLM-DEP: Whether the LLM classifies an utterance as a decision and emits it in the decisions field — rather than paraphrasing it in the narrative — depends on the model's understanding of the prompt and the meeting content. A stub always returns whatever we define, making the test vacuous. MOCK-HIDE: A mocked LLM that always returns a correctly structured response cannot reveal whether the real model misclassifies decisions as narrative. REJECTION-GATE: Considered Integration — rejected because the assertion is on LLM output content, not on module wiring. Behavior 4 already covers the routing code; this behavior is exclusively about whether the LLM produces the right content.",
+      "test_description": "Submit a real transcript containing two clearly stated decisions (e.g., 'We have decided to freeze the API contract' and 'The team agreed to drop support for IE11') to the live summarization LLM. Assert that both decision texts appear in the structured output's decisions list and that neither decision text appears verbatim only inside the narrative field.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.02,
+        "System": 0.02,
+        "Agentic": 0.84,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: The failure cannot appear without the full sequence: audio splitting → per-segment STT → per-segment LLM summary → merge LLM call. REAL-INFRA: Audio splitting involves real filesystem I/O and possibly a subprocess. LLM-DEP: Each segment requires a real LLM call, and the final merge call must produce a coherent combined summary — coherence is an LLM output quality claim. MULTI-STEP: The behavior requires (a) multiple STT calls for each segment, (b) multiple LLM summarization calls for each segment's transcript, and (c) at least one LLM merge call to produce the final output. That is a sequence of multiple real agentic steps. A single Agentic test covers one model call; only a Workflow test covers the full sequential chain. REJECTION-GATE: Considered Agentic (single merge call) — rejected because the behavior explicitly describes sequential processing of multiple segments before the merge; a single agentic call does not exercise segment ordering, state handoff between segments, or whether context from segment N is carried into segment N+1's merge.",
+      "test_description": "Submit a real audio file of ~65 minutes (or two concatenated 35-minute clips) to the full segmentation pipeline with the real STT API and real LLM. Assert that: (1) the pipeline produces exactly the expected number of segments given the file duration, (2) the final merged summary is a single structured output object (not a list), (3) action items and decisions from both halves of the meeting appear in the merged output, and (4) no duplicate action items exist for the same assignee/task pair.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.04,
+        "System": 0.05,
+        "Agentic": 0.22,
+        "Workflow": 0.67
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The full pipeline (upload audio, transcribe, summarize, deliver structured output) completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: By definition this is an end-to-end test; every stage must run. REAL-INFRA: Real HTTP upload, real STT API call, real LLM call, real delivery mechanism. MULTI-STEP: The behavior names four sequential stages, each involving real external services, including multiple AI/ML calls (STT diarization + LLM summarization). No subset of these steps constitutes the full behavior. LLM-DEP: Both STT (ML diarization) and LLM summarization are real AI model calls in the critical path. REJECTION-GATE: Considered System (end-to-end HTTP) — rejected because real LLM and STT model output quality is part of the success criterion (the output must be a valid structured summary, not just a 200 response). Considered Agentic — rejected because the pipeline is explicitly multi-step and includes at least two distinct AI/ML model invocations in sequence.",
+      "test_description": "Using a real, pre-recorded meeting audio file (~15 minutes, containing at least two speakers, one explicit task assignment, and one stated decision), invoke the full pipeline end-to-end. Assert that: (1) the pipeline returns a structured summary object with no error, (2) action_items is non-empty and each item has a non-empty assignee, (3) decisions is non-empty, (4) the attendees list reflects the speaker labels from the STT output, and (5) no step required manual retry or intervention.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0,
+        "System": 0.03,
+        "Agentic": 0.1,
+        "Workflow": 0.87
+      }
+    }
+  ]
+}

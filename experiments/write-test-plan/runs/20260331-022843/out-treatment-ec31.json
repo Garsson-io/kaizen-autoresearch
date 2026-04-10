@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This is a single parsing/segmentation function's logic — the failure mode is purely algorithmic (wrong output given a multi-line string input) with no module handoff involved. REAL-INFRA: Pure string processing, zero I/O. MOCK-HIDE: Nothing to mock. LLM-DEP: Deterministic. MULTI-STEP: No. The bug's root cause starts here, but the function boundary is self-contained. A unit test with a hardcoded multi-line input and an assertion on the returned segment list catches a real regression. REJECTION-GATE: Integration would require multiple modules interacting; the behavior text says 'treats newline-separated statements as separate segments' — that is a single function's contract, not a handoff.",
+      "test_description": "Call the segmentation function directly with a multi-line string containing two variable assignments followed by a `gh pr create` invocation (all separated by newlines). Assert the returned collection has three distinct segments matching the three statements, not a single monolithic entry.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.11,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The actual incident failure (`not_a_trigger` returned for the full block) only manifested when the segmentation output fed into the classification stage. Testing the classifier in isolation with pre-split input would not reproduce the bug — the failure lives at the module handoff (segmenter → classifier). REAL-INFRA: No OS/network needed; an in-process pipeline test suffices. MOCK-HIDE: Mocking the segmenter hides the integration failure. LLM-DEP: Deterministic pattern matching. MULTI-STEP: No. INTEGRATION-BRAKE: (a) No real OS/network. (b) No AI/ML output dependency. (c)/(d) No agentic steps. Integration is correct. REJECTION-GATE: Unit is disqualified because the behavior text says the 'hook' (not an isolated function) must 'recognize' the block — the recognition pipeline must be wired together to catch the real failure.",
+      "test_description": "Feed a multi-line shell block (e.g., `VAR1=value\\nVAR2=other\\ngh pr create --title 'Fix bug' --body ''`) directly into the hook's full recognition pipeline (segmenter wired to classifier). Assert the pipeline returns a PR-create trigger classification, not `not_a_trigger`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.63,
+        "System": 0.08,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The false-positive risk lives at the same segmenter → classifier boundary as behavior 2. Passing pre-split segments to the classifier in isolation might pass even if the pipeline mis-segments and then mis-classifies the full block. REAL-INFRA: No OS/network. MOCK-HIDE: Mocking the segmenter hides the distinguishing logic. LLM-DEP: Deterministic. MULTI-STEP: No. INTEGRATION-BRAKE: No upgrades triggered. The behavior tests specificity of the pipeline, not just one function. REJECTION-GATE: Unit is disqualified because the multi-line context means segmentation must run first; a unit test on the classifier alone with a hand-crafted `gh issue create` segment does not cover the real failure path where segmentation interacts with classification.",
+      "test_description": "Feed a multi-line shell block ending with `gh issue create` (e.g., `VAR=val\\ngh issue create --title 'Bug report'`) through the full recognition pipeline. Assert the result is not a PR-create trigger and that no review gate state is signaled.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.32,
+        "Integration": 0.57,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Three sub-steps must cooperate: detection, identifier reconstruction, and filesystem persistence. A unit test of any one step in isolation cannot catch a mismatch between reconstruction output and the file writer's expected format. REAL-INFRA: Writing to a real temp directory is a local filesystem operation — an in-process fake (StringIO or mock open) would hide real file-creation failures (wrong path, permissions, serialization bugs). A real temp dir is the right fixture; this stays at Integration, not System, because no network, subprocess, or OS-primitive behavior is required. MOCK-HIDE: Mocking `open()` hides real serialization and path-construction bugs. LLM-DEP: No. MULTI-STEP: No agentic steps. REJECTION-GATE: System is disqualified because the behavior text does not mention subprocess invocation or real external APIs — a real temp directory suffices.",
+      "test_description": "Invoke the hook's post-detection handler with a synthetic tool-use event representing a `gh pr create` command and a captured tool output containing a PR URL. Point the state file path at a real temp directory. Assert that a state file is created, is parseable, and contains the reconstructed PR identifier (number or URL) extracted from the tool output.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.68,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure boundary is the file-format contract between two separately-invoked hook processes. REAL-INFRA: In the Claude Agent SDK, PostToolUse and PreTool hooks are shell commands executed as real subprocesses. The pre-tool enforcement hook reads the state file in its own subprocess environment. An in-process test where both hooks are imported as Python modules does not reproduce format mismatches, path-resolution differences, or encoding issues that only appear when each hook runs in its own subprocess with its own working directory. The failure mode is a cross-process file-format contract — real subprocess invocation of both hooks is needed. MOCK-HIDE: Mocking one hook's file-read logic hides the exact incompatibility the behavior is designed to catch. LLM-DEP: No. MULTI-STEP: Two distinct subprocess executions (post-tool write, pre-tool read+enforce) are required. REJECTION-GATE: Integration is disqualified because 'the pre-tool enforcement hook can read and enforce' implies the enforcement hook must actually execute; if it runs as a subprocess (as SDK hooks do), an in-process test replaces that with an import, which can hide path, encoding, or env-variable issues.",
+      "test_description": "In a temp directory, invoke the PostToolUse hook as a real subprocess with a synthetic `gh pr create` tool-use event piped to stdin. Then invoke the PreTool enforcement hook as a real subprocess with a subsequent tool-use event (e.g., a Bash command). Assert: (1) the state file exists and is non-empty after the first subprocess, (2) the PreTool hook subprocess exits with a non-zero code or produces an enforcement message indicating the PR review gate is active, proving it successfully read and acted on the written state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.28,
+        "System": 0.58,
+        "Agentic": 0.07,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

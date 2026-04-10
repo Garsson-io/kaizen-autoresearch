@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-16",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Only files changed in the pull request are analyzed — unchanged files are not scanned.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the boundary between the PR file-selection layer (GitHub API or git-diff subprocess) and the linter invocation. A pure Unit test on an isolated filter function would not catch bugs where the wrong input is fetched from the API before filtering. REAL-INFRA: The changed-file list comes from the GitHub API or a git command; both can be stubbed in-process with a fake HTTP client or fake git response, so real network is not required. A stub API response lets us inject a known set of changed files and assert the linter is invoked with exactly those paths. REJECTION-GATE: System was considered but rejected because the failure mode — wrong file list passed to linter — is fully reproducible with an in-process stub of the GitHub API; real network is not required to expose the bug.",
+      "test_description": "Wire the file-selection module (pointed at a stub GitHub API returning a fixed list of changed file paths) with the linter-invocation module (with linter stubbed to record which files it receives). Assert that the set of files the linter is asked to analyze exactly matches the changed files reported by the stub API, and contains no paths that were not in that list.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.02,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Findings are grouped by severity (error, warning, info) in the posted PR comment.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the grouping and comment-formatting logic itself. This is a pure transformation: a list of findings goes in, a structured comment string or data structure comes out. The bug (e.g., findings under the wrong severity bucket, a severity section missing) appears within a single function and does not require any module handoff to manifest. REAL-INFRA: No filesystem, network, subprocess, or OS primitives are involved. MOCK-HIDE: There is nothing to mock — the grouping function operates on in-memory data. LLM-DEP: No AI/ML model involved. REJECTION-GATE: Integration was considered but rejected because the grouping logic is self-contained; the failure does not require wiring multiple modules together.",
+      "test_description": "Call the finding-grouper/comment-formatter function directly with a list of synthetic Finding objects spanning all three severity levels (including mixed ordering). Assert that the resulting output contains three distinct sections (error, warning, info) and that each finding appears under the correct severity heading with no cross-contamination.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.17,
+        "System": 0.02,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A pull request that touches 200 files completes analysis within the 10-minute Actions timeout.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: This is an end-to-end performance boundary. The failure only materialises when the real linter subprocess runs against real on-disk files at the actual scale of 200 inputs. An in-process stub of the linter would complete instantly regardless of file count, masking any per-file startup overhead, I/O latency, parallelism bugs, or subprocess-spawning cost that causes the real pipeline to breach the timeout. MOCK-HIDE: Any mock or in-process fake would always pass this test, because the fake has no real computational cost. Therefore a real subprocess and real file I/O are mandatory. REJECTION-GATE: Integration was considered and rejected — an in-process fake cannot reproduce the real timing characteristics of spawning and running the linter process at scale. Workflow was considered but rejected because the performance assertion does not require a multi-step agentic pipeline; it needs only real subprocess execution under realistic load.",
+      "test_description": "Create 200 real source files on disk in a temp directory, invoke the full lint-step entrypoint (as a subprocess or via its main function with no mocking of the linter child process), record wall-clock elapsed time, and assert it is under 600 seconds. Include a sample of files that exercise the heaviest lint rules to avoid an optimistic best-case scenario.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.87,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the linter process crashes on a malformed file, the remaining files are still analyzed and results posted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure appears at the module boundary between the linter-orchestration layer (which spawns/manages the linter process per file) and the result-aggregation layer. A Unit test on the orchestrator in isolation could not confirm that state from a crashed invocation does not poison the loop, nor that partial results are correctly forwarded to the result aggregator. REAL-INFRA: The linter process crash can be faithfully simulated by a stub subprocess that returns a non-zero exit code or raises an OSError; real subprocess behavior is not needed to expose the bug in the orchestrator's error handling. The failure — skipping remaining files after a crash — is detectable at the module-boundary level with an in-process fake. REJECTION-GATE: System was considered but rejected: the failure mode (orchestrator aborts on crash) is fully reproducible by injecting a stub that mimics a crashed process, without requiring the real linter binary.",
+      "test_description": "Wire the orchestrator module with a stub linter that crashes (raises subprocess error or returns exit code 139) on a designated 'malformed' file but succeeds on all others. Provide a list of N files including the malformed one. Assert that (a) results are collected for all N-1 healthy files, (b) the crashed file is recorded with an error status, and (c) the comment-posting stub is called with findings covering the healthy files.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.68,
+        "System": 0.19,
+        "Agentic": 0.015,
+        "Workflow": 0.015
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate findings on the same line from overlapping rules are deduplicated in the output.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the deduplication function's logic — the wrong equality key, a missing normalization step, or an off-by-one on line numbers. This failure does not require any module interaction to surface. REAL-INFRA: No filesystem, network, subprocess, or OS primitives involved. The function operates on an in-memory collection of Finding objects. MOCK-HIDE: Nothing to mock — the deduplication is a pure transformation. REJECTION-GATE: Integration was considered but rejected because the bug appears within a single function boundary and does not require wiring multiple modules together to reproduce.",
+      "test_description": "Call the deduplication function directly with a list of Finding objects that includes exact duplicates (same file, same line, same rule, same message) and near-duplicates (same line, different rule — must NOT be deduplicated). Assert that the output contains exactly one entry per unique (file, line, rule) key, and that near-duplicates with differing rules are preserved as distinct entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

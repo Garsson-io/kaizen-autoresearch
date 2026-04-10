@@ -1,0 +1,166 @@
+{
+  "task_id": "EC-30",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Products marked as out-of-stock are excluded from recommendation results regardless of their relevance score.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is entirely within the filtering function — does it correctly gate on stock status before or after scoring? No module boundary crossing is needed. REAL-INFRA: No OS/network/subprocess dependency; product data is pure in-memory. LLM-DEP: The filter is deterministic logic, not model output. The 'regardless of relevance score' clause is the key invariant: a unit test can supply fake products with high scores and out-of-stock flags and assert none appear in output. REJECTION-GATE for Integration: the behavior tests one function's filter logic, not a state handoff between modules.",
+      "test_description": "Construct a list of fake Product objects covering all combinations: (in-stock, high score), (in-stock, low score), (out-of-stock, high score), (out-of-stock, low score). Pass this list directly to the availability-filter function. Assert that no out-of-stock product appears in the returned set, regardless of relevance score value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The user preference filter correctly excludes product categories the user has explicitly blocked in their settings.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The failure is in the filter logic itself — does it read the blocked-category list and apply it correctly? This is a pure function mapping (user settings, product list) → filtered list. REAL-INFRA: No infrastructure required; user settings and product catalog are in-memory objects. LLM-DEP: Fully deterministic. REJECTION-GATE for Integration: no module boundary is crossed; reading user preferences and applying a category exclusion set is a single logical operation that can be tested with real Pydantic model instances for both user settings and products.",
+      "test_description": "Create a UserSettings model instance with two explicitly blocked categories (e.g., 'Electronics', 'Apparel'). Build a product list spanning blocked and allowed categories. Invoke the preference-filter function directly. Assert every product from a blocked category is absent from the result, and every product from an allowed category is present.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.75,
+        "Integration": 0.2,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The recommendation algorithm ranks products that match the user's recent browsing patterns higher than products with no browsing signal.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The system description states the algorithm 'weighs purchase history, browsing patterns, and similar-user behavior' — this is a learned ranking model (collaborative filtering or learning-to-rank). Correctness depends on what the model actually scores for a given user-product pair. A deterministic stub that always returns fixed scores cannot verify whether the model actually elevates browsed-category products. MOCK-HIDE: Any mock of the ranker produces a constant ranking; the test will always pass even if the model is broken. REJECTION-GATE for Integration: no text in the behavior disqualifies Agentic — 'ranks... higher' is a quality-of-output claim about the model, not an infrastructure or routing claim.",
+      "test_description": "Using the real recommendation engine, create a test user profile with recorded browsing events for Category A and none for Category B. Populate a shared product catalog with items from both categories. Request recommendations. Assert that the mean rank position of Category A products is statistically better (lower rank index) than that of Category B products across multiple runs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.17,
+        "System": 0.05,
+        "Agentic": 0.7,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Pagination returns the correct page of results, with stable ordering — requesting page 2 twice returns identical results if the underlying data hasn't changed.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Stability requires that the ranking pipeline and the pagination slice agree on a consistent cursor or offset between calls — a bug where ordering is non-deterministic across requests only surfaces when the ranking module and pagination module are wired together. REAL-INFRA: No OS/subprocess required; an in-process fake catalog catches ordering instability. LLM-DEP: Pagination and stable ordering are deterministic operations on top of the algorithm's output; the test asserts slice consistency, not ranking quality — a deterministic stub for the ranker is sufficient to expose ordering bugs. INTEGRATION-BRAKE: (a) No; (b) No, the assertion is about list-slice identity, not model judgment.",
+      "test_description": "Wire the recommendation service with a fixed stub ranker that returns a deterministic sorted list. Request page 2 (e.g., items 11–20) twice in succession without modifying any state. Assert the two responses are byte-identical. Also assert no item from page 1 appears in page 2 and vice versa. Run an additional check requesting pages 1–3 and verifying their union equals the full ranked list with no duplicates.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The recommendation algorithm surfaces at least one product from a category the user hasn't browsed before (serendipity requirement), avoiding a filter bubble.",
+      "minimum_level": "Integration",
+      "justification": "The behavior frames this as a 'requirement' — a hard system constraint, implying it is enforced by a deterministic post-processing rule (e.g., 'always inject the top-popularity product from an unexplored category') rather than relying on the ML model to naturally diversify. MOCK-MISS: The failure would appear when the serendipity injector and the main recommendation pipeline are wired together — the injector must receive the user's browsed category set and the full catalog. REAL-INFRA: No OS/network required. LLM-DEP: If the serendipity rule is deterministic (as implied by 'requirement'), no ML output quality is needed. REJECTION-GATE for Agentic: the word 'requirement' is concrete disqualifying evidence — it signals a rule, not emergent model behavior. INTEGRATION-BRAKE: (a) No; (b) No, the assertion is a hard count constraint, not quality judgment.",
+      "test_description": "Create a test user whose entire browsing history is confined to Category A. Load a catalog containing products from Categories A, B, and C. Invoke the full recommendation pipeline (ranker + serendipity injector). Assert that at least one product from a category other than A appears in the result set. Run this for multiple user profiles to confirm the rule fires consistently.",
+      "plan_consistent": true,
+      "plan_consistent_note": "plan_consistent assumes serendipity is a deterministic post-processing rule. If it is left entirely to the ML model, the minimum level rises to Agentic.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.5,
+        "System": 0.04,
+        "Agentic": 0.34,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A new user with no purchase or browsing history receives recommendations based on overall popularity rather than an empty result set.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The cold-start fallback only triggers when the user-history lookup returns empty — this is a conditional branch in the orchestration layer that routes to the popularity-ranking module instead of the personalized ranker. Both modules must be wired together for the branch to be observable. REAL-INFRA: No OS/subprocess required; an in-process fake popularity store suffices. LLM-DEP: Popularity ranking is deterministic (count-based or aggregate-based), not ML-output-dependent. INTEGRATION-BRAKE: (a) No; (b) Popularity ranking is not an AI/ML judgment call.",
+      "test_description": "Seed the popularity index with known product counts. Create a new UserProfile with empty purchase history and empty browsing events. Call the recommendation service. Assert the response is non-empty. Assert the returned products are ordered by descending popularity score (matching the seeded counts). Assert no personalization signals (browsing boost, purchase penalty) are applied.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.12,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Click tracking records the correct product ID, position in the list, and timestamp for each recommendation the user interacts with.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure surfaces at the boundary between the click-handler and the storage layer — is the position index correctly captured from the rendered list, and is it faithfully written to the event store? A unit test of the handler in isolation cannot verify the storage write. REAL-INFRA: An in-process fake event store (e.g., in-memory list or test DB) captures correctness without real network. MOCK-HIDE: Mocking the storage write would make the test vacuous. LLM-DEP: No ML involved. INTEGRATION-BRAKE: (a) No real OS/network required — a local fake store suffices; (b) No ML.",
+      "test_description": "Invoke the click-tracking handler with a ClickEvent model instance specifying a known product ID, a specific list position, and a fixed timestamp. Assert the event store contains exactly one record matching all three fields. Repeat for two different positions in the same recommendation list to confirm position is captured independently per item.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.73,
+        "System": 0.1,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 8,
+      "description": "The response time for generating recommendations stays under 200ms for a catalog of 100,000 products.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: Latency at scale depends on real CPU/memory pressure, real index lookup times, and real serialization overhead — none of these can be faithfully reproduced with an in-process fake at 100,000 records. An integration test with a 100-item stub will pass trivially. MOCK-HIDE: Any mock of the catalog hides the O(N) scan or index cost that causes real latency violations. LLM-DEP: Performance is independent of model output quality (though if the ranker is a real ML model, its inference time also matters — still System, not Agentic, since we are measuring wall-clock time, not output quality). REJECTION-GATE for Integration: behavior explicitly calls out 100,000 products as the threshold — the failure only manifests at that data volume with real execution.",
+      "test_description": "Populate a local test database with 100,000 Product records using a data-generation script. Start the recommendation service as a real subprocess (or against a real test server). Issue 50 recommendation requests for varied user profiles. Record wall-clock response time for each. Assert the 95th-percentile latency is below 200ms. Assert the maximum observed latency is below 200ms.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.82,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 9,
+      "description": "When a recommended product is purchased by the user, the recommendation algorithm deprioritizes it in subsequent requests.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: 'Deprioritizes' (not 'excludes') implies the ML ranking model adjusts the product's score downward based on purchase signal — this is model-output quality. A deterministic stub always returns fixed scores; it cannot verify whether purchase feedback actually lowers the learned score. MOCK-HIDE: Any mock of the ranker always passes regardless of whether the model has ingested the purchase event. REJECTION-GATE for Integration: the behavior says 'recommendation algorithm deprioritizes' — the mechanism is inside the algorithm, not in surrounding infrastructure. I cannot disqualify Agentic because the word 'deprioritizes' refers to the algorithm's scoring decision, not a deterministic filter. REJECTION-GATE for Workflow: the behavior is a single feedback loop step, not a multi-step agent pipeline.",
+      "test_description": "Using the real recommendation engine, obtain an initial ranked list for a test user. Record the rank of product P. Simulate a purchase of product P by submitting a purchase event. Request a new recommendation list for the same user. Assert that product P's rank position has decreased (higher index number) compared to the first request, or that its score is measurably lower.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.28,
+        "System": 0.05,
+        "Agentic": 0.59,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 10,
+      "description": "The recommendation results are deterministic for the same user state — requesting recommendations twice with no intervening user activity returns the same ranked list.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The recommendation algorithm weighs multiple learned signals. If it includes any stochastic component (random tie-breaking, dropout at inference, approximate nearest-neighbor with randomized probes), determinism is a property of the real model's configuration — not of surrounding code. A deterministic mock always passes trivially; it says nothing about whether the real model is seeded and configured for reproducible output. MOCK-HIDE: Any stub is by definition deterministic, making the test vacuous. REJECTION-GATE for Integration: the behavior asserts 'deterministic results' for the ranking algorithm specifically. I cannot disqualify Agentic; the only concrete disqualifier would be text confirming the algorithm is a pure deterministic function with no ML component, which is absent. REJECTION-GATE for Workflow: single-step, not a multi-agent pipeline.",
+      "test_description": "Using the real recommendation engine with a fixed user profile and catalog snapshot, issue two identical recommendation requests in sequence with no state changes between them. Assert the full ranked list (product IDs in order) from request 1 equals the full ranked list from request 2. Repeat across 5 different user profiles to guard against accidental per-profile determinism.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.22,
+        "System": 0.05,
+        "Agentic": 0.65,
+        "Workflow": 0.05
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: The failure boundary is whether the AI vision model correctly classifies explicit content — not whether the routing code runs. A stub always returns the same label, so it can never reveal that the model misclassifies explicit material as clean. LLM-DEP: Model output quality (classification accuracy) determines correctness. REJECTION-GATE: A mock/stub was considered and rejected because it replaces the model's actual judgment with a constant, making any classification failure invisible. No behavior text disqualifies Agentic.",
+      "test_description": "Submit a curated set of known-explicit test images directly through the moderation pipeline using the real AI vision model. Assert that each image produces a 'flag' decision and the post is routed to the human-review queue, never to the publish path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.04,
+        "Agentic": 0.73,
+        "Workflow": 0.15
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The specific failure mode is whether the real AI text model can detect hate speech that has been obfuscated. A deterministic stub always returns the same result regardless of obfuscation, so any model-level weakness against unicode lookalikes or substitution ciphers is invisible. REJECTION-GATE: The word 'regardless of obfuscation techniques' directly asserts model robustness — a property only the real model can demonstrate. No disqualifying text removes the Agentic requirement.",
+      "test_description": "Construct a test corpus of hate speech samples in their original form plus multiple obfuscated variants (l33t-style substitution, homoglyph unicode, deliberate misspellings). Feed each sample to the real AI text model via the moderation pipeline and assert every variant is flagged, not published.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.03,
+        "Agentic": 0.85,
+        "Workflow": 0.07
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure mode here is orchestration: given 'clean' results from both checkers, does the routing layer actually invoke publish()? This is a module-boundary handoff bug, not a model-quality bug. LLM-DEP: Both checkers can be stubbed to return 'clean' deterministically — the assertion is about what the orchestration code does with those results, not what the models produce. REAL-INFRA: No real OS, network, or subprocess is needed; an in-process fake for each model plus a spy on the publish path is sufficient. REJECTION-GATE: 'silently dropped' implies we must verify the publish path is actually invoked (not just the decision is correct), which requires module wiring — but a stub-driven integration test fully catches that failure.",
+      "test_description": "Wire the image-check module and text-check module with stubs that return 'clean', connect them to the orchestrator, and submit a test post. Assert the orchestrator calls the publish path exactly once and does not invoke the hold or discard paths.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.07,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: The behavior explicitly names three sequential stages (image check → text check → publish decision), which is a full agent pipeline. REAL-INFRA: End-to-end latency with stub models measures only orchestration overhead and is trivially fast, hiding any SLA violation that comes from real AI API call latency. LLM-DEP: Both AI model calls contribute their real round-trip time to the 5-second budget. REJECTION-GATE: A timed test with stubs always passes (sub-millisecond) and cannot reveal whether the real pipeline meets the SLA. The behavior must be tested with real model calls in sequence.",
+      "test_description": "Submit a realistic image-plus-text post to the full production pipeline using real AI vision and text model endpoints. Record wall-clock time from submission receipt to publish-or-hold decision. Assert elapsed time is under 5 seconds across at least N representative samples (including borderline cases that may trigger deeper model inference).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.07,
+        "Agentic": 0.13,
+        "Workflow": 0.75
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure is in the error-handling branch of the orchestrator: when the vision model call raises a connection/timeout error, does the system enqueue the post or fall through to auto-approve? This is a module-boundary state transition, not a model quality issue. LLM-DEP: The 'unavailable' condition is deterministic — a stub that raises ConnectionError faithfully simulates it. REAL-INFRA: The retry queue can be an in-process fake; the failure (auto-approve instead of enqueue) is exposed entirely by checking which path the orchestrator takes after catching the error. REJECTION-GATE: Integration with a stubbed failing model and a fake queue fully captures the relevant failure; real network/infra failure is not required to observe the bug.",
+      "test_description": "Configure the AI vision model dependency with a stub that raises a service-unavailable exception on every call. Submit an image post through the orchestrator. Assert the post is placed on the retry queue and is not marked as approved or published. Verify no auto-approve flag is set on the queued item.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.11,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: The failure mode is AI model non-determinism on borderline inputs. A stub always returns the same constant, so it trivially satisfies consistency without revealing real model variance (e.g., temperature-driven flip between 'flag' and 'pass' on an ambiguous image). MOCK-HIDE: Mocking guarantees consistency by construction, making this test always pass regardless of real model behavior. The word 'borderline' specifically signals cases where the model is near its decision boundary — the exact regime where non-determinism is most likely. REJECTION-GATE: No system-level caching or idempotency mechanism is mentioned in the behavior; the assertion is about 'moderation decision' consistency, which is a model output property, not an infrastructure property. Workflow is not required because only one model stage (vision) is exercised per submission.",
+      "test_description": "Select a set of borderline images (calibrated to sit near the model's classification threshold). Submit each image to the real AI vision model-backed pipeline at least 10 times in rapid succession. Assert that all 10 decisions for each image are identical (all 'flag' or all 'pass'), with no flip between decisions for the same image.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.04,
+        "Agentic": 0.8,
+        "Workflow": 0.1
+      }
+    }
+  ]
+}

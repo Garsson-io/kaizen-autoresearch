@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-34",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Branch staleness detection correctly identifies branches with commits not in main, older than the configured age threshold, and no open PR.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure emerges at the boundary where git-log comparison, age arithmetic, and PR-state lookup are wired together — a bug in any handoff (e.g., age threshold applied to wrong timestamp, PR lookup short-circuiting the commit check) is invisible in unit tests. REAL-INFRA: Git commit comparison and branch age require a real local git repo; a fake git abstraction would pass trivially. The PR state check can be served by an in-process stub HTTP client, so a real remote API is not required. MOCK-HIDE: Mocking the git layer would hide failures in how the detection logic assembles all three conditions. LLM-DEP: None. REJECTION-GATE: System was considered because git operations go through subprocess; rejected because a local git repo fixture (created in-test via `git init` / `git commit`) fully reproduces the failure modes without a real remote or OS-level network call.",
+      "test_description": "Create a local git fixture with a branch that has two commits not present in main, dated beyond the configured threshold. Wire a stub PR API client that returns no open PRs for the branch. Run the staleness detector and assert it returns `stale-no-pr` with the correct branch context. Also assert a branch that is within the age threshold is not returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Session-start setup emits a stale-work warning with actionable branch context when the current branch is stale.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure lives at the boundary between session bootstrap, staleness detection, and warning emission — the bootstrap must call detection, receive the stale result, and format and emit the warning. A unit test of just the warning formatter or just the detector would not catch a missing call-site or a broken data handoff. REAL-INFRA: Requires a real local git repo so the bootstrap reads actual branch state; the PR check can be stubbed. No real HTTP or remote needed. MOCK-HIDE: Mocking the detector to always return stale would pass even if bootstrap never calls it. LLM-DEP: The warning emission is deterministic; no LLM output governs correctness. REJECTION-GATE: System considered because session bootstrap may involve subprocess git calls; rejected because a local git repo fixture covers the failure mode without a real remote API or OS network call.",
+      "test_description": "Initialize a local git repo fixture on a stale branch (commits not in main, age beyond threshold). Stub the PR API to return no open PRs. Invoke the session-bootstrap entry point and capture emitted output or log records. Assert that the warning message contains the branch name and at least one actionable hint (e.g., 'create a PR').",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A local status-classifier function maps computed branch state to labels (`clean`, `stale-no-pr`) deterministically.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior explicitly describes a single local function with a deterministic mapping from branch state inputs to string labels. The failure boundary is entirely inside one function — wrong label returned for a given input combination. REAL-INFRA: No OS, network, subprocess, or filesystem involvement; all inputs are in-memory data structures. MOCK-HIDE: Nothing to mock; inputs are constructed directly in the test. LLM-DEP: None — 'deterministically' is stated explicitly in the behavior. REJECTION-GATE: Integration was considered because the classifier is part of a larger pipeline; rejected because the behavior text explicitly scopes it to 'a local status-classifier function' with deterministic mapping — the module boundary failure mode does not apply here.",
+      "test_description": "Call the status-classifier function directly with parametrized inputs covering all relevant combinations: (commits ahead of main=0, age<threshold, no PR → `clean`), (commits ahead>0, age>threshold, no PR → `stale-no-pr`), (commits ahead>0, age<threshold, no PR → `clean`). Assert the returned label matches the expected value for each case.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "/kaizen-wip against live repo and PR state distinguishes 'clean' from 'has commits but no PR (STALE)' in rendered output.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: The behavior text explicitly states 'against live repo and PR state' — live PR API (GitHub/GitLab) and real git remote state are required. An in-process stub always returns a controlled response and cannot reveal failures caused by real API pagination, auth, rate limiting, or real branch/PR state divergence. MOCK-HIDE: Stubbing the PR API would make this test trivially pass regardless of whether the rendered output correctly reflects real PR state. LLM-DEP: None. MOCK-MISS: The failure is specifically about whether rendered output matches real external state — that boundary only manifests with the real external system. REJECTION-GATE: Integration considered but disqualified by the explicit 'live repo and PR state' language in the behavior, and by the REAL-INFRA rule that in-process fakes hide real HTTP response failures.",
+      "test_description": "Against a real git remote and PR API (test org/repo), run the `/kaizen-wip` command for a branch with known unpublished commits and no open PR, and for a branch with no unpublished commits. Parse the rendered output and assert the first branch shows the STALE label and the second shows clean. Use a dedicated test repository to avoid interference with production state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.08,
+        "System": 0.85,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Branches with open or merged PRs are not flagged as stale-no-PR false positives.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The false-positive failure appears at the boundary between the staleness detector and the PR state fetcher — the detector must receive PR state, check it, and suppress the stale label. A unit test of the classifier (behavior 3) only tests the mapping function with pre-computed state; this behavior tests that the state is correctly computed when a PR exists. REAL-INFRA: PR state can be served by an in-process stub client returning 'open' or 'merged'; no real HTTP required to catch the false-positive logic error. The git side needs a local repo fixture with commits ahead of main. MOCK-HIDE: Mocking only the classifier would hide a bug where the detection pipeline fails to pass PR state through at all. LLM-DEP: None. REJECTION-GATE: Unit considered because the classifier handles this case (behavior 3); rejected because behavior 5 tests the full detection pipeline's handling of PR state, not just the classifier in isolation.",
+      "test_description": "Using a local git repo fixture with commits ahead of main and beyond the age threshold, test two scenarios: (a) stub PR API returns an open PR for the branch — assert the branch is NOT flagged stale; (b) stub PR API returns a merged PR — assert the branch is NOT flagged stale. Contrast against the no-PR case to confirm the suppression logic is the differentiating factor.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Staleness detection remains correct across rebases or squash merges where commit hashes change but branch state should no longer be classified as unPRed stale work.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: The failure emerges at the boundary between git commit-hash comparison logic and PR state lookup — after a squash merge, `git log main..branch` will still show the original commits (different hashes), so a detector relying solely on commit presence would produce a false positive. The fix requires the PR state (merged) to override the commit-hash signal. This interaction is invisible in a unit test of the classifier. REAL-INFRA: A local git repo fixture can faithfully simulate a squash merge (`git merge --squash`) without a real remote. The PR state check (merged) can be served by an in-process stub. No real network needed to reproduce the failure. MOCK-HIDE: Mocking the git layer would hide the hash-mismatch failure entirely. LLM-DEP: None. REJECTION-GATE: System considered because git squash/rebase may have subtle behavior differences; rejected because `git merge --squash` in a local fixture reliably produces the commit-hash divergence that exposes this bug, requiring no remote or OS network call.",
+      "test_description": "Create a local git repo fixture: make commits on a feature branch, perform a squash merge into main (so original commit hashes no longer appear in main's history), and reset the feature branch to before the squash. Stub the PR API to return a merged PR for the branch. Run staleness detection and assert the branch is NOT classified as `stale-no-pr`. Also run without the merged PR stub and assert it IS classified stale, to confirm the merged-PR signal is what suppresses the false positive.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    }
+  ]
+}
