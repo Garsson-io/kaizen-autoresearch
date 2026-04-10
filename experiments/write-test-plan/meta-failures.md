@@ -445,3 +445,19 @@ Most recent failures were not "bad wording only"; they were **promotion errors**
 
 **Why this matters**:
 Apr 10-11 regressions show the largest losses came from false-positive promotions, not from idea scarcity. Stability gating is higher leverage than inventing more variants.
+
+---
+
+### Top-loss targeting is necessary but not sufficient (Apr 11): explicit targeting still overfits without cross-slice stability
+
+**Status**: confirmed (multiple explores on 2026-04-11)
+
+**What happened**:
+- We explicitly targeted top weighted-loss pairs from MINE (`Integration→Agentic`, `Unit→Agentic`).
+- Two direct ideas (`non-negotiable-boundary-gates`, `agentic-floor-content-dependence-gate`) showed strong first-pass deltas but failed stability on rerun (winner flipped or delta collapsed).
+- One high-effort full-restructure attempt (`feature-extractor-plus-deterministic-mapper`) had a strong first pass, then `no-signal` on second pass.
+
+**Lesson**:
+- Targeting dominant weighted-loss pairs is a hard prerequisite, but by itself does not justify promotion.
+- Keep the two-pass explore stability gate strict: require repeated non-positive deltas with no sign flip before full-corpus promotion.
+- Treat first-pass big deltas on top-loss slices as hypothesis generators, not promotion evidence.
