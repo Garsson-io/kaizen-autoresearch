@@ -19,7 +19,7 @@ a real failure — not just to verify happy-path logic.
     - System: "API handles real HTTP timeouts under load" / "CLI behaves correctly on real subprocess exit codes" / "file watcher detects real OS filesystem events" — in-process fakes hide these failures.
   - **MOCK-HIDE**: Would mocking this dependency always pass, hiding a real failure? If yes → raise the level.
   - **LLM-DEP**: Does correctness depend on what a real LLM produces? → Agentic.
-    Think: would running this test 100 times with the real dependency give different outcomes? A deterministic API always returns the same result; an AI/ML model may classify or score differently each run. If outcomes vary → Agentic.
+    Think: would running this test 100 times with the real dependency give different outcomes in model judgment/content? If semantic output varies across runs, classify as Agentic.
     Default: if the behavior's correctness depends on AI/ML model output quality (classification accuracy, generation quality, ranking relevance, scoring calibration, moderation decisions), start at Agentic and demote to Integration only if the test truly needs nothing beyond deterministic stub responses.
     - Integration: "service routes requests to the correct model endpoint and retries on failure" — a stub endpoint catches this.
     - Agentic: "model classifies documents accurately" / "recommendations are relevant" / "generated summaries preserve key facts" — stubs always pass, hiding real failures.
