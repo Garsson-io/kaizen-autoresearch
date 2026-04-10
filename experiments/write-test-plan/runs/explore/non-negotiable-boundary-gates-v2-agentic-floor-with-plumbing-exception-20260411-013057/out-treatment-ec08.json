@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is pure backoff math (failure count + config -> delay). The text does not require module handoff, real timers, network, subprocesses, or AI output. Rejection gate: higher levels are disqualified by the behavior text focusing only on delay calculation: \"wait time ... doubles ... up to a configured maximum.\"",
+      "test_description": "Test a single backoff-calculation function with table-driven cases: consecutive failures 1..N, verify exponential growth and clamp at max delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.82,
+        "Integration": 0.16,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Real failure boundary is module interaction: response classifier + retry policy + backoff calculator. A unit test of only one function can miss miswiring (e.g., wrong status/header mapping). Integration brake: no real OS/network/subprocess required (a fake response object is enough), no AI dependency, no multi-agent chain. Rejection gate: System is disqualified because behavior says \"identifies a rate-limit response and computes wait time\" (can be reproduced in-process).",
+      "test_description": "Wire retry handler with backoff policy and feed synthetic HTTP-like responses (e.g., 429 plus retry headers). Assert retry decision=true and computed delay matches policy/headers precedence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears in orchestration across timer/scheduler, request replay, and response unwrapping. Need multiple modules wired, but not real HTTP: a stub transport plus fake clock can expose replay bugs. Integration brake: no required real OS/network/subprocess, no AI output, no multi-agent sequence. Rejection gate: System is disqualified by behavior text \"resends the original request\" and \"returns the successful result\"; both are verifiable with in-process transport doubles.",
+      "test_description": "Use fake clock + stub transport: first call returns rate-limit error, second returns success. Assert same request payload is resent after expected delay and caller receives final success value without retry details leaking.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "This checks interaction between retry counter exhaustion and error translation layer. A single-function unit test can miss that the thrown error type changes incorrectly at the boundary. Integration brake: no real OS/network/subprocess needed (stub repeated 429s), no AI dependence, no multi-step agent pipeline. Rejection gate: System is disqualified because behavior text is about typed error after retry count, not real network behavior.",
+      "test_description": "Configure max retries low; stub transport to always return rate-limit failure. Execute `call()` and assert rejection is `QuotaExhaustedError` with expected typed fields, not a generic/transport error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.74,
+        "System": 0.03,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "The failure boundary is end-to-end internal control flow across retry loop, backoff state, and quota tracker modules. This is beyond a single unit, but still reproducible with in-process doubles and fake time. Integration brake: no required real OS/network/subprocess, no AI output, no multi-agent chain. Rejection gate: System is disqualified because behavior text targets library-internal chain termination, not real infrastructure effects.",
+      "test_description": "Run `call()` with fake clock and always-rate-limited stub; advance time through all retries. Assert finite attempt count, terminal `QuotaExhaustedError`, and test-level timeout guard proving no infinite loop.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Real failure is shared-state handoff across concurrent callers and quota manager module. Unit tests of isolated functions miss race/coordination bugs. Integration brake: behavior explicitly says \"in the same process,\" which disqualifies System-level distributed/network needs; no AI dependency; no multi-agent pipeline.",
+      "test_description": "Create one client instance and fire many concurrent `call()` invocations using controlled stubs. Assert all attempts decrement/consult one shared bucket state and no per-caller independent quota state emerges.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.84,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "Ordering bugs emerge at queue + dispatcher + async scheduling boundaries, not in a single pure function alone. In-process concurrency harness is sufficient; real OS/network not required. Integration brake: no real infra requirement, no AI output dependency, no multi-agent steps. Rejection gate: System is disqualified because behavior text is queue dispatch order, which can be validated with stub transport and controlled scheduler.",
+      "test_description": "Enqueue multiple calls rapidly while send capacity is constrained; use deterministic scheduler/fake clock. Assert dispatch sequence matches submission order (FIFO) and completion order differences do not affect send order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.82,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}
