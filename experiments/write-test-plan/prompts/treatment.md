@@ -29,6 +29,7 @@ a real failure — not just to verify happy-path logic.
 
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
+  - **ADVERSARIAL-CRITIQUE**: Before finalizing each behavior, assume a competing model proposed your current label. Write one concrete flaw that could make it wrong; if no flaw can be tied to behavior text, keep the label.
 
 - **INTEGRATION-BRAKE**: If your chosen level is Integration, explicitly verify:
   (a) Does the failure need real OS/network/subprocess? If yes → System.
