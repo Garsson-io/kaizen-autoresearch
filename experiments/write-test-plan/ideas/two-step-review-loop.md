@@ -15,12 +15,12 @@ change_type: structural
 risk: Extra structure can increase verbosity and may overfit to process compliance instead of better level decisions.
 prereqs: Keep existing level definitions and gates intact; add only process constraints.
 related: [reverse-self-check, hypothesis-validation-step, evidence-ledger-decision-protocol]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-15, ec-08, ec-33, ec-27, ec-32, ec-19]
+explore_baseline_loss: 80.27
+explore_loss: 80.09
+explore_delta: -0.19
+explore_date: 2026-04-10
 ---
 
 ## Core idea
@@ -72,3 +72,17 @@ This directly targets a recurring failure mode: model gives correct caveats, the
 ## Scathing Critique
 
 If the model treats pass-2 as a formatting ritual, quality may not improve while cost/latency rises. The approach needs validation checks strong enough to detect fake compliance.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-15, ec-08, ec-33, ec-27, ec-32, ec-19`  
+Baseline subset loss: `80.27`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-two-pass-self-check | 80.0878 | -0.1863 | improved 1, hurt 1, flat 4 | ec-33 drives 67% of gain |
+| v2-pass-markers | 85.7232 | +5.4491 | improved 1, hurt 3, flat 2 | n/a |
+| v3-adjacent-challenge | 90.8792 | +10.6051 | improved 1, hurt 4, flat 1 | n/a |
+
+Winner: `v1-two-pass-self-check` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.

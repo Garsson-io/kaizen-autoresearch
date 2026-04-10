@@ -10,6 +10,7 @@
 #   ./run-eval.sh --corpus ec-04,ec-07,ec-09,ec-10   # specific tasks (default: auto-detect from corpus/)
 #   ./run-eval.sh --cli claude --model claude-haiku-4-5-20251001
 #   ./run-eval.sh --cli codex --model gpt-5.3-codex
+#   ./run-eval.sh --reasoning-effort high             # codex effort: low|medium|high|xhigh
 #   ./run-eval.sh -j 8                               # max 8 parallel probes (default: 6)
 #   ./run-eval.sh --no-latest                        # skip updating runs/latest symlink (explore mode)
 #
@@ -23,6 +24,7 @@ PROMPT_FILE="$SCRIPT_DIR/prompts/treatment.md"
 CONDITION="treatment"
 MODEL="gpt-5.3-codex"
 CLI="codex"
+REASONING_EFFORT="medium"
 MODEL_SET=false
 ROUND=1
 RUN_TS=$(date +%Y%m%d-%H%M%S)
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --condition) CONDITION="$2";    shift 2 ;;
     --cli)       CLI="$2";          shift 2 ;;
     --model)     MODEL="$2"; MODEL_SET=true; shift 2 ;;
+    --reasoning-effort) REASONING_EFFORT="$2"; shift 2 ;;
     --round)     ROUND="$2";        shift 2 ;;
     --out-dir)   OUT_DIR="$2";      shift 2 ;;
     --corpus)    CORPUS_CSV="$2";   shift 2 ;;
@@ -54,6 +57,10 @@ done
 
 if [[ "$CLI" != "claude" && "$CLI" != "codex" ]]; then
   echo "ERROR: --cli must be 'claude' or 'codex'" >&2
+  exit 1
+fi
+if [[ "$REASONING_EFFORT" != "low" && "$REASONING_EFFORT" != "medium" && "$REASONING_EFFORT" != "high" && "$REASONING_EFFORT" != "xhigh" ]]; then
+  echo "ERROR: --reasoning-effort must be one of: low|medium|high|xhigh" >&2
   exit 1
 fi
 
@@ -85,6 +92,7 @@ without external dependencies. Implementation uses straightforward adapter patte
 
 echo "=== run-eval: condition=$CONDITION round=$ROUND model=$MODEL ==="
 echo "cli: $CLI"
+echo "reasoning_effort: $REASONING_EFFORT"
 echo "corpus: ${CORPUS[*]}"
 if [[ "$CONDITION" == "treatment" ]]; then
   echo "prompt: $PROMPT_FILE"
@@ -142,6 +150,7 @@ for task_lower in "${CORPUS[@]}"; do
     --task "$task_upper" \
     --condition "$CONDITION" \
     --cli "$CLI" \
+    --reasoning-effort "$REASONING_EFFORT" \
     --issue-file "$augmented" \
     --model "$MODEL" \
     --out "$out_file" \

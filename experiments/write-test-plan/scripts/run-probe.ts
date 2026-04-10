@@ -192,6 +192,7 @@ function runProbe(opts: {
   model: string;
   outFile: string;
   cli: "claude" | "codex";
+  reasoningEffort: "low" | "medium" | "high" | "xhigh";
   promptFile?: string;
 }) {
   const startedAtMs = Date.now();
@@ -268,7 +269,7 @@ function runProbe(opts: {
       writeFileSync(schemaFile, PROBE_SCHEMA, "utf-8");
       const result = spawnSync("codex", [
         "exec",
-        "--config", "model_reasoning_effort=\"medium\"",
+        "--config", `model_reasoning_effort="${opts.reasoningEffort}"`,
         "--output-schema", schemaFile,
         "--output-last-message", lastMessageFile,
         "--sandbox", "read-only",
@@ -303,6 +304,7 @@ function runProbe(opts: {
     type: "probe_meta",
     cli: opts.cli,
     model: opts.model,
+    reasoning_effort: opts.reasoningEffort,
     duration_ms: Date.now() - startedAtMs,
     parser_source: parserSource,
   };
@@ -330,6 +332,7 @@ const condition = get("--condition") as "baseline" | "treatment" | undefined;
 const cli = (get("--cli") ?? "claude") as "claude" | "codex";
 const outFile = get("--out") ?? `out-${condition}-${taskId?.toLowerCase().replace("-", "")}.json`;
 const model = get("--model") ?? (cli === "codex" ? "gpt-5.3-codex" : "claude-haiku-4-5-20251001");
+const reasoningEffort = (get("--reasoning-effort") ?? "medium") as "low" | "medium" | "high" | "xhigh";
 const issueFile = get("--issue-file");
 const promptFile = get("--prompt-file");
 const issueBody = get("--issue-body") ?? (issueFile ? readFileSync(issueFile, "utf-8") : undefined);
@@ -346,9 +349,13 @@ if (!["claude", "codex"].includes(cli)) {
   console.error("--cli must be 'claude' or 'codex'");
   process.exit(1);
 }
+if (!["low", "medium", "high", "xhigh"].includes(reasoningEffort)) {
+  console.error("--reasoning-effort must be one of: low, medium, high, xhigh");
+  process.exit(1);
+}
 if (promptFile && !existsSync(promptFile)) {
   console.error(`--prompt-file not found: ${promptFile}`);
   process.exit(1);
 }
 
-runProbe({ taskId, condition, issueBody, model, outFile, cli, promptFile });
+runProbe({ taskId, condition, issueBody, model, outFile, cli, reasoningEffort, promptFile });
