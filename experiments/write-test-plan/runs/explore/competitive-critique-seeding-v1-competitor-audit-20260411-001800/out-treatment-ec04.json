@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is the handoff between request-construction and API-client dispatch; a pure unit test of only the builder can miss dropped/renamed fields during module wiring. No real OS/network/subprocess is required, and correctness does not depend on model judgment. Rejected higher levels: behavior text is payload-shape/orchestration only, not live HTTP behavior or LLM output quality. Adversarial critique: if implementation is literally one pure function that returns final payload used directly, Unit could be sufficient.",
+      "test_description": "Wire classifier module to a stub transport that records outbound payload. Invoke classification with a taxonomy of 4+ labels and assert the sent request contains the full taxonomy list (no omissions/reordering-loss from serialization path).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.08,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "The real failure is response-handoff plus validation (client response -> normalization/validation -> public return). A stubbed API response with an out-of-taxonomy label can expose this without real network or model variability. Rejected higher levels: behavior text focuses on deterministic post-processing of a returned value, not live provider behavior quality. Adversarial critique: if validation is isolated in one pure function and everything else is pass-through, Unit could catch it.",
+      "test_description": "Use a fake API client returning `\"nonsense_label\"`; call classify and assert module returns `\"unknown\"` to caller, proving boundary validation is enforced after response ingestion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.07,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is a pure determinism/property check on normalization logic for identical input; no cross-module, infrastructure, or model dependence is required. Rejected higher levels: behavior text explicitly constrains to identical raw responses and normalization output, disqualifying System/Agentic/Workflow needs. Adversarial critique: if normalization reads mutable external state (config/locale/time), then Integration may be needed.",
+      "test_description": "Call normalization function/object twice (or property-test many times) with the exact same raw API payload and assert identical final label each time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.12,
+        "System": 0.01,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior explicitly requires repeated live calls and consistency of model-driven classification. A mock would hide real nondeterminism/provider drift, so real model output is part of correctness. Not Workflow: this is repeated single-step classification calls, not a multi-agentic pipeline with dependent stages. Adversarial critique: if objective were only client-side caching/replay determinism under fixed captured responses, Integration would suffice.",
+      "test_description": "Run N repeated calls against the real provider for the same document/taxonomy over a short window; record raw provider responses and final labels; assert label changes only co-occur with raw-response changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.2,
+        "Agentic": 0.75,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at module boundary between token-budget enforcement and dispatch gate (truncate/reject path must control whether and how request is sent). Can be caught with in-process wiring plus stub client; no real HTTP/OS needed. Rejected higher levels: text says enforcement occurs before dispatch, so live provider/model behavior is not required. Adversarial critique: if budget enforcement is a single pure function returning transformed text with no dispatch coupling, Unit may be enough.",
+      "test_description": "Configure low token budget; invoke classify with oversized document; verify policy outcome (truncate or reject) and assert dispatch behavior matches policy (modified payload sent or no call made).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.09,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "System",
+      "justification": "This depends on real external API metering/reporting. In-process fakes cannot reveal mismatches between local assumptions and provider-reported usage. Not Agentic: assertion is on token accounting, not semantic quality/decision correctness of model output. Rejected higher levels: no multi-step agentic chain. Adversarial critique: if code only compares a local tokenizer estimate against budget (without trusting provider reports), Integration could suffice.",
+      "test_description": "Execute real API call(s) with representative document and capture provider-reported token usage fields; assert usage <= configured budget for the selected model/settings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.1,
+        "System": 0.78,
+        "Agentic": 0.12,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Core failure boundary is retry orchestration across modules (error interpretation, backoff policy, retry loop). A stub client plus fake clock can expose real logic failures without real network. Integration brake checks: no required OS/subprocess behavior, no dependence on model output quality, and no multi-agentic chain. Rejected higher levels: behavior text is infrastructure handling around API errors, not live LLM decision quality. Adversarial critique: if production bug depends on real HTTP semantics (e.g., exact Retry-After parsing/transport behavior), System may be required.",
+      "test_description": "Stub API to return rate-limit signal on first call and success on second; use controllable clock/sleeper; assert module waits per policy, retries, and returns successful label instead of surfacing initial error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.57,
+        "System": 0.23,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    }
+  ]
+}

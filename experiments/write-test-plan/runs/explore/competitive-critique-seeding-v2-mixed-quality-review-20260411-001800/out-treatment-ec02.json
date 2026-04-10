@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: System. Rejection of System: behavior says \"signature does not match its body\" and \"is rejected with a 401 response; the body is not forwarded\"; this failure boundary is HTTP handler + raw-body extraction + signature verifier + queue handoff, which can be exercised in-process without real network/OS. Rejection-gate evidence for not choosing Unit: the phrase \"raw request body\" means module handoff bugs (parser bytes vs verifier bytes) are the real risk. Integration-brake checks: (a) real OS/network/subprocess needed? No. (b) real AI/ML output needed? No. (c) multiple agentic steps? No. (d) LLM-governed orchestration? No.",
+      "test_description": "Start the real app stack in-process (test HTTP server object), send a request with a deliberately bad `X-Signature-256` over a raw byte payload, assert `401`, and assert queue `enqueue` is never invoked / no queue record exists.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.6,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: System. Rejection of System: behavior is ordering between local modules: \"written to the persistent queue before the HTTP 200 acknowledgment\"; this can be proven with in-process server + real persistent queue adapter (e.g., local DB/filesystem) and instrumentation of write completion vs response send. Rejection-gate evidence for not choosing Unit: ordering crosses handler and persistence boundary, not one function. Integration-brake: (a) No required real network/OS primitive beyond local in-process I/O. (b) No AI/ML output dependency. (c) No multi-agentic chain. (d) No LLM orchestration.",
+      "test_description": "Use the real queue persistence implementation (not mocked durability) in a test environment, inject a controllable delay at write commit boundary, send webhook, and assert response is not emitted until commit callback resolves; then assert `200` after durable write marker exists.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.65,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: System. Rejection of System: behavior text is about decoupling ack from processing: \"returns the HTTP response without waiting for downstream processing\"; can be caught with in-process app where processor promise is intentionally blocked while response timing is observed. Rejection-gate evidence for not choosing Unit: requires interaction among handler, queue dispatch, and processor lifecycle. Integration-brake: (a) No real network/subprocess required. (b) No AI dependency. (c) No multi-agentic chain. (d) No LLM orchestration.",
+      "test_description": "Wire handler + queue + worker in test; make worker block on a latch for several seconds, send valid webhook, assert response status is returned before latch release and event remains pending for async processing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "Top choice: System. Runner-up: Integration. Rejection of Integration: behavior explicitly requires \"within 3 seconds wall-clock time\" under \"slow and concurrent\" conditions; mocked clocks/in-process-only fakes can hide scheduler/event-loop/backpressure effects that appear under real server concurrency. Rejection-gate keeps higher level because no concrete text disqualifies System; timing+concurrency is itself real infra behavior.",
+      "test_description": "Run the service as a real process, pre-load queue with slow-running jobs, then issue concurrent valid webhooks via real HTTP client; measure end-to-end wall-clock latency and assert each response <= 3s while backlog is being processed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.23,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: System. Rejection of System: dedup is persistence/state handoff behavior from handler to queue store: \"ID was already received is not written ... a second time\"; reproducible with in-process modules plus real local persistence/unique constraint and concurrent requests. Rejection-gate evidence for not choosing Unit: duplicate prevention usually fails at module/state boundary (idempotency key lookup/write race), not single-function logic. Integration-brake: (a) No mandatory real network/subprocess. (b) No AI/ML dependency. (c) No multi-agentic steps. (d) No LLM orchestration.",
+      "test_description": "Use real dedup store/queue adapter, send same event ID twice (including near-simultaneous requests), assert only one persisted queue record and second request returns expected idempotent outcome without a second enqueue.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: Unit. Rejection of Unit: behavior spans queue error contract to HTTP mapping: \"queue reports it is full\" -> \"handler returns 503 with a Retry-After header\"; this is inter-module translation, not pure local logic. Rejection-gate for higher levels: no text requiring real OS/network/subprocess beyond in-process HTTP stack, and no AI dependency. Integration-brake: (a) No. (b) No. (c) No. (d) No.",
+      "test_description": "Run handler with queue module configured to return a typed `QueueFull` condition, send valid webhook, assert HTTP `503` and correct `Retry-After` header value/format, and verify no success ack path was taken.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "Top choice: Integration. Runner-up: System. Rejection of System: behavior is queue storage semantics: \"persistent queue actually enforces its configured capacity limit\"; this requires real queue implementation with local persistence, but not necessarily subprocess/real network. Rejection-gate evidence for not choosing Unit: requires persistence behavior over multiple writes and configuration boundary, not one function. Integration-brake: (a) No required external OS/network primitive beyond local persistence API. (b) No AI dependency. (c) No multi-agentic chain. (d) No LLM orchestration.",
+      "test_description": "Instantiate the real persistent queue backend with a small fixed capacity, enqueue until limit, then attempt one more enqueue and assert explicit rejection/error and unchanged persisted depth.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
