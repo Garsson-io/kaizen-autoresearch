@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP applies: correctness depends on the real vision model recognizing explicit content, which a stub cannot validate. MOCK-MISS is not just local logic; the key failure is model judgment quality at the moderation boundary. Adversarial critique: this could be Integration if we were only testing that `flagged=true` routes to hold. Top2 contrast (Agentic vs Integration): Agentic wins because behavior asserts semantic detection of explicit content; it flips to Integration if behavior were rewritten as 'when model response is flagged, hold the post.' Rejection gate: higher Workflow was considered and rejected because behavior text describes one model decision, not multiple agentic stages in sequence.",
+      "test_description": "Send a real explicit-image sample through the live moderation path using the production vision model endpoint and assert the post is held (not published). Include at least one non-explicit control to confirm the hold is due to model judgment, not blanket blocking.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.1,
+        "Agentic": 0.66,
+        "Workflow": 0.04
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP applies strongly: robustness to obfuscation is model output quality, not deterministic wrapper logic. MOCK-HIDE: a mocked classifier would always pass and miss real failures on unicode/leet variants. Adversarial critique: it could be Integration if only normalization/parsing code were under test. Top2 contrast (Agentic vs Integration): Agentic wins because behavior requires real classification performance on adversarial text variants; it flips to Integration if scope is only 'normalizer converts homoglyphs correctly before calling model.' Rejection gate: Workflow rejected because this behavior is one agentic classification step, not a multi-agentic pipeline assertion.",
+      "test_description": "Run obfuscated hate-speech variants (leet substitutions, unicode lookalikes, spacing tricks) against the real text moderation model via the service and assert each is held for review.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.12,
+        "System": 0.07,
+        "Agentic": 0.77,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "This is orchestration/state handoff across modules (image result + text result + publish path), but does not require model-quality assertions. Integration-brake: (a) no required real OS/network/subprocess, (b) no dependence on real AI output quality if pass/fail outputs are controlled, (c) no multi-agentic sequence requirement. Adversarial critique: could be Agentic if 'passes' is interpreted as real model judgment in live traffic. Top2 contrast (Integration vs Agentic): Integration wins because behavior focuses on decision routing after both checks return pass; it flips to Agentic if requirement adds 'using real models, safe posts must pass.' Rejection gate: Agentic rejected due concrete text 'passes both content checks' (given check outcomes), which disqualifies model-quality dependency for this behavior.",
+      "test_description": "Wire moderation service, decision engine, and publish persistence/queue with deterministic check outputs (`image=pass`, `text=pass`) and assert the post is published exactly once, not held, and not dropped.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.63,
+        "System": 0.17,
+        "Agentic": 0.08,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP applies: this explicitly measures a sequence of agentic stages (image model -> text model -> decision). REAL-INFRA also matters because end-to-end latency depends on real service/network/model behavior under load. Adversarial critique: this could be System if latency were measured with stubbed model responses and only infrastructure timing was in scope. Top2 contrast (Workflow vs System): Workflow wins because the stated SLA is for the full real moderation pipeline including model steps; it flips to System if model calls are replaced with deterministic local fakes and only transport/process timing is tested. Rejection gate: no disqualifying behavior text against Workflow; text explicitly names the multi-step pipeline.",
+      "test_description": "Execute an end-to-end load test of the real moderation pipeline with representative image+text submissions and assert end-to-end completion from submit to final decision is <=5s at the target percentile during peak-like concurrency.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.29,
+        "Agentic": 0.2,
+        "Workflow": 0.45
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "Primary risk is module interaction: model-client failure -> retry queue -> approval gate. This can be caught with deterministic failure injection without real model quality. Integration-brake: (a) real OS/network not strictly required unless behavior specifies transport semantics, (b) no dependence on AI output content, (c) no multi-agentic sequence requirement. Adversarial critique: could be System if real outage modes (timeouts, connection resets, DNS failures) are the failure source. Top2 contrast (Integration vs System): Integration wins because behavior text only says 'unavailable' and required decision is queue-vs-approve; it flips to System if requirement explicitly targets real HTTP timeout/backoff behavior from provider outages. Rejection gate: System rejected due lack of concrete text requiring real network/subprocess failure modes.",
+      "test_description": "Run service + retry queue + decision logic with a vision-client stub that returns 'unavailable' errors and assert image posts are enqueued for retry and never auto-approved.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.58,
+        "System": 0.3,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP applies: borderline consistency is about real model variance/calibration; mocks hide this completely. Adversarial critique: could be Workflow because it involves repeated submissions over time and possibly cache/handoff effects. Top2 contrast (Agentic vs Workflow): Agentic wins because the core assertion is stability of one model’s decision for repeated identical input; it flips to Workflow if requirement adds multi-stage handoff dependence (e.g., planner/reviewer/retry loops or cross-model agreement per submission). Rejection gate: Workflow rejected because behavior text specifies repeated same-image decisions, not a multi-agentic pipeline with distinct decision stages.",
+      "test_description": "Submit the same borderline image repeatedly within the defined short window through the real moderation service and measure decision stability; fail if consistency falls below the agreed threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.16,
+        "System": 0.09,
+        "Agentic": 0.64,
+        "Workflow": 0.09
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-06",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A file placed inside a subdirectory of the watched root is processed, not only files placed directly in the root directory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure appears at the watcher/OS event boundary (recursive watch semantics), not just inside one function. REAL-INFRA: Real filesystem event delivery is required to verify subdirectory events are emitted and consumed. MOCK-HIDE: A mocked watcher can always emit subdirectory events and hide platform-specific misses. LLM-DEP: none. MULTI-STEP: none. ADVERSARIAL-CRITIQUE: If this were only a path-filter bug after events are already delivered, Integration could be enough. TOP2-CONTRAST: System beats Integration because recursive/subdirectory event emission is OS/watcher behavior; it flips to Integration if behavior text explicitly says events are injected directly into the daemon (no real watcher involved). REJECTION-GATE: Rejected Integration because the behavior text requires validating actual watched-directory/subdirectory event capture.",
+      "test_description": "Run the daemon against a real temp directory tree on the target OS, create `root/sub/a.txt`, and assert one completed pipeline output for that file. Verify it fails if recursive watch is misconfigured or unsupported.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.2,
+        "System": 0.74,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The deduplication logic correctly discards a second processing request for the same file path within a configurable time window.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: The behavior is explicitly about dedup logic for same path + time window, which can be exercised at function/object boundary. REAL-INFRA: No OS/network/subprocess required; fake clock is sufficient. MOCK-HIDE: Not inherently; deterministic inputs can expose defects. LLM-DEP: none. MULTI-STEP: none. ADVERSARIAL-CRITIQUE: If dedup state is split across queue + worker modules, a pure Unit test might miss handoff bugs. TOP2-CONTRAST: Unit beats Integration because the described failure is algorithmic (keying by path and window cutoff); it flips to Integration if dedup correctness depends on cross-module shared state persistence/race handling in the real daemon pipeline. REJECTION-GATE: Rejected Integration because behavior text says 'deduplication logic' and does not require filesystem/watcher interactions.",
+      "test_description": "Test the dedup component directly with controlled timestamps: first request accepted, second same-path request within window dropped, third after window accepted. Use fake timer/clock.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.68,
+        "Integration": 0.27,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When the operating system emits multiple filesystem events for a single file write, the daemon processes the file exactly once.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure is specifically duplicate OS event bursts for one write, which occurs at module boundary with real watcher backend. REAL-INFRA: Requires real filesystem events from OS. MOCK-HIDE: Mocked event sources can under-represent real burst patterns and always pass. LLM-DEP: none. MULTI-STEP: none. ADVERSARIAL-CRITIQUE: If daemon normalizes events before dedup and tests can inject the same burst shape, Integration could catch it. TOP2-CONTRAST: System wins because 'operating system emits multiple filesystem events' is explicit OS behavior; it flips to Integration if the spec is rewritten to 'given duplicate event callbacks' (pure injected callbacks). REJECTION-GATE: Rejected Integration due to explicit OS-emitted multi-event condition in behavior text.",
+      "test_description": "On real filesystem, perform one write operation known to generate multiple watcher events (e.g., create+append/atomic save pattern) and assert pipeline invocation count is exactly 1 for that path.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "If the watched directory is removed and then recreated while the daemon is running, the daemon resumes watching the new directory without a restart.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Directory deletion/recreation affects underlying watch handles and OS notifications across lifecycle transitions. REAL-INFRA: Needs real filesystem/watch handle behavior while process remains alive. MOCK-HIDE: Faked watcher callbacks may not reproduce handle invalidation and rebind edge cases. LLM-DEP: none. MULTI-STEP: none. ADVERSARIAL-CRITIQUE: If watcher abstraction already exposes deterministic 'deleted/recreated' events, Integration might validate rebinding logic. TOP2-CONTRAST: System wins because robustness depends on actual OS watch invalidation and re-subscription behavior; it flips to Integration if behavior explicitly scopes to internal rebinding state machine with injected events only. REJECTION-GATE: Rejected Integration because behavior text requires remove+recreate of real watched directory during runtime.",
+      "test_description": "Start daemon on real temp watch dir, delete dir, recreate same path, then add a new file and verify it is processed without restarting daemon.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.86,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When multiple files arrive at the same time, they are processed in the order determined by their creation timestamps.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This is primarily ordering/state handoff across watcher intake, metadata lookup, and queue scheduling modules. REAL-INFRA: No network/subprocess required; can be validated with in-process modules plus local filesystem metadata. MOCK-HIDE: Pure unit stubs of timestamps can miss cross-module ordering bugs; wiring modules together is necessary. LLM-DEP: none. MULTI-STEP: none. INTEGRATION-BRAKE: (a) No mandatory real subprocess/network; local FS metadata suffices. (b) No AI/ML output. (c) No multi-agentic chain. (d) No LLM stages. ADVERSARIAL-CRITIQUE: Filesystem timestamp resolution and tie behavior can be OS-specific, which may require System to catch real misordering. TOP2-CONTRAST: Integration wins when asserting scheduler honors provided creation times through real module wiring; it flips to System if correctness must be guaranteed against real OS timestamp granularity/ties from true concurrent writes. REJECTION-GATE: Rejected System because behavior text does not require OS-specific event semantics beyond ordering by creation timestamps.",
+      "test_description": "Wire ingestion + metadata + queue modules with local temp files, create multiple files with controlled creation-time ordering (or explicitly settable metadata source), and assert processing sequence matches expected timestamp order.",
+      "plan_consistent": true,
+      "plan_consistent_note": "If target platforms have unreliable creation-time semantics, promote this case to System on those platforms.",
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.56,
+        "System": 0.34,
+        "Agentic": 0.02,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "A file that is still being written to when the arrival event fires is not picked up for processing until writing is complete.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: The failure depends on timing between real write activity and watcher events across OS/file-handle behavior. REAL-INFRA: Requires real filesystem writes and event timing; in-process fakes cannot faithfully reproduce partial-write visibility races. MOCK-HIDE: Mocked 'write complete' signals can make readiness checks always pass. LLM-DEP: none. MULTI-STEP: none. ADVERSARIAL-CRITIQUE: If readiness policy is purely 'wait N ms debounce', Integration with injected events/timers might catch logic errors. TOP2-CONTRAST: System wins because behavior explicitly references event firing while file is still being written (real race); it flips to Integration if behavior is narrowed to deterministic debounce timer logic with no real I/O race. REJECTION-GATE: Rejected Integration due to explicit concurrent write/event timing condition in behavior text.",
+      "test_description": "Use a real writer that streams chunks to a file while daemon is watching; assert daemon does not start transform until writer closes/flushing is complete, then processes once with full content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.15,
+        "System": 0.8,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: failure is in backoff math/state progression, not a module handoff. REAL-INFRA/LLM-DEP/MULTI-STEP: none. Adversarial critique: if doubling depends on retry-loop state stored outside the policy object, Unit could miss integration bugs. Top2 contrast (Unit vs Integration): Unit wins because behavior text is purely wait-time rule; it flips to Integration if wait depends on cross-module retry-attempt persistence.",
+      "test_description": "Test a pure backoff policy function/object with consecutive failure counts (1..N), assert delays double each step and clamp at configured max.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.72,
+        "Integration": 0.25,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: bug appears at boundary between response-classification and backoff computation modules. REAL-INFRA: real HTTP not required; stubbed responses reproduce failure. LLM-DEP/MULTI-STEP: none. Adversarial critique: if classification and wait math are in one function, Unit may suffice. Top2 contrast (Integration vs Unit): Integration wins because behavior explicitly couples identification + retry logic; flips to Unit if a single local parser function owns both with no wiring.",
+      "test_description": "Wire retry controller + response classifier + backoff policy with stubbed API responses (429 + headers/body variants), assert it marks rate-limit and schedules correct delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: resend path requires interaction of scheduler/timer, request replay, and result propagation. REAL-INFRA: fake clock + in-process stub transport can expose this; real network/OS not required. LLM-DEP/MULTI-STEP: none. Adversarial critique: timer/event-loop edge cases might only appear with real runtime timing. Top2 contrast (Integration vs System): Integration wins because behavior does not require real network conditions; flips to System if failures are tied to real timer drift/socket behavior.",
+      "test_description": "Use fake timers and a stub transport that returns rate-limited once then success; assert second attempt reuses original payload and `call()` resolves with successful response without caller-visible retry artifacts.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is in retry-loop termination plus error mapping boundary, not only type construction. REAL-INFRA: no real OS/network needed; repeated stub failures are enough. LLM-DEP/MULTI-STEP: none. Adversarial critique: if a single function maps attempts->error, Unit could catch it. Top2 contrast (Integration vs Unit): Integration wins because max-retry counting and final error emission are cross-component; flips to Unit if counting/mapping are fully local and isolated.",
+      "test_description": "Run client with stub transport always returning rate-limit until max retries, then assert rejection is `QuotaExhaustedError` with expected fields and not a generic error class.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.74,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is end-to-end state-machine behavior across retry, backoff, and quota tracker modules. INTEGRATION-BRAKE: (a) no required real OS/network/subprocess, (b) no AI output, (c) no multi-agentic chain. Adversarial critique: runaway loops tied to real timers could evade fake-clock tests. Top2 contrast (Integration vs System): Integration wins because bounded-attempt logic can be verified in-process; flips to System if only real runtime scheduling reveals non-termination.",
+      "test_description": "With fake clock and stubbed persistent rate-limit responses, assert attempt count is bounded, total scheduled waits match policy, and promise rejects after max retries without hanging.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.14,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure appears when concurrent callers interact through shared in-process quota state. INTEGRATION-BRAKE: no mandatory real OS/network/subprocess; no LLM; no multi-agentic steps. Adversarial critique: some race conditions may only manifest under real scheduling/load. Top2 contrast (Integration vs System): Integration wins because deterministic async stress with controlled scheduler can expose shared-bucket bugs; flips to System if bug requires real thread/process/network timing artifacts.",
+      "test_description": "Launch multiple concurrent `call()` invocations against one client instance with stub transport and controllable timing; assert aggregate token consumption reflects one shared bucket, not per-caller buckets.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.82,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: ordering bugs emerge at queue + dispatcher + async wake-up boundaries. INTEGRATION-BRAKE: no real OS/network required by behavior text; no AI dependency; no multi-agentic chain. Adversarial critique: real event-loop jitter could reorder tasks in ways fake scheduling misses. Top2 contrast (Integration vs System): Integration wins because FIFO contract can be validated with in-process queue/clock control; flips to System if ordering only fails under real runtime/network contention.",
+      "test_description": "Enqueue several calls while send capacity is blocked, then release capacity and assert dispatch timestamps/sequence match submission order exactly (FIFO).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.8,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

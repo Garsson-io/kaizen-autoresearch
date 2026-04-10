@@ -1,0 +1,102 @@
+{
+  "task_id": "EC-13",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "An image containing explicit content is flagged and held for review, not published.",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: failure is not just routing; it is whether the vision model actually flags explicit content. REAL-INFRA: real HTTP may be involved, but the core boundary is model judgment quality. MOCK-HIDE: a stubbed `flagged=true` would always pass and hide misclassification. LLM-DEP: yes, correctness depends on real AI/ML output and can vary across runs/model versions. MULTI-STEP: single model decision then deterministic hold path, so not Workflow. ADVERSARIAL-CRITIQUE: this could be mislabeled if behavior only meant \"when model returns flagged\" plumbing. REJECTION-GATE (rejected Workflow): behavior text specifies one classification + hold, not multiple agentic decisions. TOP2-CONTRAST vs Integration: Agentic wins because the claim is explicit-content detection quality; flip to Integration if behavior were rewritten to \"given model returns flagged=true, post is held.\"",
+      "test_description": "Submit a real explicit test image through the moderation API using the production vision-model integration, then assert persisted status is `held_for_review` and no publish event is emitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.03,
+        "Agentic": 0.72,
+        "Workflow": 0.16
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A text post containing hate speech is flagged regardless of obfuscation techniques (e.g., letter substitution, unicode lookalikes).",
+      "minimum_level": "Agentic",
+      "justification": "MOCK-MISS: failure boundary is detection robustness under obfuscation, not local parsing alone. REAL-INFRA: infrastructure matters less than model output quality here. MOCK-HIDE: deterministic stubs hide failures on adversarial spellings and unicode confusables. LLM-DEP: yes, this is directly about model classification behavior. MULTI-STEP: one model decision per post, so Agentic not Workflow. ADVERSARIAL-CRITIQUE: could be wrong if system has deterministic normalization rules that alone guarantee detection. REJECTION-GATE (rejected Integration): behavior text says \"flagged regardless of obfuscation,\" which is output-quality semantics, not only orchestration. TOP2-CONTRAST vs Workflow: Agentic wins because it is a single classification step; flip to Workflow if requirement adds multi-stage model chain (normalize model -> classifier -> critic) with consistency constraints.",
+      "test_description": "Run a corpus of obfuscated hate-speech variants against the real text moderation model path and assert each submission is marked `held_for_review`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.07,
+        "System": 0.02,
+        "Agentic": 0.78,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A post that passes both content checks is published rather than held or silently dropped.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is module handoff/orchestration (image result + text result -> publish path), not one pure function. REAL-INFRA: no required real OS/network/subprocess to validate this behavior; in-process components suffice. MOCK-HIDE: mocking everything to a single function could hide handoff bugs, but faking model outputs while wiring real modules still catches them. LLM-DEP: no, because this behavior can be tested with deterministic pass results; no dependence on model output quality. MULTI-STEP: not multiple real agentic decisions for correctness. INTEGRATION-BRAKE checks: (a) no real infra required; (b) no real model-quality dependence; (c) no chained agentic steps; (d) orchestration exists, but correctness is deterministic from two pass signals. ADVERSARIAL-CRITIQUE: if silent drop only appears in real broker/process boundaries, System may be needed. REJECTION-GATE (rejected Agentic): behavior text disqualifies it by focusing on publish routing after checks \"pass,\" not on correctness of AI judgments. TOP2-CONTRAST vs Unit: Integration wins because publish/drop state crosses service/repo/event modules; flip to Unit if logic is literally a single pure `if (image_ok && text_ok)` function with no side effects.",
+      "test_description": "Wire moderation service, decision engine, persistence, and publish dispatcher in-process; feed stubbed `image_ok=true` and `text_ok=true`, then assert record state is `published` and exactly one publish action occurs with no hold/drop state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.1,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The full moderation pipeline — image check, text check, publish decision — completes within 5 seconds of submission.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: failure appears across sequential pipeline stages, not one component. REAL-INFRA: latency/SLA failures often require real network/process behavior. MOCK-HIDE: mocked or constant-latency substitutes can hide queueing, contention, and external-model timing variance. LLM-DEP: path includes real AI model calls; even with deterministic time assertion, real model interactions affect latency. MULTI-STEP: yes, multiple agentic steps (image model + text model) in one end-to-end flow, so Workflow. ADVERSARIAL-CRITIQUE: if objective were only internal orchestration latency excluding real model calls, System could be sufficient. REJECTION-GATE (rejected System): behavior text explicitly says \"full moderation pipeline — image check, text check, publish decision\" within SLA, which includes multiple model-involved stages. TOP2-CONTRAST vs System: Workflow wins because the SLA is on a chained multi-agentic pipeline; flip to System if both model calls are replaced by non-agentic deterministic services and only infrastructure latency is in scope.",
+      "test_description": "Execute end-to-end submissions through the real pipeline with both model calls enabled and measure submission-to-final-decision latency; assert p95 (or strict per-item threshold if required) is <= 5s under peak-like concurrent load.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.28,
+        "Agentic": 0.18,
+        "Workflow": 0.5
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When the AI vision model is unavailable, image posts are queued for retry rather than auto-approved.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure boundary is handoff between vision-client error handling and retry queue/publish policy modules. REAL-INFRA: real outage simulation is helpful but not strictly required; deterministic unavailable errors can reproduce core failure. MOCK-HIDE: a too-shallow mock could hide queue wiring bugs, but an in-process integration with a failing client stub will catch them. LLM-DEP: no dependence on model judgment content, only availability/error path. MULTI-STEP: no multi-agentic sequence required. INTEGRATION-BRAKE checks: (a) no mandatory real OS/network/subprocess; (b) no model-output correctness; (c) no multi-agentic chain; (d) orchestration exists but governed by deterministic error signal. ADVERSARIAL-CRITIQUE: if production failures stem from real HTTP timeout semantics or circuit-breaker behavior, System may be the true minimum. REJECTION-GATE (rejected System): behavior text says only \"model unavailable\" and required policy outcome (queue vs auto-approve), not specific OS/network failure modes. TOP2-CONTRAST vs System: Integration wins because deterministic unavailable responses can trigger the exact policy branch; flip to System if requirement adds real timeout/backoff/socket-failure handling guarantees.",
+      "test_description": "Run moderation modules with a vision client test double that returns `unavailable`/timeout errors, then assert image posts are persisted in retry queue and never transition to `approved/published` without successful recheck.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.58,
+        "System": 0.24,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "The moderation decision for a borderline image is consistent when the same image is submitted multiple times within a short window.",
+      "minimum_level": "Workflow",
+      "justification": "MOCK-MISS: failure emerges over repeated submissions and state carryover (cache/window policy), not a single call. REAL-INFRA: may involve timing/window semantics, but core risk is repeated model-influenced decisions across steps. MOCK-HIDE: fixed stubs erase real borderline variance and cannot expose inconsistency caused by model jitter plus pipeline state. LLM-DEP: yes, borderline classification depends on real model behavior. MULTI-STEP: yes, multiple submissions mean multiple model-involved decisions in sequence, so Workflow. ADVERSARIAL-CRITIQUE: if system enforces strict decision caching keyed by image hash, Integration could validate consistency without real model calls. REJECTION-GATE (rejected Agentic): behavior text requires consistency across repeated submissions \"within a short window,\" i.e., multi-step temporal pipeline behavior, not single-call quality only. TOP2-CONTRAST vs Agentic: Workflow wins because assertion spans a sequence with temporal/state coupling; flip to Agentic if requirement is reduced to \"one borderline image is classified correctly once.\"",
+      "test_description": "Submit the same borderline image multiple times within the target time window through the real moderation pipeline and assert resulting decision labels are consistent per policy (e.g., all held or all published) across the sequence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.1,
+        "System": 0.03,
+        "Agentic": 0.3,
+        "Workflow": 0.56
+      }
+    }
+  ]
+}
