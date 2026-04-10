@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject request with invalid `X-Signature-256` and do not forward body.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler->signature verifier->queue handoff, not just a pure hash function. A unit test of HMAC logic alone could miss wiring bugs (e.g., verifier result ignored and enqueue still called). Real OS/network is not required; in-process HTTP handler invocation plus a fake/in-memory queue is sufficient. Adversarial critique: this could be Unit if the handler is a single pure function with injected deps; however behavior text includes both HTTP status and forwarding suppression, which is module interaction.",
+      "test_description": "Run the webhook route in-process, send a request with mismatched signature over a test HTTP harness, assert `401` and assert queue `enqueue` was not called / queue remains unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.65,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Event is persisted to queue before returning HTTP 200.",
+      "minimum_level": "Integration",
+      "justification": "This is an ordering guarantee across handler and persistent-queue module. Unit tests of controller logic can miss real ordering at module boundary. System was considered, but behavior text does not require real network/subprocess; a real local persistence-backed queue module in-process can prove write-before-ack ordering. Adversarial critique: if persistence durability depends on external broker semantics, System may be needed.",
+      "test_description": "Use the real queue module against local test storage, instrument enqueue completion, send webhook, and assert HTTP 200 is emitted only after enqueue promise resolves and record is visible in queue storage.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.65,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "HTTP response is returned without waiting for downstream event processing to finish.",
+      "minimum_level": "Integration",
+      "justification": "Bug appears in async handoff between HTTP handler, queue, and processor modules. No real OS/network dependency is required to expose this; a blocking processor stub with real async boundaries in-process is enough. Adversarial critique: could be System if only real server runtime reveals blocking; but behavior text targets waiting semantics, not network stack behavior.",
+      "test_description": "Configure downstream processor to block (e.g., unresolved promise/sleep), send valid webhook, assert handler returns success promptly while processor completion occurs later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds even when earlier events are slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "This is a wall-clock SLO under concurrency and event-loop contention; real timing/scheduling and real HTTP behavior are part of the failure mode. In-process mocks can hide latency pathologies. Adversarial critique: one may argue Integration with fake timers; flaw is fake timers do not reproduce real contention/queueing delays that violate the 3s bound.",
+      "test_description": "Start the service process with real HTTP listener, preload slow concurrent downstream work, send new valid webhook(s), and measure end-to-end response latency; assert each response is <3s wall-clock.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Duplicate event ID is not enqueued twice.",
+      "minimum_level": "Integration",
+      "justification": "Idempotency failure is at state handoff boundary (dedupe store + queue write), not a single-function calculation. Needs real module wiring and persisted state visibility; no real network/subprocess is inherently required. Adversarial critique: System might be needed for distributed races, but behavior text only states already-received ID, not cross-node cluster semantics.",
+      "test_description": "Submit same event ID twice through handler using real dedupe/persistence modules; assert first request enqueues once and second does not create another queue record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue reports full, handler returns 503 plus `Retry-After`.",
+      "minimum_level": "Integration",
+      "justification": "Behavior is error mapping across handler and queue interface. A mock that never returns 'full' would miss it, but an in-process fake queue that deterministically reports full is enough. System rejected because text says 'when queue reports it is full' (mapping behavior), not actual infrastructure saturation. Adversarial critique: if only real queue emits nuanced full/backpressure signals, System may be needed.",
+      "test_description": "Wire handler to queue implementation/fake configured to return `FULL`, send valid request, assert HTTP `503` and presence/value format of `Retry-After` header.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity and rejects excess events.",
+      "minimum_level": "Integration",
+      "justification": "This targets queue component behavior with real persistence/state transitions across queue modules; unit logic alone can miss persistence-boundary bugs. Real external OS/network/subprocess is not strictly required if using local DB/filesystem-backed queue in-process. Adversarial critique: if enforcement depends on broker process semantics (e.g., Redis/Kafka limits), System would be more accurate.",
+      "test_description": "Instantiate real persistent queue with small capacity, enqueue up to limit, then enqueue one more; assert explicit rejection/error and no capacity overrun in stored records.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
