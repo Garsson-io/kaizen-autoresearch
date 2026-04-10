@@ -190,6 +190,30 @@ LOOP:
          results and decide next steps, when to commit.
        - READ `ideas/README.md` WHEN you need to understand explore_status field semantics
          or how IDEATE should prioritize explored vs unexplored ideas.
+  4.6. POST-EXPLORE LEARNING SYNTHESIS (MANDATORY when outcome is `no-promote` or `family-signal`)
+       Goal: turn explore evidence into a stronger next candidate instead of retrying blind.
+       a. Mine justification deltas for the top 2 variants from pass 1 and holdout:
+       ```bash
+       # Compare reasoning errors/justifications for each candidate run dir
+       npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir <explore-run-dir-A>
+       npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir <explore-run-dir-B>
+
+       # Deep read on decisive tasks (winner-driving task + major regression tasks)
+       npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir <explore-run-dir-A> --task EC-XX
+       npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir <explore-run-dir-B> --task EC-YY
+       ```
+       b. Produce a short "LEARNING DELTA" note in iteration logs/commit message:
+         - Which high-weight errors variant A fixed that B did not
+         - Which regressions A introduced that B avoided
+         - Whether this is noise, concentration artifact, or true mechanism complementarity
+       c. Decide next action (explicitly):
+         - `no-promote`: no credible mechanism extracted; ideate a new idea
+         - `family-signal`: complementary strengths detected; create a merge/selector follow-up idea
+         - `promote`: only if step 4.5 thresholds are satisfied
+       d. If `family-signal`, add a new idea file in `ideas/` with:
+         - concrete evidence lines from both variants
+         - one additive merged edit hypothesis
+         - clear falsification criterion for next explore
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
      **EDIT-TYPE GATE (MANDATORY, ALWAYS):**
      - Before editing, declare intent in notes/commit text as exactly one of: `ADD`, `REPLACE`, `DELETE`.
