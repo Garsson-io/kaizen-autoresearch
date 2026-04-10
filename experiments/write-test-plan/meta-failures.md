@@ -476,3 +476,18 @@ Apr 10-11 regressions show the largest losses came from false-positive promotion
 **Lesson**:
 - The promotion-evidence gate prevented a likely false positive promotion.
 - `no-promote` is a high-value outcome: it saves full-corpus spend while refining idea quality.
+
+---
+
+### Iteration evidence (Apr 11): winner-flip under holdout confirms instability even when both passes look "good"
+
+**Status**: confirms stability-gate hypothesis
+
+**What happened**:
+- Idea: `toploss-ia-ua-round-2` (same top-loss target, more surgical variants).
+- Explore pass 1 (`--seed 303`) returned `concentrated-signal`; winner was `v3` (delta `-23.46`) driven mostly by `ec-11`.
+- Holdout pass 2 (`--seed 404 --force`) also returned `concentrated-signal`; winner flipped to `v1` (delta `-1.32`) dominated by `ec-35`.
+
+**Lesson**:
+- "Looks improved" in both passes is still insufficient when concentration and winner identity are unstable.
+- Winner-flip + concentrated gain should be treated as hard `no-promote`, not as weak justification to proceed.

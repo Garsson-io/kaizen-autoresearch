@@ -92,19 +92,19 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration (refresh tasks)
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
+- [x] → Next iteration (refresh tasks)
 
 ### Iteration 2/10
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] MINE
+- [x] DIAGNOSE (top-2 unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (stability gate remains binding due recent false promotions)
+- [x] IDEATE (selected `toploss-ia-ua-round-2`, lower-aggression variants)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed 303: concentrated-signal winner `v3`; holdout seed 404: concentrated-signal winner `v1` -> sign/winner instability)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration (refresh tasks)
