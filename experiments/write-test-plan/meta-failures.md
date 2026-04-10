@@ -461,3 +461,18 @@ Apr 10-11 regressions show the largest losses came from false-positive promotion
 - Targeting dominant weighted-loss pairs is a hard prerequisite, but by itself does not justify promotion.
 - Keep the two-pass explore stability gate strict: require repeated non-positive deltas with no sign flip before full-corpus promotion.
 - Treat first-pass big deltas on top-loss slices as hypothesis generators, not promotion evidence.
+
+---
+
+### Iteration evidence (Apr 11): top-loss idea can fail immediately under holdout gate (no-promote is productive)
+
+**Status**: confirms prior stability-gate hypothesis
+
+**What happened**:
+- Idea: `toploss-ia-ua-round-1` (explicitly targeted `Integration→Agentic` and `Unit→Agentic`).
+- Explore pass 1 (`--seed 101`) returned `concentrated-signal` with winner `v3-unit-brake` (delta `-5.17`).
+- Mandatory holdout pass 2 (`--seed 202 --force`) returned `no-signal` (all variations worse than baseline).
+
+**Lesson**:
+- The promotion-evidence gate prevented a likely false positive promotion.
+- `no-promote` is a high-value outcome: it saves full-corpus spend while refining idea quality.

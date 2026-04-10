@@ -78,3 +78,137 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + RUN + SCORE — `mock-miss` evidence-text escalation gate tested, run `20260329-004857`, loss `404.78` vs reference `390.23` (reverted)
 - [x] LOG — appended iteration 39 with model + metrics
 - [x] → Experiment loop complete (5/5)
+
+---
+
+## Codex Iteration Loop (10 iterations) — 2026-04-11
+
+### Iteration 1/10 (reference loss at start: 560.88 from run 20260411-011347)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss targeting: Integration→Agentic, Unit→Agentic)
+- [x] META (applied stability-first promotion rule from Apr 10-11 findings)
+- [x] IDEATE (selected `toploss-ia-ua-round-1` from top-loss-targeted candidates)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed 101: concentrated-signal; holdout seed 202: no-signal)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 2/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 3/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 4/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 5/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 6/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 7/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 8/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 9/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration (refresh tasks)
+
+### Iteration 10/10
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Loop complete (10/10)
