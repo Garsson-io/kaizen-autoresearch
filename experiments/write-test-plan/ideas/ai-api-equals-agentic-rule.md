@@ -31,3 +31,16 @@ The adversarial "misleading surface" tasks (EC-12, EC-16, EC-18) already score 8
 A hard rule removes the model's ability to make these distinctions. It converts System-about-AI-infrastructure behaviors into false Agentic predictions. The adversarial "misleading surface" tasks were specifically designed to catch this — and we'd regress on them.
 
 Also, run 1 showed that even minimal definition changes hurt. A hard rule is a definition change.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-13, ec-09, ec-27, ec-23, ec-32, ec-29`  
+Baseline subset loss: `80.05`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-hard-default-add | 83.5929 | +3.5409 | improved 4, hurt 2, flat 0 | n/a |
+| v2-hard-default-with-infra-exception | 86.1667 | +6.1148 | improved 3, hurt 1, flat 2 | n/a |
+| v3-hard-default-vs-system-contrast | 83.2523 | +3.2004 | improved 4, hurt 2, flat 0 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
