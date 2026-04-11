@@ -408,21 +408,47 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 19/20 (candidate: `ace-agent-mode-hardcase-routing`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] CANDIDATE BRIEF
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (novelty-first untested candidate; mechanism adds conditional strictness only on hard cases)
+- [x] IDEATE (selected routing strategy to avoid global overhead while improving ambiguous boundaries)
+- [x] CANDIDATE BRIEF
+  - Selected idea: `ace-agent-mode-hardcase-routing` (novel `explore_status: null`)
+  - Why now: prior global contracts regressed broadly; this idea localizes extra checks to ambiguous cases only.
+  - Mechanism rationale: keep default flow for clear cases; trigger strict grounding only when ambiguity indicators fire.
+  - Falsification criterion: if trigger is too broad (global regressions) or too narrow (flat/no gain), mark `no-promote`.
+  - Expected-win targets: `EC-17 b2` (`Integration→Agentic`), `EC-30 b5` (`Integration→Agentic`), `EC-11 b3` (`Workflow→Agentic`), `EC-30 b3` (`Unit→Agentic`).
+  - Variations (exact prompt additions):
+    - `v1-router-adjacent-tie`:
+      - `- **HARDCASE-ROUTER**: Default to normal flow.`
+      - `  Trigger strict grounding checks only if your top-2 candidate levels are adjacent and tied/near-tied.`
+      - `  Strict check = quote forcing phrase + one adjacent-lower miss-proof + rejection evidence for higher level if considered.`
+    - `v2-router-tie-or-missing-boundary`:
+      - `- **HARDCASE-ROUTER**: Default to normal flow.`
+      - `  Trigger strict grounding checks if (a) top-2 adjacent tie/near-tie OR (b) no explicit boundary term supports escalation.`
+      - `  Strict check = quote forcing phrase + one adjacent-lower miss-proof + rejection evidence for higher level if considered.`
+    - `v3-router-any-indicator-terse`:
+      - `- **HARDCASE-ROUTER**: Default to normal flow; trigger strict mode if ANY indicator holds:`
+      - `  (1) adjacent tie/near-tie, (2) weak evidence phrase, (3) conflicting boundary cues.`
+      - `  In strict mode, output exactly one line for evidence and one line for lower-level miss-proof before final label.`
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE
+  - Pass 1 (seed719, 8 tasks): `concentrated-signal`, winner `v3-router-any-indicator-terse`, delta `-12.19`, concentration `58%` (ec-34-led).
+  - Holdout (seed819, 8 tasks): `concentrated-signal`, same winner `v3`, delta `-9.17`, concentration `76%` (ec-34-led).
+  - Gate outcome: `no-promote` (concentration worsened, not reduced; not stable/distributed enough for promotion).
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - LEARNING DELTA:
+    - Router mechanism can produce large wins on specific orchestration slices (`EC-34` all-correct in holdout).
+    - Gains remain concentrated and accompanied by regressions on other high-weight tasks (`EC-29`, `EC-14`), so family is not yet robust.
+    - Inference: hardcase router is promising but trigger/strict-mode criteria are over-broad and currently exploit one loss pocket.
+  - Action: `no-promote`; preserve as family-signal for a tighter selector follow-up, not direct EDIT.
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
