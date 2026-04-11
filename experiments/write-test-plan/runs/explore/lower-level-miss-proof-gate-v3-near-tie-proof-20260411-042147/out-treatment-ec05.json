@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-05",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Migrations are applied in ascending numeric order determined by the filename prefix.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: the real failure is at module handoff (file discovery -> numeric sort -> execution order), not just inside a pure sort helper. A Unit test of sorting alone can pass while runner execution still applies in wrong order. REAL-INFRA: no subprocess/OS-specific primitive is required; in-process wiring with local filesystem + local DB is sufficient. MOCK-HIDE: mocking DB execution can hide ordering bugs in the actual runner loop, so exercise real module wiring. LLM-DEP/MULTI-STEP: not applicable (no AI). REJECTION-GATE: System was considered but rejected because behavior text only requires order by filename prefix, not separate processes, network faults, or OS-specific behavior.",
+      "test_description": "Run the runner in-process against a test PostgreSQL DB and temp `migrations/` directory containing out-of-order files (`001_...sql`, `010_...sql`, `002_...sql`) whose SQL writes execution sequence into a table. Assert observed execution order is `001, 002, 010` and `_migrations` rows follow the same order.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A migration that has already been applied is not re-executed on a subsequent run.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: idempotency failure appears when metadata table state and migration execution logic interact across runs. Unit tests of a 'shouldRun' function miss persistence/recording integration bugs. REAL-INFRA: local DB state across two invocations is enough; no subprocess or real network behavior is required. MOCK-HIDE: faking migration history can miss duplicate execution caused by incorrect read/write of `_migrations`. LLM-DEP/MULTI-STEP: not applicable. REJECTION-GATE: System rejected because behavior text says only 'subsequent run' (can be same process test invoking runner twice), not separate-process race or OS-level concern.",
+      "test_description": "Use a real test PostgreSQL database. Create a migration with an observable side effect (e.g., insert into a counter table). Execute runner twice against same DB and same migration set. Assert side effect occurred once and `_migrations` contains one record for that migration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "When a migration statement fails, its changes are rolled back automatically and no further migrations in the same run are attempted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure boundary is transaction handling + migration loop control across modules (executor, transaction manager, runner). REAL-INFRA: requires real DB transaction semantics, but still local DB integration (not subprocess/OS). MOCK-HIDE: mocked transaction APIs can falsely pass while real SQL rollback/abort semantics differ. LLM-DEP/MULTI-STEP: not applicable. REJECTION-GATE: System rejected because behavior text is DB transactional behavior within one runner invocation, without subprocess/OS/network conditions.",
+      "test_description": "With real PostgreSQL, run three migrations: first valid, second containing a failing statement after a prior write in same migration, third valid. Assert writes from failing migration are absent (rolled back), third migration was not executed, and `_migrations` records only migrations completed before the failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.75,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When two instances of the runner start at the same time against the same database, each migration is applied exactly once across both instances.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: behavior explicitly requires concurrent execution from separate processes; this crosses OS/subprocess boundary. MOCK-MISS/MOCK-HIDE: in-process or mocked concurrency often misses real race timing, lock contention, and process-level startup interleavings. LLM-DEP/MULTI-STEP: not applicable. REJECTION-GATE: Integration rejected by explicit behavior text 'separate processes' and 'start at the same time', which requires subprocess-level concurrency to be realistic.",
+      "test_description": "Spin up a test PostgreSQL instance and launch two Node runner subprocesses simultaneously against the same migrations (include at least one migration with delay to widen race window). Wait for both to finish. Assert each migration side effect exists exactly once and `_migrations` has one row per migration (no duplicates), with both processes succeeding or one cleanly no-oping on already-applied items.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.08,
+        "System": 0.92,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "On the very first run against a fresh database, the `_migrations` table is created before any migration file is applied.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is startup orchestration across schema-bootstrap and migration-application modules; unit-testing DDL helper alone misses ordering integration bug. REAL-INFRA: local DB + filesystem are sufficient; no subprocess/OS-only behavior needed. MOCK-HIDE: stubbing metadata-table existence can hide real first-run bootstrap failure. LLM-DEP/MULTI-STEP: not applicable. REJECTION-GATE: System rejected because behavior text concerns first-run sequencing within runner/DB interaction, not external process/network conditions.",
+      "test_description": "Run against a fresh PostgreSQL database with a first migration that fails intentionally if `_migrations` does not yet exist (e.g., guarded check). Assert run succeeds, `_migrations` exists, migration side effects are present, and metadata entry is recorded, proving bootstrap happened before file execution.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

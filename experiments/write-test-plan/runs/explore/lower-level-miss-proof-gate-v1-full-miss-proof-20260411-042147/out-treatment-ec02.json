@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at module handoff (HTTP raw-body extraction -> signature verifier -> enqueue path). A Unit test of verifier logic can pass while handler wires parsed body instead of raw bytes. REAL-INFRA: no real OS/network/subprocess is required; in-process app wiring is enough. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss a bug where the handler verifies one payload representation but forwards another. REJECTION-GATE: System rejected because behavior text does not require real network conditions or OS primitives.",
+      "test_description": "Run the handler in-process with real middleware/body parsing and a spy/fake queue module. Send a request with a deliberately invalid X-Signature-256 over a known raw body; assert HTTP 401 and assert enqueue was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.78,
+        "System": 0.02,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is ordering across modules (handler response timing vs queue persistence completion). Unit-level branch tests can miss missing await/transaction commit ordering. REAL-INFRA: needs real queue persistence module (e.g., local DB/filesystem) but not real external network/subprocess. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss bug where enqueue Promise is fired and response returns before durable write finishes. REJECTION-GATE: System rejected because behavior does not require real internet HTTP or OS-specific primitives beyond local module wiring.",
+      "test_description": "Use in-process HTTP test against the real queue persistence adapter (local test DB/filesystem). Make enqueue artificially slow at commit point; assert response is not sent until durable write completes, then 200 is returned.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.72,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is in orchestration between enqueue/dispatch and response path. Unit testing only processing function misses handler waiting on downstream completion. REAL-INFRA: no real OS/network/subprocess is required; controlled in-process slow worker is sufficient. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss accidental await on processing completion in handler path. REJECTION-GATE: System rejected because real network stack is not required to detect this wait-vs-no-wait bug.",
+      "test_description": "Wire handler with a downstream processor that blocks on a Promise. Send request in-process; assert HTTP response returns quickly while processor Promise is still unresolved, then resolve and verify processing finishes later.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: this is wall-clock SLA under concurrency and HTTP serving behavior; real event loop scheduling, socket handling, and timer behavior matter. MOCK-HIDE: in-process fakes/fake timers can hide queue contention/event-loop starvation seen only under real server/runtime conditions. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Integration with mocked time can miss real latency spikes from concurrent requests and Node runtime scheduling. REJECTION-GATE: Integration rejected because behavior text explicitly requires wall-clock latency under concurrent load.",
+      "test_description": "Start the real Node HTTP server on a test port. Preload slow concurrent downstream work, then send webhook requests concurrently over real HTTP and measure end-to-end latency; assert each acknowledgment is <=3s while background processing remains slow.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.15,
+        "System": 0.82,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: dedup correctness is at boundary between handler idempotency logic and persistent queue/storage uniqueness. Unit logic tests can miss race/constraint integration bugs. REAL-INFRA: requires real local persistence behavior but not external OS/network beyond local DB/filesystem. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss bug where duplicate check is in memory only and second process/request still inserts duplicate. REJECTION-GATE: System rejected because real external network/subprocess is not required by behavior text.",
+      "test_description": "Use in-process handler with real persistence-backed queue. Submit same event ID twice (including close timing). Assert first is stored and second is rejected/ignored, and only one queue record exists.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: behavior depends on contract between queue module's 'full' signal and HTTP translation (status + header). A Unit mock can hide mismatch in real error/return shape. REAL-INFRA: no real OS/network/subprocess required; module wiring suffices. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss handler failing to recognize actual queue-full error emitted by queue module, returning wrong status/header. REJECTION-GATE: System rejected because behavior text is about queue signal mapping, not real network/OS failure modes.",
+      "test_description": "Wire handler to real queue interface implementation configured at capacity (or returning its real full error object). Send webhook in-process; assert HTTP 503 and `Retry-After` header is present with expected value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this verifies real persistence/capacity enforcement across queue logic + storage, not just algorithmic counting. Unit fakes can pass while real adapter ignores limits. REAL-INFRA: local DB/filesystem-backed queue is enough; no real external network/subprocess required. LLM-DEP/MULTI-STEP: not applicable. LOWER-LEVEL-MISS-PROOF: Unit would miss bug where capacity config is not applied in storage layer and inserts continue past limit. REJECTION-GATE: System rejected because behavior text does not require external OS/network/subprocess interactions beyond local persistence integration.",
+      "test_description": "Instantiate the real persistent queue with a small configured capacity in test storage. Enqueue up to limit, then enqueue one more; assert overflow is rejected with the queue's full error and persisted count never exceeds configured capacity.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.68,
+        "System": 0.3,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

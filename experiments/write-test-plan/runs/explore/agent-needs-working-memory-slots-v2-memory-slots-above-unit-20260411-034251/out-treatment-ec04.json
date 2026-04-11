@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"request sent to the external API always includes the complete list.\" Slot B: handoff boundary (classifier module -> API client payload). Slot C: if lowered to Unit, a payload-builder unit test can pass while wiring drops/renames the taxonomy field before send. Rejection gate: rejected System because behavior text does not require real network/OS/subprocess; rejected Agentic because it does not depend on model decision quality.",
+      "test_description": "Wire classifier with a fake in-process API client that captures outbound payload. Invoke classification with a known taxonomy and assert the captured request contains every taxonomy label (no omissions) in the final dispatched payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.62,
+        "System": 0.08,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"When the API returns a label that is not in the taxonomy.\" Slot B: handoff boundary (provider response -> module output contract). Slot C: if lowered to Unit, validating only a helper can miss that the real response path bypasses normalization and leaks invalid labels. Rejection gate: rejected Agentic because assertion is about local guardrail behavior, not model correctness; rejected System because no real infra is required.",
+      "test_description": "Run classifier end-to-end in-process with a stub provider returning an out-of-taxonomy label (e.g., \"medical\"). Assert public module result is exactly \"unknown\" and never the raw provider label.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.05,
+        "Agentic": 0.04,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "Behavior is a deterministic normalization property on identical inputs; failure boundary is one local function/object with no I/O. Rejection gate: rejected Integration because no module handoff is required by the behavior text.",
+      "test_description": "Call normalization function repeatedly with the same raw response fixtures (case/whitespace variants already fixed in fixture) and assert identical final label each time.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "Slot A: \"repeated live API calls ... returned label remains consistent.\" Slot B: model-output boundary (real LLM/API behavior over repeated calls). Slot C: if lowered to System, you may validate transport/status behavior but miss true label instability from model decision variability. Rejection gate: rejected Workflow because this is repeated single-step classification, not a multi-step agent pipeline with sequential agentic handoffs.",
+      "test_description": "Execute multiple real provider calls for the exact same document+taxonomy over a controlled window, record raw provider label and normalized output, and assert normalized label is stable whenever raw provider response is unchanged; flag drift events when raw response differs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.2,
+        "Agentic": 0.72,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"enforces the configured token budget before dispatch.\" Slot B: handoff boundary (budgeting component -> dispatcher/client). Slot C: if lowered to Unit, token-policy logic can pass while dispatch path still sends over-budget payloads. Rejection gate: rejected System because real OS/network is not required to prove pre-dispatch enforcement.",
+      "test_description": "Configure a small budget, run classifier with an over-budget document using in-process fake client, and assert either (a) truncated request respects budget or (b) request is rejected per policy, and in both cases no over-budget payload is dispatched.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.06,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Agentic",
+      "justification": "Slot A: \"Provider-reported token usage ... stays within ... budget.\" Slot B: model-output boundary from a real AI API call (provider usage metadata). Slot C: if lowered to System, you might check only HTTP/infrastructure paths and miss model/provider-side token-accounting behavior that mocks cannot reproduce. Rejection gate: rejected Integration because fake usage counters can always pass and hide real provider accounting mismatches.",
+      "test_description": "Run real classification calls for representative documents and assert provider-reported prompt/total token usage is <= configured budget per call; fail on any over-budget report.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.34,
+        "Agentic": 0.57,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"API signals ... rate is too high, module waits and retries.\" Slot B: handoff/orchestration boundary (error mapping + retry policy across modules). Slot C: if lowered to Unit, isolated backoff function tests can pass while classifier path still surfaces rate-limit errors without retry. Rejection gate: rejected System because behavior can be reproduced with deterministic in-process stubbed rate-limit responses; rejected Agentic because no dependence on model decision content.",
+      "test_description": "Use a stub provider that returns rate-limit error first, then success. Assert classifier waits according to retry policy and ultimately returns success without exposing an error to caller.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.62,
+        "System": 0.19,
+        "Agentic": 0.03,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

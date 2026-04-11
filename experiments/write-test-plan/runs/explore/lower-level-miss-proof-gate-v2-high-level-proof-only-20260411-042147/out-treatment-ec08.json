@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: This behavior can be isolated to backoff-policy math (attempt index -> delay) with no required module handoff. REAL-INFRA/MOCK-HIDE: No OS/network/subprocess dependence; fakes do not hide the core failure. LLM-DEP/MULTI-STEP: Not applicable. REJECTION-GATE: Integration was considered, but behavior text is limited to delay progression and cap (pure policy), not transport/scheduler interaction.",
+      "test_description": "Table-driven test of a pure backoff function (or policy object) over consecutive failure counts, asserting exact doubling and clamp at configured max (including boundary at first capped retry).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.62,
+        "Integration": 0.34,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Failure appears at module boundary: response classifier + retry coordinator + delay computation. Unit-testing classifier alone can miss miswired status/header mapping in retry logic. REAL-INFRA: Real HTTP not required; in-process stub responses are sufficient. LLM-DEP/MULTI-STEP: Not applicable. INTEGRATION-BRAKE: (a) no real OS/network needed, (b) no AI output, (c) no multi-agent chain.",
+      "test_description": "Wire retry coordinator with a stub transport returning scripted responses (e.g., 429 with retry metadata). Assert the coordinator marks it retriable and schedules the expected delay value passed to its sleeper/timer abstraction.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Requires interaction among request capture, retry scheduler, and transport resend path; unit tests of each piece can miss mutated/lost request payload on retry. REAL-INFRA/MOCK-HIDE: Real network is unnecessary; stub transport can verify second-call payload identity and success propagation. LLM-DEP/MULTI-STEP: Not applicable. REJECTION-GATE: System rejected because behavior text requires resend semantics, not real socket/HTTP stack behavior.",
+      "test_description": "Use fake clock + stub transport: first call returns rate-limit, second returns success. Assert transport received two calls with equivalent request body/headers and that `call()` resolves to second response payload without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.82,
+        "System": 0.07,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Boundary is retry counter/state machine + error-mapping layer; isolated unit tests can miss wrong exception translation after orchestration completes. REAL-INFRA: No real network/OS required; scripted in-process failures are enough. LLM-DEP/MULTI-STEP: Not applicable. REJECTION-GATE: System rejected because typed-error mapping is internal behavior independent of real infrastructure.",
+      "test_description": "Script transport to return only rate-limit failures beyond max retries. Assert `call()` rejects with `QuotaExhaustedError` (type and key fields) and not raw transport/generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.77,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: This is explicitly cross-module orchestration (retry loop + backoff + quota accounting); unit tests per component miss loop-termination bugs caused by their interaction. REAL-INFRA/MOCK-HIDE: Fake clock and stub transport can expose non-termination without real OS/network. LLM-DEP/MULTI-STEP: No AI-agent steps. LOWER-LEVEL-MISS-PROOF (for higher levels): Integration would miss nothing essential here only if real timers/network were required, but behavior text does not require them.",
+      "test_description": "Integration test with fake timers and always-rate-limited stub transport. Run loop to completion and assert bounded number of attempts, final surfaced error, and no pending scheduled retries after completion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.83,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Real failure is shared-state handoff/race across caller-facing API + quota manager; single-function unit tests cannot prove process-wide sharing semantics. REAL-INFRA: No external OS/network required; concurrent in-process promises with a controlled stub transport can reproduce race conditions. LLM-DEP/MULTI-STEP: Not applicable. REJECTION-GATE: System rejected because behavior text scopes to 'same process' shared bucket, not real external infrastructure effects.",
+      "test_description": "Launch multiple concurrent `call()` invocations against one library instance (or intended shared scope) with deterministic stub transport; assert aggregate quota consumption is global (not per-caller) and throttling decisions reflect one shared counter.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.86,
+        "System": 0.09,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Ordering bugs emerge from queue + scheduler + dispatcher interaction; unit-testing queue data structure alone misses dispatch-time reordering. REAL-INFRA/MOCK-HIDE: In-process controlled scheduler/fake clock is sufficient; no real OS/network needed. LLM-DEP/MULTI-STEP: Not applicable. REJECTION-GATE: System rejected because required invariant is logical FIFO dispatch order, not kernel/network timing behavior.",
+      "test_description": "Queue several blocked requests, then release send capacity stepwise via stub quota/transport. Assert dispatch sequence equals submission sequence by captured call timestamps/ids at transport boundary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.84,
+        "System": 0.09,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

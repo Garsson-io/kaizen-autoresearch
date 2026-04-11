@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject mismatched HMAC signature with 401 and do not forward body",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is middleware/handler handoff of raw body bytes plus queue side effect. A unit test of `verifyHmac()` can pass while real request handling fails if body parsing/mutation occurs before verification. Higher levels were considered and rejected: behavior text only requires HTTP status + no enqueue; it does not require real network/OS/subprocess or any AI output.",
+      "test_description": "Run the HTTP handler stack in-process (real routing + raw-body middleware + handler) with a real malformed `X-Signature-256` over the sent body; assert 401 and assert queue writer was not called / queue row absent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Persist event to queue before returning HTTP 200",
+      "minimum_level": "Integration",
+      "justification": "This is an ordering bug at module boundaries (HTTP handler async flow + persistent queue adapter). Unit tests of handler branches can miss race/await mistakes across modules. Higher levels rejected: behavior text does not require real external network/subprocess; in-process app + real local persistence is sufficient.",
+      "test_description": "Use in-process HTTP request to handler wired to real persistent queue module (test DB/filesystem). Instrument/observe commit point and response completion; assert enqueue commit timestamp/order occurs before response is sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.7,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Return HTTP response without waiting for downstream processing completion",
+      "minimum_level": "Integration",
+      "justification": "Failure appears in orchestration between handler, queue, and async worker trigger. Unit logic tests can miss accidental `await` on downstream processing promise once modules are wired. Higher levels rejected: no requirement for real OS/network behavior beyond local async scheduling.",
+      "test_description": "Wire handler + queue + downstream processor in-process; make processor intentionally slow/blocking. Send request and assert response is returned before processor completion signal.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Respond within 3s under concurrent slow downstream load",
+      "minimum_level": "System",
+      "justification": "This behavior is wall-clock latency under concurrency, which depends on real runtime scheduling/socket handling/event-loop pressure. Integration fakes can hide head-of-line blocking and server-level timing regressions. Lower-level miss-proof: an in-process mocked transport may pass while real HTTP server under concurrent load breaches 3s.",
+      "test_description": "Start the actual service process (or production-like server config), create concurrent traffic with slow downstream work already in flight, send new webhook requests over real HTTP, and assert end-to-end response latency stays <3s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.2,
+        "System": 0.75,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Do not enqueue duplicate event ID",
+      "minimum_level": "Integration",
+      "justification": "Dedup is a state handoff/invariant across handler + persistent queue store (e.g., unique key/check-then-insert). Unit tests of dedup helper can miss real persistence interaction and race windows. Higher levels rejected: behavior text does not require real external HTTP/network; local module wiring with real store is enough.",
+      "test_description": "Run handler against real persistent queue backend in test mode; submit same event ID twice (including near-concurrent submits) and assert only one queue record/write succeeds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, return 503 with Retry-After",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is queue-capacity signal mapping to HTTP contract (status/header). Unit tests of status mapping can miss miswired error propagation between queue adapter and handler. Higher levels rejected: no explicit need for real network/OS primitives; in-process wiring reproduces the failure.",
+      "test_description": "Fill queue to capacity using real queue module in test setup, send webhook, assert response is 503 and `Retry-After` header is present and valid.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity and rejects overflow writes",
+      "minimum_level": "Integration",
+      "justification": "This is a persistence-component behavior requiring real queue backend semantics (storage + capacity accounting). Unit tests with mocked storage can hide real overflow acceptance bugs. System was considered and rejected because behavior text does not require external network/subprocess; local DB/filesystem-backed queue integration is sufficient.",
+      "test_description": "Instantiate queue with explicit small capacity using actual persistence backend, perform writes until boundary, then one extra write; assert overflow write is rejected and persisted count never exceeds configured limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

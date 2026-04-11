@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Failure is at a module boundary (HTTP handler + signature verifier + queue-forwarding call). Unit tests of just HMAC logic can pass while the handler still forwards on mismatch. No real OS/network/subprocess or model output is required. Rejection-gate: System is disqualified by behavior text focusing on signature/body mismatch and forwarding decision, which can be reproduced in-process.",
+      "test_description": "Run the handler with an in-process HTTP request object containing a mismatched X-Signature-256 and a spy/fake queue writer; assert 401 response and zero enqueue calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.75,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "This is ordering across modules (handler response path vs queue write completion). A single-function unit test misses cross-module race/order bugs. Real network/OS is not necessary to detect the ordering defect. Rejection-gate: System is disqualified because behavior text is about write-before-ack sequencing, not real socket or OS behavior.",
+      "test_description": "Use an in-process handler test with a controllable fake persistent queue write Promise; verify HTTP 200 is not emitted until write resolves, and emitted immediately after.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.7,
+        "System": 0.2,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears in orchestration between enqueue path and downstream processor lifecycle. Unit-testing one function can miss accidental await/blocking across module handoff. No real external infra is required to reproduce waiting-vs-nonwaiting behavior. Rejection-gate: System is disqualified because behavior text targets wait semantics, which can be validated with in-process controlled promises.",
+      "test_description": "Wire handler + queue + downstream worker stub where worker completion is deliberately delayed; assert response is returned before worker promise settles.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.72,
+        "System": 0.18,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "This behavior depends on real wall-clock latency under concurrency and event-loop/server scheduling; in-process fakes/timers can hide queueing, socket handling, and runtime contention failures. MOCK-HIDE applies: mocked timing often passes while real server breaches SLA. Rejection-gate: Integration is disqualified by explicit 'within 3 seconds wall-clock' and 'slow and concurrent' requirements.",
+      "test_description": "Start the real Node HTTP server process, generate concurrent requests while earlier events are intentionally slow in downstream processing, and measure actual elapsed time to ensure each response stays under 3s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.17,
+        "System": 0.78,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Dedup correctness is at state-handoff boundary (handler + idempotency store/queue write path). Unit tests of pure ID check logic can miss real duplicate-write bugs across modules/transactions. No real network/subprocess or model is required. Rejection-gate: System is disqualified because behavior text is about duplicate-ID write prevention, reproducible with in-process module wiring and local persistence abstractions.",
+      "test_description": "Submit two requests with the same event ID through the handler using a real/local idempotency component and queue spy; assert first enqueues, second does not.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.17,
+        "Integration": 0.68,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Behavior validates mapping of queue backpressure signal to HTTP status/headers across module boundary. A pure unit test of header formatting misses integration of queue error signaling with handler response path. Real OS/network not required. Rejection-gate: System is disqualified by behavior text 'queue reports it is full' indicating an in-process signal can trigger the path.",
+      "test_description": "Use handler with fake queue that deterministically returns/throws a full-capacity condition; assert HTTP 503 and presence/value format of Retry-After header.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.16,
+        "Integration": 0.74,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This targets queue component behavior with its persistence layer and config wiring, which is beyond a single pure function but still local infrastructure (DB/filesystem) rather than full system/network. Unit tests can miss storage-backed count/transaction edge cases. Rejection-gate: System is disqualified because behavior text is about local capacity enforcement in the queue component, not OS/network/subprocess behavior.",
+      "test_description": "Instantiate the real persistent queue implementation against local test storage with a small configured capacity; enqueue up to limit, then assert next enqueue is rejected with the queue-full condition.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.62,
+        "System": 0.28,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
