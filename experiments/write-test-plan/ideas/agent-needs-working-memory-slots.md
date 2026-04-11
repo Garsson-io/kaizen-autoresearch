@@ -1,7 +1,7 @@
 ---
 id: agent-needs-working-memory-slots
 title: Agent Needs Working Memory Slots (behavior, boundary, miss)
-status: proposed
+status: kept
 effort: medium
 expected_impact: high
 targets:

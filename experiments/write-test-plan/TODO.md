@@ -537,16 +537,28 @@ Selection rule: after each completed iteration, pick the next candidate from fre
 - [ ] → Next iteration
 
 ### Iteration 22/30 (candidate: `agent-needs-working-memory-slots` promotion trial on `v2-memory-slots-above-unit`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] CANDIDATE BRIEF
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss still Integration→Agentic, Unit→Agentic)
+- [x] META (practical promotion trial requested by user despite earlier family-signal instability)
+- [x] IDEATE (select direct promotion candidate: `v2-memory-slots-above-unit` from Iteration 20 holdout winner)
+- [x] CANDIDATE BRIEF
+  - Promote candidate: `agent-needs-working-memory-slots` variation `v2-memory-slots-above-unit`.
+  - Why chosen now: holdout winner in Iteration 20 (`-3.79`) and safer than `v3` for broad use.
+  - Edit type: `ADD` (single mini-block, no replacements/removals).
+  - Exact prompt additions to `treatment.md`:
+    - `- **AGENT-MEMORY-SLOTS** (only when provisional choice is above Unit):`
+    - `  Slot A: quote the exact behavior phrase driving your level choice.`
+    - `  Slot B: name the decisive boundary signal (handoff / real-infra / model-output / multi-step agentic).`
+    - `  Slot C: state one concrete miss if lowered by one adjacent level.`
+    - `  Final label must reference Slot B and Slot C.`
 - [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - Promotion-trial outcome: full-corpus run regressed to loss `395.80` vs reference `364.67` (`+31.13`).
+  - Interpretation: subset signal did not generalize; direct promotion is unsafe.
+  - Action: discard + revert treatment edit commit `1d0efa6`.
+- [x] EDIT + COMMIT (applied ADD edit then reverted after score check)
+- [x] RUN + SCORE (run `20260411-040028`; regression vs reference baseline)
+- [x] LOG + TAXONOMY FLOW (logged discard/revert; no promotion)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
