@@ -227,8 +227,8 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 12/20 (candidate: `competitive-critique-seeding`)
@@ -247,8 +247,8 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 13/20 (candidate: `multi-candidate-test-design-then-select-lowest`)
@@ -267,8 +267,8 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 14/20 (candidate: `two-step-review-loop`)
@@ -287,8 +287,8 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 15/20 (candidate: `integration-escape-hatch`)
@@ -307,16 +307,80 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 16/20 (candidate: `bidirectional-rejection-evidence-gate`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (novelty-first check passed; untested candidate)
+- [x] IDEATE (selected low-effort consistency mechanism with explicit adjacent evidence burden)
+- [x] CANDIDATE BRIEF
+  - Rationale: reduce arbitrary adjacent-level rejection and boundary inconsistency.
+  - Variations created (exact additions):
+    - `v1-bidirectional-adjacent`: adjacent L-1/L+1 disqualifying-quote requirement.
+    - `v2-adjacent-plus-tie-rule`: same + higher-risk tie-break when unresolved.
+    - `v3-adjacent-scope-limited`: scoped adjacent quote gate with SELF-CHECK fallback.
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed716, 8 tasks: all variants regressed -> no-signal)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (gate adds overhead and broad degradation; no credible positive mechanism)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 17/20 (candidate: `grounded-escalation-contract-suite`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (high-leverage novelty-first: selected untested idea with explicit falsification criterion)
+- [x] IDEATE (selected synergy idea merging three grounding checks)
+- [x] CANDIDATE BRIEF
+  - Selected idea: `grounded-escalation-contract-suite` (novel `explore_status: null`)
+  - Why now: novelty-first after two broad no-signals; directly targets top weighted-loss pairs `Integration→Agentic` and `Unit→Agentic`.
+  - Mechanism rationale: combine three proven failure checks in one compact gate:
+    quote evidence + lower-level miss-proof + anti-generic wiring justification.
+  - Falsification criterion: if all variants regress or best meaningful delta is weak/noisy (> -2.0), mark `no-promote`.
+  - Expected-win targets: `EC-17 b2` (`Integration→Agentic`), `EC-30 b5` (`Integration→Agentic`), `EC-30 b3` (`Unit→Agentic`).
+  - Variations (exact prompt additions):
+    - `v1-contract-strict`:
+      - `- **GROUNDING-CONTRACT**: Before choosing Integration/System/Agentic/Workflow, require ALL:`
+      - `  (1) quote the exact behavior phrase that requires escalation;`
+      - `  (2) name one concrete failure the lower adjacent level would miss for THIS behavior;`
+      - `  (3) do not use generic "could miss wiring" unless behavior explicitly states handoff/contract/order/state-boundary failure.`
+      - `  If any item is missing, choose the lower adjacent level.`
+    - `v2-contract-quote-relaxed`:
+      - `- **GROUNDING-CONTRACT**: Before choosing Integration/System/Agentic/Workflow, require ALL:`
+      - `  (1) quote OR high-fidelity paraphrase the behavior phrase that requires escalation;`
+      - `  (2) name one concrete failure the lower adjacent level would miss for THIS behavior;`
+      - `  (3) do not use generic "could miss wiring" unless behavior explicitly states handoff/contract/order/state-boundary failure.`
+      - `  If any item is missing, choose the lower adjacent level.`
+    - `v3-contract-high-level-only`:
+      - `- **GROUNDING-CONTRACT**: Apply this only when provisional choice is System/Agentic/Workflow.`
+      - `  Require: quote evidence + one lower-level miss-proof + no generic "could miss wiring" without explicit boundary text.`
+      - `  If contract fails, demote by one adjacent level and re-check.`
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed717, 8 tasks: `no-signal`; v1 +7.09, v2 +0.31, v3 +32.50 -> no-promote)
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - LEARNING DELTA:
+    - `v2` fixed the hardest sampled workflow confusions on `EC-11` (all-correct) where baseline had high-weight misses.
+    - The same contract caused high-impact regressions on `EC-14` and `EC-34` (extra System over-escalations), and net loss remained worse.
+    - Mechanism inference: combined contract can help explicit regeneration/workflow language but over-escalates on infra/orchestration tasks.
+  - Action: `no-promote` (no stable meaningful improvement); keep lesson for a future scoped selector idea, not direct promotion.
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 16/20 (candidate: `agentic-floor-content-dependence-gate`)
+### Iteration 18/20 (candidate: `TBD-novelty-first-toploss`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
 - [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
 - [ ] POST-EXPLORE LEARNING SYNTHESIS
 - [ ] EDIT + COMMIT
 - [ ] RUN + SCORE
@@ -325,12 +389,13 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 17/20 (candidate: `integration-middle-anchor`)
+### Iteration 19/20 (candidate: `TBD-novelty-first-toploss`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
 - [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
 - [ ] POST-EXPLORE LEARNING SYNTHESIS
 - [ ] EDIT + COMMIT
 - [ ] RUN + SCORE
@@ -339,40 +404,13 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 18/20 (candidate: `precision-failure-boundary`)
+### Iteration 20/20 (candidate: `TBD-novelty-first-toploss`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
 - [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration
-
-### Iteration 19/20 (candidate: `role-anchor-staff-engineer`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
-- [ ] → Next iteration
-
-### Iteration 20/20 (candidate: `toploss-ia-ua-round-2`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
 - [ ] POST-EXPLORE LEARNING SYNTHESIS
 - [ ] EDIT + COMMIT
 - [ ] RUN + SCORE
