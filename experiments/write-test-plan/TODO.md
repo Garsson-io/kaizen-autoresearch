@@ -504,21 +504,39 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 Selection rule: after each completed iteration, pick the next candidate from fresh evidence only. Do not prefill future candidates.
 
 ### Iteration 21/30 (candidate: `memory-slots-selector-hybrid`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] CANDIDATE BRIEF
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (selected by direct trigger: Iteration 20 family-signal winner flip between v2/v3)
+- [x] IDEATE (choose merged selector candidate from fresh evidence; no prefilled queue)
+- [x] CANDIDATE BRIEF
+  - Selected idea: `memory-slots-selector-hybrid` (created from Iteration 20 family-signal).
+  - Why now: best evidence-backed follow-up; combines `v2` holdout stability (above-Unit scope) + `v3` pass1 strength (terse slots).
+  - Mechanism rationale: activate concise Slot A/B/C memory scaffold only where escalation risk exists, reducing overhead on easy Unit cases.
+  - Falsification criterion: weak/noisy best delta (> -2.0), any `no-signal` pass, or high concentration spike (>60%) => `no-promote`.
+  - Expected-win targets: `EC-17 b2` (`Integration→Agentic`), `EC-30 b5` (`Integration→Agentic`), `EC-30 b3` (`Unit→Agentic`), plus boundary stability on ambiguous adjacent cases.
+  - Variations (exact prompt additions):
+    - `v1-hybrid-above-unit-terse`:
+      - `- **MEMORY-SLOTS-HYBRID** (only above Unit): one short line each for Slot A evidence quote, Slot B boundary signal, Slot C adjacent-lower miss-proof. Final label must cite Slot B and Slot C.`
+    - `v2-hybrid-tie-trigger`:
+      - `- **MEMORY-SLOTS-HYBRID**: activate only for above-Unit adjacent tie/near-tie; then output one short line each for evidence, boundary signal, and adjacent-lower miss-proof.`
+    - `v3-hybrid-toploss-only`:
+      - `- **MEMORY-SLOTS-HYBRID**: activate only for Integration-Agentic or Unit-Agentic boundary decisions; then output one short line each for evidence, boundary signal, and adjacent-lower miss-proof.`
 - [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed721, 8 tasks: `no-signal`; v1 +2.93, v2 +3.54, v3 +8.23 -> no-promote)
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - LEARNING DELTA:
+    - Hybridization did not preserve the parent family gains; all activation scopes regressed on this subset.
+    - Likely failure mode: merged rule added overhead without stable trigger calibration.
+    - User-recommended fix retained: if re-testing tie-trigger variants, define near-tie numerically (`top-2 gap <= 0.10`).
+  - Action: `no-promote`; consider direct promotion trial of prior winner (`v2-memory-slots-above-unit`) to test practical utility.
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 22/30 (candidate: `TBD (evidence-driven after Iteration 21)`)
+### Iteration 22/30 (candidate: `agent-needs-working-memory-slots` promotion trial on `v2-memory-slots-above-unit`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META

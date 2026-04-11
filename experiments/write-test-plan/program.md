@@ -161,6 +161,8 @@ LOOP:
          - if creating new variations: list each variation label and show the exact added/changed prompt lines
          - if reusing existing variations: list each variation label and show the exact diff vs treatment.md
        - **Decision expectation**: what would count as promote / family-signal / no-promote under current gate
+       - **Operational thresholds**: if a variation uses terms like "near-tie", "ambiguous", or "close margin",
+         define a numeric threshold in the brief (for reproducibility). Default for "near-tie": top-2 gap `<= 0.10`.
        Also publish this brief to the user in-chat before explore:
        - selected idea
        - why chosen now
