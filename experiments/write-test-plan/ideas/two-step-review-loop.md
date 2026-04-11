@@ -16,11 +16,11 @@ risk: Extra structure can increase verbosity and may overfit to process complian
 prereqs: Keep existing level definitions and gates intact; add only process constraints.
 related: [reverse-self-check, hypothesis-validation-step, evidence-ledger-decision-protocol]
 explore_status: concentrated-signal
-explore_tasks: [ec-15, ec-08, ec-33, ec-27, ec-32, ec-19]
-explore_baseline_loss: 80.27
-explore_loss: 80.09
-explore_delta: -0.19
-explore_date: 2026-04-10
+explore_tasks: [ec-24, ec-34, ec-28, ec-36, ec-20, ec-08, ec-29, ec-19]
+explore_baseline_loss: 103.00
+explore_loss: 98.32
+explore_delta: -4.68
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -118,3 +118,17 @@ Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-24, ec-34, ec-28, ec-36, ec-20, ec-08, ec-29, ec-19`  
+Baseline subset loss: `103.00`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-two-pass-self-check | 106.8957 | +3.8960 | improved 2, hurt 4, flat 2 | n/a |
+| v2-pass-markers | 98.3222 | -4.6776 | improved 1, hurt 2, flat 5 | ec-34 drives 79% of gain |
+| v3-adjacent-challenge | 122.8268 | +19.8271 | improved 1, hurt 6, flat 1 | n/a |
+
+Winner: `v2-pass-markers` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
