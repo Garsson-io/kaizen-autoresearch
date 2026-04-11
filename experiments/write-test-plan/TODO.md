@@ -291,16 +291,22 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 15/20 (candidate: `non-negotiable-boundary-gates`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+### Iteration 15/20 (candidate: `integration-escape-hatch`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (high-leverage mode: novelty-first, mechanism + falsification pre-registered)
+- [x] IDEATE (selected novel `explore_status:null` idea targeting Integration-anchor failure family)
+- [x] CANDIDATE BRIEF
+  - Rationale: explicit Integration anchor escape aimed at top-loss Integration→Agentic/System spillover.
+  - Variations created (exact additions):
+    - `v1-integration-check-core`: add Integration down-test/up-test with keep condition.
+    - `v2-integration-check-quote-burden`: add quote-burden gate for Unit and higher-level disqualification.
+    - `v3-integration-check-minimal`: add minimal neighbor-challenge Integration check.
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed715, 8 tasks: all variants regressed -> no-signal)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (mechanism over-constrains and harms broad mid/high mix; no credible positive mechanism extracted)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
