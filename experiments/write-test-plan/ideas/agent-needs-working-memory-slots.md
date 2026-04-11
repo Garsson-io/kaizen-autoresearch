@@ -16,12 +16,12 @@ change_type: structural
 risk: Added structure can become box-checking if slots are vague or repetitive.
 prereqs: Slots must be terse and required only once per behavior block.
 related: [behavior-quote-grounding-gate, lower-level-miss-proof-gate, minimal-failing-invariant-first]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-03, ec-23, ec-27, ec-08, ec-12, ec-34, ec-14, ec-19]
+explore_baseline_loss: 105.23
+explore_loss: 101.44
+explore_delta: -3.79
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -54,12 +54,25 @@ The agent often fails because it does not hold the critical evidence in working 
 Follow `experiments/write-test-plan/program.md` LOOP step 4.5.
 
 ## Epistemological Status
-Current status: untested.
+Current status: explored (`family-signal` via winner flip), not promoted.
 
 ## Run History
 | Iter | Run | Outcome | Delta | Note |
 |---:|---|---|---:|---|
-| — | — | — | — | not run yet |
+| 20 | explore/agent-needs-working-memory-slots-* | family-signal | pass1 -9.85 / holdout -3.79 | winner flip (`v3` -> `v2`), both meaningful negative |
 
 ## Reusable Lesson
-Pending first run.
+Memory-slot mechanism is promising but winner is unstable; prefer merged selector follow-up (`memory-slots-selector-hybrid`) over direct promotion.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-03, ec-23, ec-27, ec-08, ec-12, ec-34, ec-14, ec-19`  
+Baseline subset loss: `105.23`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-memory-slots-all | 110.7509 | +5.5215 | improved 3, hurt 2, flat 3 | n/a |
+| v2-memory-slots-above-unit | 101.4356 | -3.7938 | improved 4, hurt 1, flat 3 | distributed |
+| v3-memory-slots-terse-cap | 102.9297 | -2.2997 | improved 3, hurt 2, flat 3 | distributed |
+
+Winner: `v2-memory-slots-above-unit` by holdout aggregate loss, but pass1 winner was `v3-memory-slots-terse-cap`; treat as `family-signal` and do not promote a single variant yet.

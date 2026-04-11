@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"signature does not match its body...401...not forwarded.\" Slot B: handoff boundary (HTTP handler -> signature verifier -> queue adapter). Slot C: if lowered to Unit, a pure verifier test can pass while handler wiring still forwards on mismatch. Rejection gate: no text requiring real network/OS/subprocess, so not System.",
+      "test_description": "Run the handler with real middleware/module wiring and a fake queue sink. Send a signed request with an intentionally wrong HMAC over the raw body; assert HTTP 401 and assert queue sink receives zero enqueue calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.55,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"written to the persistent queue before...200 acknowledgment.\" Slot B: handoff/order across modules (handler -> queue persistence -> response writer). Slot C: if lowered to Unit, you can miss real ordering bugs where response is sent before persistence promise resolves. Rejection gate: behavior text does not require real network/subprocess; local persistence wiring is sufficient.",
+      "test_description": "Use integrated handler + real queue module against a local test persistence backend. Instrument queue write completion and response emission timestamps/order; assert write commit occurs before 200 is sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"returns the HTTP response without waiting for downstream processing...to finish.\" Slot B: async handoff boundary (enqueue/dispatch vs response lifecycle). Slot C: if lowered to Unit, a mocked function test can miss coupling where response path accidentally awaits worker completion. Rejection gate: no requirement for real OS/network timing beyond module-level async control.",
+      "test_description": "Wire handler with a downstream processor stub that blocks on a controllable promise. Send a valid event, assert response is returned before the promise is released, then release and verify processing eventually completes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.65,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "Slot A: \"within 3 seconds wall-clock...slow and concurrent.\" Slot B: real-infra signal (event loop scheduling, real HTTP concurrency, wall-clock behavior). Slot C: if lowered to Integration with faked timers/in-process stubs, scheduler/socket contention regressions can be hidden. Rejection gate: no model-output dependency, so not Agentic.",
+      "test_description": "Start the actual Node service process and issue concurrent real HTTP requests while earlier events are intentionally slow in downstream workers. Measure end-to-end client-observed latency; assert each new request is acknowledged under 3 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"ID was already received...not written...a second time.\" Slot B: handoff/state boundary (dedupe store/index + queue write path). Slot C: if lowered to Unit, dedupe logic may pass while persistence uniqueness or repository wiring still permits duplicates. Rejection gate: behavior text does not require real network/subprocess; local persistence integration is enough.",
+      "test_description": "Run handler with the real dedupe/persistence modules. Submit the same event ID twice and assert exactly one persisted queue record/enqueue effect.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"queue reports it is full...returns 503 with Retry-After.\" Slot B: module-boundary error mapping (queue error contract -> HTTP translation). Slot C: if lowered to Unit, you can miss mismatched error types/codes across module boundary that prevent correct 503 mapping. Rejection gate: no real OS/network/subprocess dependency is stated; no model dependency.",
+      "test_description": "Integrate handler with queue adapter that emits the real 'full' error shape. Send a valid request and assert status 503 and presence/value format of Retry-After header.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "Slot A: \"persistent queue actually enforces its configured capacity limit.\" Slot B: boundary is local persistence implementation + configuration interaction (not external network/OS primitive). Slot C: if lowered to Unit, mocked storage can always 'accept' writes and hide real limit-enforcement bugs. Rejection gate: text specifies local persistent queue behavior, not subprocess/real external API, so System is not required.",
+      "test_description": "Instantiate the real queue implementation with a small configured capacity on a local test backend. Fill to limit, attempt one additional enqueue, and assert a deterministic capacity-rejection error and unchanged persisted count.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.25,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
