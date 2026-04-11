@@ -14,11 +14,8 @@
  *   npx tsx experiments/write-test-plan/scripts/verify.ts --mock 0.895 --mock-loss 23.4
  */
 
-import { spawnSync } from "node:child_process";
 import { z } from "zod";
-import { EXP_DIR } from "./paths.js";
-
-const EVAL_DIR = EXP_DIR;
+import { runEvalProcess } from "./run-eval-process.js";
 
 const VerifyResult = z.object({
   score: z.number().min(0).max(100),
@@ -27,82 +24,129 @@ const VerifyResult = z.object({
   metrics: z.record(z.string(), z.number()).optional(),
 });
 
+type ParsedMetrics = { score: number; loss: number; metrics?: Record<string, number> };
+type VerifyArgs = {
+  dryCheck: boolean;
+  timeoutMs: number;
+  mockValue?: string;
+  mockLossValue?: string;
+  passThroughArgs: string[];
+};
+
 const args = process.argv.slice(2);
 
-const mockIdx = args.indexOf("--mock");
-const mockValue = mockIdx >= 0 ? args[mockIdx + 1] : undefined;
-const mockLossIdx = args.indexOf("--mock-loss");
-const mockLossValue = mockLossIdx >= 0 ? args[mockLossIdx + 1] : undefined;
-const passThroughArgs = args.filter((arg, i) => {
-  if (mockIdx >= 0 && (i === mockIdx || i === mockIdx + 1)) return false;
-  if (mockLossIdx >= 0 && (i === mockLossIdx || i === mockLossIdx + 1)) return false;
-  return true;
-});
-
-let raw: string;
-if (mockValue !== undefined) {
-  raw = `SCORE: ${mockValue}\nLOSS: ${mockLossValue ?? "0.0"}`;
-} else {
-  try {
-    const run = spawnSync("./run-eval.sh", passThroughArgs, {
-      cwd: EVAL_DIR,
-      encoding: "utf-8",
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 600_000,
-    });
-    if (run.error) {
-      throw run.error;
-    }
-    if (run.status !== 0) {
-      throw new Error((run.stderr ?? "").slice(0, 2000) || `run-eval.sh exited ${run.status}`);
-    }
-    raw = run.stdout ?? "";
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`run-eval.sh failed: ${msg}`);
-    process.exit(1);
+function fail(message: string, details?: string): never {
+  console.error(message);
+  if (details) {
+    console.error(details);
   }
-}
-
-// Prefer structured METRICS_JSON line (emitted by score.ts --json via run-eval.sh)
-const metricsJsonMatch = raw.match(/^METRICS_JSON:\s*(.+)$/m);
-
-let score: number;
-let loss: number;
-let metrics: Record<string, number> | undefined;
-
-if (metricsJsonMatch) {
-  let parsed: { score?: number; loss?: number; metrics?: Record<string, number> };
-  try {
-    parsed = JSON.parse(metricsJsonMatch[1]);
-  } catch {
-    console.error("Failed to parse METRICS_JSON line");
-    console.error(metricsJsonMatch[1]);
-    process.exit(1);
-  }
-  score = parsed.score ?? 0;
-  loss = parsed.loss ?? 0;
-  metrics = parsed.metrics;
-} else {
-  // Legacy fallback: parse separate SCORE: and LOSS: text lines
-  const scoreMatch = raw.match(/SCORE:\s*([\d.]+)/);
-  if (!scoreMatch) {
-    console.error("No SCORE line or METRICS_JSON found in run-eval.sh output");
-    console.error("--- last 500 chars ---");
-    console.error(raw.slice(-500));
-    process.exit(1);
-  }
-  const lossMatch = raw.match(/LOSS:\s*([\d.]+)/);
-  score = parseFloat(scoreMatch[1]) * 100;
-  loss = lossMatch ? parseFloat(lossMatch[1]) : 0;
-}
-
-let result: z.infer<typeof VerifyResult>;
-try {
-  result = VerifyResult.parse({ score: Math.min(100, Math.max(0, score)), loss: Math.max(0, loss), metrics });
-} catch (err) {
-  console.error(`Validation failed: ${err}`);
   process.exit(1);
 }
 
-console.log(JSON.stringify(result));
+function buildVerifyArgs(allArgs: string[]): VerifyArgs {
+  const consumed = new Set<number>();
+
+  const takeValue = (flag: string): string | undefined => {
+    const idx = allArgs.indexOf(flag);
+    if (idx < 0) return undefined;
+    consumed.add(idx);
+    if (idx + 1 < allArgs.length) {
+      consumed.add(idx + 1);
+      return allArgs[idx + 1];
+    }
+    return undefined;
+  };
+
+  const hasFlag = (flag: string): boolean => {
+    const idx = allArgs.indexOf(flag);
+    if (idx < 0) return false;
+    consumed.add(idx);
+    return true;
+  };
+
+  const mockValue = takeValue("--mock");
+  const mockLossValue = takeValue("--mock-loss");
+  const timeoutValue = takeValue("--timeout-ms");
+  const dryCheck = hasFlag("--dry-check") || hasFlag("--no-run");
+
+  const timeoutNum = timeoutValue === undefined ? NaN : Number(timeoutValue);
+  const timeoutMs = Number.isFinite(timeoutNum) && timeoutNum > 0 ? timeoutNum : 3_600_000;
+  const passThroughArgs = allArgs.filter((_, idx) => !consumed.has(idx));
+
+  return { dryCheck, timeoutMs, mockValue, mockLossValue, passThroughArgs };
+}
+
+function parseAndValidateResult(raw: string): z.infer<typeof VerifyResult> {
+  const parsed = parseOutput(raw);
+  return VerifyResult.parse({
+    score: Math.min(100, Math.max(0, parsed.score)),
+    loss: Math.max(0, parsed.loss),
+    metrics: parsed.metrics,
+  });
+}
+
+function parseOutput(raw: string): ParsedMetrics {
+  // Prefer structured METRICS_JSON line (emitted by score.ts --json via run-eval.sh)
+  const metricsJsonMatch = raw.match(/^METRICS_JSON:\s*(.+)$/m);
+  if (metricsJsonMatch) {
+    let parsed: { score?: number; loss?: number; metrics?: Record<string, number> };
+    try {
+      parsed = JSON.parse(metricsJsonMatch[1]);
+    } catch {
+      throw new Error("Failed to parse METRICS_JSON line");
+    }
+    return {
+      score: parsed.score ?? 0,
+      loss: parsed.loss ?? 0,
+      metrics: parsed.metrics,
+    };
+  }
+
+  // Legacy fallback: parse separate SCORE: and LOSS: text lines
+  const scoreMatch = raw.match(/SCORE:\s*([\d.]+)/);
+  if (!scoreMatch) {
+    throw new Error("No SCORE line or METRICS_JSON found in run-eval.sh output");
+  }
+  const lossMatch = raw.match(/LOSS:\s*([\d.]+)/);
+  return {
+    score: parseFloat(scoreMatch[1]) * 100,
+    loss: lossMatch ? parseFloat(lossMatch[1]) : 0,
+  };
+}
+
+async function main() {
+  const { dryCheck, timeoutMs, mockValue, mockLossValue, passThroughArgs } = buildVerifyArgs(args);
+  let raw: string;
+  if (dryCheck) {
+    // Parser-only mode: validates parsing contract without invoking run-eval.sh.
+    raw = 'METRICS_JSON: {"score":89.5,"loss":23.4,"metrics":{"strict_accuracy":89.5}}';
+  } else if (mockValue !== undefined) {
+    raw = `SCORE: ${mockValue}\nLOSS: ${mockLossValue ?? "0.0"}`;
+  } else {
+    console.error(`verify.ts timeout_ms=${timeoutMs}`);
+    try {
+      const result = await runEvalProcess({
+        args: passThroughArgs,
+        timeoutMs,
+        streamStdout: true,
+        streamStderr: true,
+      });
+      raw = result.stdout;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      fail(`run-eval.sh failed: ${msg}`);
+    }
+  }
+
+  let result: z.infer<typeof VerifyResult>;
+  try {
+    result = parseAndValidateResult(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(msg, `--- last 500 chars ---\n${raw.slice(-500)}`);
+  }
+
+  console.log(JSON.stringify(result));
+}
+
+void main();

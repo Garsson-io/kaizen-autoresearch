@@ -15,7 +15,6 @@
  * Exit codes: 0 = signal, 1 = error, 2 = no-signal, 3 = concentrated-signal
  */
 
-import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, readdirSync, existsSync, appendFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +24,7 @@ import { PATHS, EXP_DIR } from "./paths.js";
 import { parseFrontmatter } from "./ideas-index.js";
 import { scoreOutput } from "./score.js";
 import { ProbeOutput, GroundTruth, ExploreResult } from "../src/schema.js";
+import { runEvalProcess } from "./run-eval-process.js";
 
 // -- Zod schemas (canonical definitions — types are inferred) --
 
@@ -465,35 +465,14 @@ export function computeBaseline(perTaskLoss: TaskLoss[], tasks: string[]): Recor
 
 /** Run a variation via run-eval.sh. Returns stdout. */
 export function runVariation(variation: VariationDir, tasks: string[], outDir: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "--corpus", tasks.join(","),
-      "--prompt", variation.treatmentPath,
-      "--no-latest",
-      "--out-dir", outDir,
-      "-j", "6",
-    ];
-
-    const child = spawn("bash", [PATHS.runEval, ...args], {
-      cwd: EXP_DIR,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(`run-eval.sh failed (exit ${code}):\n${stderr.slice(0, 1000)}`));
-      }
-    });
-
-    child.on("error", reject);
-  });
+  const args = [
+    "--corpus", tasks.join(","),
+    "--prompt", variation.treatmentPath,
+    "--no-latest",
+    "--out-dir", outDir,
+    "-j", "6",
+  ];
+  return runEvalProcess({ args, cwd: EXP_DIR }).then((result) => result.stdout);
 }
 
 /** Check which tasks are missing output files in a variation dir. */

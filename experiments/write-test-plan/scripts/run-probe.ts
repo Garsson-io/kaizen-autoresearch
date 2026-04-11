@@ -21,6 +21,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { ProbeOutput, BehaviorOutput } from "../src/schema.js";
+import {
+  isReasoningEffort,
+  isSupportedCli,
+  defaultModelForCli,
+  DEFAULT_REASONING_EFFORT,
+  type SupportedCli,
+  type ReasoningEffort,
+} from "./model-config.js";
 
 const LEVEL_DEFS = `
 Level definitions — choose the LOWEST level that can catch a real failure:
@@ -191,8 +199,8 @@ function runProbe(opts: {
   issueBody: string;
   model: string;
   outFile: string;
-  cli: "claude" | "codex";
-  reasoningEffort: "low" | "medium" | "high" | "xhigh";
+  cli: SupportedCli;
+  reasoningEffort: ReasoningEffort;
   promptFile?: string;
 }) {
   const startedAtMs = Date.now();
@@ -329,10 +337,9 @@ const get = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i +
 
 const taskId = get("--task");
 const condition = get("--condition") as "baseline" | "treatment" | undefined;
-const cli = (get("--cli") ?? "claude") as "claude" | "codex";
+const cliRaw = get("--cli") ?? "claude";
 const outFile = get("--out") ?? `out-${condition}-${taskId?.toLowerCase().replace("-", "")}.json`;
-const model = get("--model") ?? (cli === "codex" ? "gpt-5.3-codex" : "claude-haiku-4-5-20251001");
-const reasoningEffort = (get("--reasoning-effort") ?? "medium") as "low" | "medium" | "high" | "xhigh";
+const reasoningEffortRaw = get("--reasoning-effort") ?? DEFAULT_REASONING_EFFORT;
 const issueFile = get("--issue-file");
 const promptFile = get("--prompt-file");
 const issueBody = get("--issue-body") ?? (issueFile ? readFileSync(issueFile, "utf-8") : undefined);
@@ -345,11 +352,11 @@ if (!["baseline", "treatment"].includes(condition)) {
   console.error("--condition must be 'baseline' or 'treatment'");
   process.exit(1);
 }
-if (!["claude", "codex"].includes(cli)) {
+if (!isSupportedCli(cliRaw)) {
   console.error("--cli must be 'claude' or 'codex'");
   process.exit(1);
 }
-if (!["low", "medium", "high", "xhigh"].includes(reasoningEffort)) {
+if (!isReasoningEffort(reasoningEffortRaw)) {
   console.error("--reasoning-effort must be one of: low, medium, high, xhigh");
   process.exit(1);
 }
@@ -357,5 +364,9 @@ if (promptFile && !existsSync(promptFile)) {
   console.error(`--prompt-file not found: ${promptFile}`);
   process.exit(1);
 }
+
+const cli: SupportedCli = cliRaw;
+const reasoningEffort: ReasoningEffort = reasoningEffortRaw;
+const model = get("--model") ?? defaultModelForCli(cli);
 
 runProbe({ taskId, condition, issueBody, model, outFile, cli, reasoningEffort, promptFile });
