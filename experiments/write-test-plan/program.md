@@ -184,6 +184,10 @@ LOOP:
        - **Dynamic selection only**: do **not** pre-assign idea candidates for future iterations (e.g., 22/30, 23/30, ...).
          Choose the next candidate only after finishing the current iteration's explore outcome and learning synthesis.
          Future TODO rows should remain `candidate: TBD (evidence-driven)` until that point.
+       - **Sequential loop barrier (hard gate)**: do not create/edit next-iteration explore dirs or variation files
+         until current iteration mining is finished. Order is mandatory:
+         `run loop(i)` -> `mine loop(i)` (numbers + justifications + learning note) -> `select loop(i+1)`.
+         Any loop(i+1) prep before loop(i) mining is process-invalid and must be deleted.
        - **Recheck old ideas only with a trigger**: prior `signal`/`concentrated-signal` ideas may be rechecked only if
          there is a concrete new trigger (gate change, model/corpus change, or new merged mechanism from step 4.6).
        - **Mechanism requirement**: each selected idea must state one specific failure mechanism and one falsification criterion.

@@ -50,6 +50,9 @@ Every step is either **perception** (tools compute structured evidence), **cogni
    The brief must also name the expected side-effect cluster (1-2 confusion pairs) and how the counterbalance line is intended to prevent that shift.
 4. **Enforce high-leverage selection policy** (hard gate): follow `program.md` LOOP step 4.45. Prefer novel top-loss-targeted ideas, require real mechanism + falsification criterion, forbid no-op variations, and avoid throughput-driven legacy recheck batches.
    Also enforce dynamic selection: do not pre-fill future iteration candidates. Select only the current iteration candidate from the latest evidence, and leave future TODO candidates as evidence-driven TBD placeholders.
+   Enforce sequential loop barrier: never prepare loop(i+1) artifacts before loop(i) mining is complete. Required order:
+   `run loop(i)` -> `mine loop(i)` (including justifications and learning delta) -> `select+prep loop(i+1)`.
+   If loop(i+1) prep was started early, delete/recreate it after mining.
    Enforce complexity budget: 1 core mechanism + 1 scope modifier max per iteration. If over budget, split before explore.
    Enforce minimal dual-objective explore pattern by default: exactly 2 variants, `v1` primary-only and `v2` primary + one short counterbalance line.
    Enforce directionality gate: extract dominant miss direction from MINE for top weighted pairs, declare candidate direction (`raise-higher-recall` / `raise-lower-recall` / `mixed`), and reject candidates whose direction conflicts with dominant misses unless running an explicit bi-directional control variant.
