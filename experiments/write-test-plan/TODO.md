@@ -449,21 +449,51 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 20/20 (candidate: `agent-needs-working-memory-slots`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] CANDIDATE BRIEF
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (novelty-first untested candidate; bounded scaffold intended to reduce reasoning drift)
+- [x] IDEATE (selected compact memory-slot scaffold as structured but lower-overhead boundary aid)
+- [x] CANDIDATE BRIEF
+  - Selected idea: `agent-needs-working-memory-slots` (novel `explore_status: null`)
+  - Why now: after global/proof/routing attempts, we test a bounded structure that may improve boundary consistency without full protocol rewrite.
+  - Mechanism rationale: force the model to carry three decisive artifacts (evidence phrase, boundary signal, adjacent miss-proof) at decision time.
+  - Falsification criterion: broad regressions or weak/noisy best delta (> -2.0) => `no-promote`.
+  - Expected-win targets: `EC-17 b2` (`Integration→Agentic`), `EC-30 b5` (`Integration→Agentic`), `EC-30 b3` (`Unit→Agentic`), `EC-11 b3` (`Workflow→Agentic` spillover).
+  - Variations (exact prompt additions):
+    - `v1-memory-slots-all`:
+      - `- **AGENT-MEMORY-SLOTS** (before final label):`
+      - `  Slot A: quote the exact behavior phrase driving your level choice.`
+      - `  Slot B: name the decisive boundary signal (handoff / real-infra / model-output / multi-step agentic).`
+      - `  Slot C: state one concrete miss if lowered by one adjacent level.`
+      - `  Final label must reference Slot B and Slot C.`
+    - `v2-memory-slots-above-unit`:
+      - `- **AGENT-MEMORY-SLOTS** (only when provisional choice is above Unit):`
+      - `  Slot A: quote the exact behavior phrase driving your level choice.`
+      - `  Slot B: name the decisive boundary signal (handoff / real-infra / model-output / multi-step agentic).`
+      - `  Slot C: state one concrete miss if lowered by one adjacent level.`
+      - `  Final label must reference Slot B and Slot C.`
+    - `v3-memory-slots-terse-cap`:
+      - `- **AGENT-MEMORY-SLOTS**: use Slot A/B/C, but each slot is exactly one short line.`
+      - `  Slot A: evidence quote; Slot B: boundary signal; Slot C: adjacent-lower miss-proof.`
+      - `  Final label must reference Slot B and Slot C.`
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE
+  - Pass 1 (seed720, 8 tasks): `concentrated-signal`, winner `v3-memory-slots-terse-cap`, delta `-9.85`.
+  - Holdout (seed820, 8 tasks): `concentrated-signal`, winner `v2-memory-slots-above-unit`, delta `-3.79`; `v3` still negative (`-2.30`).
+  - Gate outcome: `family-signal` (winner flip with both candidates meaningfully negative across passes) -> `no-promote` for single variant.
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - LEARNING DELTA:
+    - `v3` stronger on pass1 with terse slots; `v2` more stable on holdout with above-Unit scope.
+    - Both variants show real signal but unstable single-winner ranking.
+    - Inference: mechanism likely valid; requires a merged selector variant, not direct promotion.
+  - Action: create follow-up idea `memory-slots-selector-hybrid` and return to IDEATE.
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Loop complete (20/20)
