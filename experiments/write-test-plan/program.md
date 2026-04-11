@@ -160,9 +160,9 @@ LOOP:
        - **Variation set**:
          - if creating new variations: list each variation label and show the exact added/changed prompt lines
          - if reusing existing variations: list each variation label and show the exact diff vs treatment.md
-       - **Decision expectation**: what would count as promote / family-signal / no-promote under current gate
-       - **Operational thresholds**: if a variation uses terms like "near-tie", "ambiguous", or "close margin",
-         define a numeric threshold in the brief (for reproducibility). Default for "near-tie": top-2 gap `<= 0.10`.
+       - **Decision expectation**: what would count as promote / no-promote under current gate
+       - **Promotion criteria to quote explicitly**: `delta <= -2.0` and `hurt <= 1`;
+         concentration can be tagged `high-risk` but is not a blocker.
        Also publish this brief to the user in-chat before explore:
        - selected idea
        - why chosen now
@@ -186,29 +186,18 @@ LOOP:
        - **No throughput loops**: do not run batches of legacy rechecks just to satisfy iteration count.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)
        If the idea returned by IDEATE has explore_status: null:
-         a. Write N variation treatment.md files into runs/explore/ dirs
-         b. Run: npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id>
-            (see scripts/explore.ts header for all options: --dry-run, --tasks, --seed, etc.)
-       **PROMOTION-EVIDENCE GATE (MANDATORY):**
-       - Promote to EDIT only on **stable and meaningful** evidence, not one-pass outliers.
-       - Use one independent holdout check (different task subset and/or seed) before any promotion.
-       - Define practical effect threshold: treat deltas better than `-2.0` loss as meaningful
-         on explore subsets; values in `(-2.0, 0)` are weak/noisy evidence.
-       - Hard `no-promote` cases:
-         - any pass is `no-signal` (exit 2), or
-         - best deltas are weak/noisy on either pass (>-2.0), or
-         - holdout reverses sign for the chosen candidate.
-       - `concentrated-signal` (exit 3) is **not auto-fail**. It is promotable only if holdout
-         confirms the same candidate with meaningful negative delta and reduced concentration.
-       - Winner flip handling:
-         - if winner flips and only one candidate has meaningful negative holdout delta -> `no-promote`.
-         - if winner flips but both candidates are meaningfully negative across passes -> treat as
-           **family-signal** (idea family works, single winner unstable). Do not promote a single
-           variant yet; create a merge/selector follow-up idea and re-run explore.
-       - Hybrid/merge ideas must include a **control arm** in explore:
-         include the best prior parent variant unchanged; if the hybrid does not beat this control on holdout,
-         classify as `no-promote` for that hybrid.
-       - `no-promote` is a valid outcome. Never force a winner just to continue the loop.
+         a. Write exactly 2 variation `treatment.md` files into runs/explore/ dirs (explore-lite).
+         b. Run one explore pass on exactly 6 tasks:
+            `npx tsx experiments/write-test-plan/scripts/explore.ts <idea-id> --select-count 6`
+            (task counts must be multiples of 6: 6/12/18/24/30/36).
+       **PROMOTION GATE (MANDATORY):**
+       - Explore is for quick winner selection only; do not rerun the same idea/variant in the same cycle.
+       - Pick winner = variant with lower aggregate explore loss (more negative delta).
+       - Promote winner to full 36-task RUN only if:
+         - `delta <= -2.0`, and
+         - `hurt <= 1` (at most one worsened task).
+       - Concentration is non-blocking: even if concentrated, promotion is allowed; tag as `high-risk` in notes.
+       - `no-promote` if both variants fail the gate above.
        Already-set: use the recorded explore result — no new run needed.
        After any explore run, commit the output dirs:
        ```bash
@@ -225,9 +214,9 @@ LOOP:
          results and decide next steps, when to commit.
        - READ `ideas/README.md` WHEN you need to understand explore_status field semantics
          or how IDEATE should prioritize explored vs unexplored ideas.
-  4.6. POST-EXPLORE LEARNING SYNTHESIS (MANDATORY when outcome is `no-promote` or `family-signal`)
+  4.6. POST-EXPLORE LEARNING SYNTHESIS (MANDATORY when outcome is `no-promote`)
        Goal: turn explore evidence into a stronger next candidate instead of retrying blind.
-       a. Mine justification deltas for the top 2 variants from pass 1 and holdout:
+       a. Mine justification deltas for the top 2 variants from the single explore pass:
        ```bash
        # Compare reasoning errors/justifications for each candidate run dir
        npx tsx experiments/write-test-plan/scripts/extract-thinking.ts --run-dir <explore-run-dir-A>
@@ -243,16 +232,8 @@ LOOP:
          - Whether this is noise, concentration artifact, or true mechanism complementarity
        c. Decide next action (explicitly):
          - `no-promote`: no credible mechanism extracted; ideate a new idea
-         - `family-signal`: complementary strengths detected; create a merge/selector follow-up idea
          - `promote`: only if step 4.5 thresholds are satisfied
-       d. If `family-signal`, add a new idea file in `ideas/` with:
-         - concrete evidence lines from both variants
-         - one additive merged edit hypothesis
-         - clear falsification criterion for next explore
-       e. Family-signal convergence cap:
-         - Allow at most **one** dedicated follow-up explore for the same family-signal branch.
-         - After that follow-up, force an explicit outcome: `promote one` or `park family for 2 iterations`.
-         - Do not keep chaining hybrids without a promotion/park decision.
+       d. Do not add convergence rerun loops for the same idea in the same cycle.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
      **EDIT-TYPE GATE (MANDATORY, ALWAYS):**
      - Before editing, declare intent in notes/commit text as exactly one of: `ADD`, `REPLACE`, `DELETE`.
