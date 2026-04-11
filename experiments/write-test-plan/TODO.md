@@ -212,3 +212,147 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] COMMIT RUNS (not needed; no new run artifacts)
 - [x] COMMIT STATE
 - [x] → Loop complete (10/10)
+
+---
+
+## Codex Iteration Loop (10 more iterations) — 2026-04-11
+
+### Iteration 11/20 (candidate: `integration-contract-invariant-gate`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (no new contradictory meta evidence before test)
+- [x] IDEATE (re-tested prior `signal` candidate under updated gate)
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check: `no-signal`, all variants regressed)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (no credible mechanism; broad regressions across System/Integration-heavy tasks)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 12/20 (candidate: `competitive-critique-seeding`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 13/20 (candidate: `non-negotiable-boundary-gates`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 14/20 (candidate: `agentic-floor-content-dependence-gate`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 15/20 (candidate: `multi-candidate-test-design-then-select-lowest`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 16/20 (candidate: `two-step-review-loop`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 17/20 (candidate: `integration-middle-anchor`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 18/20 (candidate: `precision-failure-boundary`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 19/20 (candidate: `role-anchor-staff-engineer`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 20/20 (candidate: `toploss-ia-ua-round-2`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Loop complete (20/20)
