@@ -448,6 +448,45 @@ Apr 10-11 regressions show the largest losses came from false-positive promotion
 
 ---
 
+### Empirical explore-noise profile (Apr 10-11): subset/selection noise dominates
+
+**Status**: measured from `explore-log.jsonl` after artifact backfill (2026-04-11)
+
+**Dataset**:
+- 66 explore batches total (`timestamp + idea` groups).
+- 21 ideas were repeated (same idea explored more than once).
+- Historical rows were enriched from committed `runs/explore/*` artifacts where available.
+
+**Measured instability**:
+- Outcome flip rate on repeated ideas: `66.7%` had both `winner` and `no-winner` across reruns.
+- Winner-identity flip rate: `33.3%` of repeated ideas switched winning variant across reruns.
+- Winner-delta volatility (same winner variant observed multiple times):
+  - average delta range: `5.62` loss points
+  - average standard deviation: `2.58` loss points
+  - examples:
+    - `agentic-floor-content-dependence-gate::v1`: `-14.06` to `-1.02`
+    - `agent-needs-working-memory-slots::v3`: `-11.39` to `-0.63`
+
+**Compute reality check (last 24h sample)**:
+- Explore consumed far more probe-evals than full runs:
+  - explore: `1266` probe-evals
+  - full runs: `216` probe-evals (6 runs x 36 tasks)
+- Practical implication: repeated explore reruns are not actually "cheap" at current throughput.
+
+**Operational lesson**:
+- Main noise source is subset/selection instability, not just token-level LLM randomness.
+- A single 6-task explore win is weak evidence unless margin is clear and regressions are limited.
+- Use explore to rank variants once, then move on; avoid same-idea rerun loops.
+
+**Policy update from this evidence (Apr 11)**:
+- Replaced mandatory same-idea holdout reruns with explore-lite policy in `program.md`:
+  - exactly 2 variants x 6 tasks
+  - promote gate: `delta <= -2.0` and `hurt <= 1`
+  - no same-cycle same-idea reruns
+- Reason: repeated holdout-style loops consumed more probe-evals than full runs without improving promotion precision.
+
+---
+
 ### Top-loss targeting is necessary but not sufficient (Apr 11): explicit targeting still overfits without cross-slice stability
 
 **Status**: confirmed (multiple explores on 2026-04-11)

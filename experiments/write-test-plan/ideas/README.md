@@ -72,7 +72,7 @@ owner: null                    # optional maintainer tag
 | `max_followups` | Optional cap on retries for this family branch before forced promote-or-park. |
 | `control_required` | Optional boolean: hybrid explores should include unchanged parent/control arm. |
 | `explore_status` | `null` = not yet explored. `signal` = aggregate delta negative with distributed improvement (exit code 0). `concentrated-signal` = aggregate negative but concentrated in a small outlier subset (exit code 3). `no-signal` = flat or worse (exit code 2). Auto-set by `explore.ts`. See `docs/explore-tool.md` "Signal classification" for exact computation. Promotion policy is defined in `program.md` (not here). |
-| `explore_tasks` | Task IDs used in the explore run (typically 4). Auto-selected by `explore.ts` stratification or overridden with `--tasks`. |
+| `explore_tasks` | Task IDs used in the explore run (default is 6 in explore-lite). Auto-selected by `explore.ts` stratification or overridden with `--tasks` (multiples of 6). |
 | `explore_baseline_loss` | Baseline loss on `explore_tasks` from `runs/latest/`. Computed by `explore.ts`. |
 | `explore_loss` | Best variation loss on `explore_tasks`. Set by `explore.ts`. |
 | `explore_delta` | `explore_loss − explore_baseline_loss`. Negative = better. Set by `explore.ts`. |
@@ -109,8 +109,8 @@ Notes:
    Prefer canonical values: `proposed|trying|kept|rejected|parked`. Tooling also normalizes legacy aliases (`keep|discard|no-op`) for indexing output.
 3. One idea per iteration (atomic)
 4. Before committing a full run: if `explore_status` is null, run `npx tsx scripts/explore.ts <idea-id>` first (or `/explore`)
-5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`.
+5. IDEATE should prioritize novelty first (`explore_status: null`) on current top-loss targets, and only revisit explored ideas with a concrete trigger (model/corpus/GT/gate change or merged mechanism).
    If `family` exists, keep retries within that family explicit and honor `max_followups`.
-6. Promotion to EDIT/full run follows `program.md` gates (including holdout/no-promote rules).
+6. Promotion to EDIT/full run follows `program.md` gates (explore-lite + threshold gate; no same-cycle same-idea rerun loops).
 7. To view past explore results: `npx tsx scripts/explore.ts <idea-id> --summary`
 8. To validate idea metadata shape: `npx tsx scripts/ideas-index.ts --table` (the script uses Zod validation and reports frontmatter issues to stderr).

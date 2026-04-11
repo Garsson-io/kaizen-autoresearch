@@ -34,7 +34,8 @@ Use score only as a secondary, legacy metric.
 If you remove these, the eval produces garbage.
 
 **Noise warning**: LLM-based evaluation is inherently noisy (same prompt can score differently
-across runs). Prefer confirmation reruns for small deltas near the observed noise floor.
+across runs). Current empirical estimate for full 36-task runs is roughly `±3` loss (conservative `±4`).
+Avoid same-cycle confirmation reruns of the same idea; use the explore gate + full-run decision path below.
 
 For keep/discard decisions, follow the iteration loop policy below (loss-based comparison to reference).
 
@@ -196,6 +197,9 @@ LOOP:
        - Promote winner to full 36-task RUN only if:
          - `delta <= -2.0`, and
          - `hurt <= 1` (at most one worsened task).
+       - Empirical rationale (Apr 10-11): repeated explores showed high instability
+         (`66.7%` winner/no-winner flip on repeated ideas; winner-delta std ~`2.58` loss),
+         so do not treat a single narrow win as sufficient when regressions are broad.
        - Concentration is non-blocking: even if concentrated, promotion is allowed; tag as `high-risk` in notes.
        - `no-promote` if both variants fail the gate above.
        Already-set: use the recorded explore result — no new run needed.
@@ -249,9 +253,11 @@ LOOP:
   6. COMMIT — git commit with experiment(treatment): prefix. Reference the idea id and named section.
      Include declared edit type in the subject, e.g. `(edit-type:add)`.
   7. RUN — experiments/write-test-plan/run-eval.sh (defaults to Codex; override `--cli/--model` when needed) or verify.ts. Monitor progress.
-  8. SCORE — compare loss to the current reference baseline (see Baseline policy above). Any decrease in loss → keep. Same or increase → git revert.
-     NOTE: the noise floor for loss is TBD — run the same prompt twice to measure it.
-     Until then, treat any loss decrease as signal. Update this after the first confirmation run.
+  8. SCORE — compare loss to the current reference baseline (see Baseline policy above):
+     - `delta <= -3.0` → keep
+     - `delta >= +3.0` → discard (git revert)
+     - `-3.0 < delta < +3.0` → no-op (treat as noise; revert and log `no-op`)
+     This noise band is empirical and should be updated if model/corpus/scoring changes.
   9. LOG — use log-iteration.ts (handles JSONL append, delta computation, and idea status update):
      ```bash
      npx tsx experiments/write-test-plan/scripts/log-iteration.ts \
