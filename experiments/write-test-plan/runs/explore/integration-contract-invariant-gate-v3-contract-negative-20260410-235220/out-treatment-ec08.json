@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "Failure boundary is retry/backoff math in one local policy component. The behavior text is purely about delay calculation (\"doubles ... up to a configured maximum\"), so no module handoff, OS, network, or subprocess is required. Not Integration because no cross-module invariant is needed; not System because no real infra is required.",
+      "test_description": "Test a pure `computeBackoff(attempt, baseDelay, maxDelay)` (or equivalent policy method) with consecutive attempt numbers and assert exponential growth plus cap clamping.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.85,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "This failure appears at a local module boundary: response classification + retry scheduler/backoff policy wiring. Behavior text includes both identifying a rate-limit response and computing wait, which is a handoff invariant across components. Not System: a stubbed HTTP response/status+headers reproduces this exactly. Not Agentic/Workflow: no AI decisions.",
+      "test_description": "Wire `call()` with a fake transport returning a 429 (and retry metadata such as `Retry-After` if supported) and a fake clock; assert retry classifier marks it retryable and scheduler uses the expected delay.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "Requires orchestration across timer/backoff, request replay, and result propagation to caller. This is more than one function, but still in-process. Not System because behavior text does not require real network timing; fake timers + stub transport can expose resend/transparent return bugs. Not Agentic/Workflow: no model output dependence.",
+      "test_description": "Use fake clock and scripted transport: first response is rate-limited, second succeeds. Assert same request payload is reissued after advancing clock by computed delay, and `call()` resolves with second response body without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.78,
+        "System": 0.14,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Needs retry-loop state + terminal error mapping interaction. Behavior text explicitly ties retry exhaustion to typed error surface, which is a cross-component contract at public `call()` boundary. Not System: deterministic stubbed failures reproduce exhaustion path. Not Agentic/Workflow: no AI dependency.",
+      "test_description": "Configure max retries N, stub transport to return rate-limit failures for N+1 attempts, run `call()`, and assert rejection is `instanceof QuotaExhaustedError` with expected metadata, not a generic transport error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.72,
+        "System": 0.03,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "Behavior is explicitly end-to-end within library internals (retry chain + quota tracking), so multiple modules must be wired. Not Unit because infinite-loop risk emerges from interaction of counters/scheduler/quota state. Not System because fake timers and deterministic stub responses can prove termination and bounded attempts without real OS/network.",
+      "test_description": "Run `call()` with fake clock and always-rate-limited stub transport; assert total attempts are bounded by configured limits/quota state, promise settles (rejects) within bounded virtual time, and no extra scheduled retries remain.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.8,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is shared in-process state across concurrent callers, i.e., module interaction between caller-facing client instances/tasks and quota bucket implementation. Not Unit: single-function tests miss race/coordination bugs. Not System: behavior text scopes to \"same process\" and can be reproduced with in-process concurrency primitives and stub transport.",
+      "test_description": "Create multiple concurrent `call()` invocations against one library process with a shared quota manager, using controllable async barriers; assert combined consumed tokens/requests respect one shared bucket rather than per-caller independent limits.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.82,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This is queueing/dispatcher ordering across async coordination + send path, a cross-module invariant not isolated to one function. Not System: FIFO dispatch correctness can be validated with in-process queue and stub transport; no real network/OS behavior required by text. Not Agentic/Workflow: no model steps.",
+      "test_description": "Enqueue several `call()` requests while dispatch is blocked (quota exhausted or gate held), then release capacity and assert transport send order matches submission order exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.04,
+        "Integration": 0.84,
+        "System": 0.12,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

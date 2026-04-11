@@ -13,12 +13,12 @@ change_type: representational
 risk: If phrased too strictly, true Integration behaviors described tersely may be pushed down to Unit.
 prereqs: The prompt must preserve existing REAL-INFRA/LLM-DEP/MULTI-STEP escalation checks.
 related: [mock-miss-scope-clarification, integration-middle-anchor, precision-failure-boundary]
-explore_status: signal
-explore_tasks: [ec-01, ec-02, ec-06, ec-07, ec-03, ec-04]
-explore_baseline_loss: 67.17
-explore_loss: 60.25
-explore_delta: -6.93
-explore_date: 2026-04-10
+explore_status: no-signal
+explore_tasks: [ec-08, ec-03, ec-12, ec-27, ec-04, ec-09, ec-14, ec-32]
+explore_baseline_loss: 89.90
+explore_loss: null
+explore_delta: null
+explore_date: 2026-04-11
 ---
 
 ## Steelman
@@ -35,14 +35,13 @@ If implemented poorly, this could become another wording-heavy concept that look
 
 ## Epistemological status
 
-Explore subset (stratified): `ec-01, ec-02, ec-06, ec-07, ec-03, ec-04`  
-Baseline subset loss: `67.17`
+Explore subset (stratified): `ec-08, ec-03, ec-12, ec-27, ec-04, ec-09, ec-14, ec-32`  
+Baseline subset loss: `89.90`
 
 | Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
 |---|---:|---:|---|---|
-| v1-contract-required | 60.6197 | -6.5518 | improved 3, hurt 2, flat 1 | distributed |
-| v2-contract-checklist | 62.3938 | -4.7777 | improved 3, hurt 2, flat 1 | distributed |
-| v3-contract-negative | 60.2461 | -6.9254 | improved 4, hurt 1, flat 1 | distributed |
+| v1-contract-required | 97.3218 | +7.4216 | improved 1, hurt 3, flat 4 | n/a |
+| v2-contract-checklist | 100.8615 | +10.9614 | improved 2, hurt 3, flat 3 | n/a |
+| v3-contract-negative | 96.8470 | +6.9469 | improved 0, hurt 3, flat 5 | n/a |
 
-Winner: `v3-contract-negative` by aggregate loss, classification is `signal`.  
-
+No winner — all variations flat or worse. Classification: `no-signal`.
