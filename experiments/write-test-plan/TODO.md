@@ -370,21 +370,44 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [x] EDIT + COMMIT (no-promote: skipped by gate)
 - [x] RUN + SCORE (no-promote: skipped by gate)
 - [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
-- [ ] COMMIT RUNS
-- [ ] COMMIT STATE
+- [x] COMMIT RUNS
+- [x] COMMIT STATE
 - [ ] → Next iteration
 
 ### Iteration 18/20 (candidate: `minimal-proof-bundle-synergy`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] CANDIDATE BRIEF
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (novelty-first: untested compact-synergy variant selected to reduce prior contract overhead)
+- [x] IDEATE (selected minimal bundle mechanism to keep EC-11-like gains without global regressions)
+- [x] CANDIDATE BRIEF
+  - Selected idea: `minimal-proof-bundle-synergy` (novel `explore_status: null`)
+  - Why now: directly targets high-loss adjacent reasoning with a shorter contract than Iteration 17's over-constraining block.
+  - Mechanism rationale: keep only two proof lines and scope above Unit to reduce instruction tax.
+  - Falsification criterion: if best delta is weak/noisy (> -2.0), any pass is no-signal, or holdout flips sign -> `no-promote`.
+  - Expected-win targets: `EC-17 b2` (`Integration→Agentic`), `EC-30 b5` (`Integration→Agentic`), `EC-30 b3` (`Unit→Agentic`), `EC-11 b3` (`Workflow→Agentic` stability spillover).
+  - Variations (exact prompt additions):
+    - `v1-bundle-all-above-unit`:
+      - `- **PROOF-BUNDLE** (for choices above Unit):`
+      - `  (1) quote the exact behavior phrase that forces this level;`
+      - `  (2) state one concrete miss at the adjacent lower level and why generic "could miss wiring" does not apply here.`
+    - `v2-bundle-high-level-only`:
+      - `- **PROOF-BUNDLE** (only when provisional choice is System/Agentic/Workflow):`
+      - `  (1) quote the exact behavior phrase that forces this level;`
+      - `  (2) state one concrete miss at the adjacent lower level and why generic "could miss wiring" does not apply here.`
+    - `v3-bundle-toploss-only`:
+      - `- **PROOF-BUNDLE** (apply only for these boundaries: Integration↔Agentic, Unit↔Agentic):`
+      - `  (1) quote the exact behavior phrase that forces this level;`
+      - `  (2) state one concrete miss at the adjacent lower level and why generic "could miss wiring" does not apply here.`
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (seed718, 8 tasks: `no-signal`; v1 +14.21, v2 +11.85, v3 +3.39 -> no-promote)
+- [x] POST-EXPLORE LEARNING SYNTHESIS
+  - LEARNING DELTA:
+    - `v3` (toploss-only scope) was least harmful and improved selected items (notably lower loss on `EC-15`, `EC-34`), suggesting scoped bundle is less damaging than global bundle.
+    - All variants still regressed overall, with major penalties on sampled high/mid tasks (largest on `EC-10` and `EC-14` in this subset), so mechanism is not robust.
+    - Inference: proof-bundle wording adds decision overhead/rigidity without reliable boundary gain.
+  - Action: `no-promote`; do not retry this family without a new selector/routing trigger.
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
