@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-14",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The speech-to-text output preserves speaker labels so that the summary can attribute statements to specific attendees.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP applies because correctness depends on real speech-model diarization output (speaker labels), not just transport. A concrete failure System would miss: a stubbed STT response always includes perfect labels, while the real model drops or swaps labels on overlapped speech, breaking attendee attribution downstream. Rejection gate: Workflow was considered and rejected because this behavior is specifically about STT label fidelity, not multiple agentic decisions in sequence.",
+      "test_description": "Run real labeled meeting audio through the real STT API with diarization enabled; assert returned transcript preserves speaker labels for utterances needed for attribution and that downstream summary input still maps statements to the correct attendee.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.1,
+        "System": 0.2,
+        "Agentic": 0.6,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Transcript parsing extracts explicit task assignments (assignee + task text) into the summary input structure.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS indicates this is parser/transform logic at a local function/object boundary; no required OS/network/subprocess/real model dependency. Concrete check for not escalating: there is no behavior text requiring cross-module handoff failure to manifest. Rejection gate: Integration was considered but rejected because the behavior targets extraction logic itself, which can fail within one parsing function.",
+      "test_description": "Feed representative transcript text fixtures (including edge phrasing) into the parser function and assert extracted assignment objects contain correct assignee and task text fields in the summary input schema.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.8,
+        "Integration": 0.15,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The live summary output contains at least one action item for every attendee who was assigned a task during the meeting.",
+      "minimum_level": "Agentic",
+      "justification": "Correctness depends on real LLM output quality/completeness (coverage per attendee), so LLM-DEP applies. Concrete failure adjacent lower level would miss: with a deterministic mocked summarizer that always emits one item per attendee, the test passes even though the real model frequently omits one assignee under long context. Rejection gate: Workflow was considered but rejected because this behavior can be validated on one summarization decision from transcript to summary.",
+      "test_description": "Call the real summarization model on transcripts containing known per-attendee assignments; assert each assigned attendee appears with at least one action item in the produced structured summary.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.07,
+        "System": 0.15,
+        "Agentic": 0.65,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Decision extraction logic routes identified decisions into the `decisions` section schema rather than generic narrative fields.",
+      "minimum_level": "Unit",
+      "justification": "This behavior is deterministic routing/mapping logic once decisions are identified; no required real infra or model judgment in the behavior text. Integration brake: (a) no OS/network/subprocess need, (b) no dependence on real AI output content, (c) no multi-agentic chain. Rejection gate: Integration was considered and rejected because no concrete cross-module-only failure is required by the stated behavior.",
+      "test_description": "Given an input object containing identified decisions plus narrative text, test the routing function places decision entries only in `decisions` schema fields and not in generic narrative fields.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.22,
+        "System": 0.03,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Key decisions mentioned in the transcript appear in the live summary's `decisions` section, not buried in the narrative.",
+      "minimum_level": "Agentic",
+      "justification": "This checks whether the real model captures and places salient decisions correctly; stubs hide that quality failure. Concrete lower-level miss proof: a mocked summarizer can always place canned decisions in the right field, missing real-model failures where decisions are paraphrased into narrative and omitted from `decisions`. Rejection gate: Workflow was considered but rejected because a single summarization output can exercise this behavior.",
+      "test_description": "Run real transcripts with known decision statements through the live summarizer and assert those decisions appear in the structured `decisions` section rather than only in freeform narrative.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.06,
+        "System": 0.12,
+        "Agentic": 0.68,
+        "Workflow": 0.12
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the audio file is longer than 60 minutes, the service splits it into segments and processes them sequentially, merging the results into a single coherent summary.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP applies: this is explicitly a sequence (split -> process segment 1..N -> merge) with agentic summarization/transcription stages. Concrete lower-level miss proof: an Agentic single-call test cannot catch cross-segment ordering/merge defects (e.g., duplicated or dropped action items at segment boundaries) that only appear after multiple sequential model outputs are combined.",
+      "test_description": "Use a real >60-minute recording, execute the production segmentation pipeline end-to-end, and assert sequential processing occurred, all segments contributed, and merged summary preserves cross-segment coherence without dropped boundary content.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.05,
+        "System": 0.12,
+        "Agentic": 0.27,
+        "Workflow": 0.55
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The full pipeline (upload audio, transcribe, summarize, deliver structured output) completes without manual intervention for a real meeting recording.",
+      "minimum_level": "Workflow",
+      "justification": "This is explicitly full pipeline orchestration with real external AI calls and multiple dependent stages, so Workflow is the real failure boundary. Concrete lower-level miss proof: Agentic tests of isolated model calls miss orchestration failures like handoff schema drift between transcription and summarization, retries/recovery gaps, or delivery-stage failure after successful model outputs.",
+      "test_description": "Run a real meeting recording through production entrypoint (upload -> STT -> summarization -> structured delivery) and assert completion, valid structured payload shape, and no manual repair steps across stage transitions.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.12,
+        "Agentic": 0.19,
+        "Workflow": 0.65
+      }
+    }
+  ]
+}

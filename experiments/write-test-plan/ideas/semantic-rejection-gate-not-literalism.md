@@ -19,12 +19,12 @@ family: label-communication
 mechanism_signature: semantic-disqualifier-not-literal
 max_followups: null
 control_required: null
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-03, ec-14, ec-24, ec-19, ec-30, ec-32]
+explore_baseline_loss: 139.60
+explore_loss: 126.61
+explore_delta: -12.99
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -65,3 +65,17 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-03, ec-14, ec-24, ec-19, ec-30, ec-32`  
+Baseline subset loss: `139.60`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-semantic-rejection | 132.2186 | -7.3843 | improved 2, hurt 2, flat 2 | distributed |
+| v2-primary-plus-agentic-counterbalance | 126.6086 | -12.9942 | improved 3, hurt 0, flat 3 | distributed |
+
+Winner: `v2-primary-plus-agentic-counterbalance` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

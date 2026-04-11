@@ -21,12 +21,12 @@ family: counterexample-first
 mechanism_signature: adjacent-lower-disqualification-by-counterexample
 max_followups: 1
 control_required: false
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 66.05
+explore_delta: -1.69
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -66,3 +66,17 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-all-above-unit | 66.0512 | -1.6882 | improved 1, hurt 1, flat 4 | ec-07 drives 100% of gain |
+| v2-primary-high-level-only | 69.6883 | +1.9489 | improved 2, hurt 2, flat 2 | n/a |
+
+Winner: `v1-primary-all-above-unit` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

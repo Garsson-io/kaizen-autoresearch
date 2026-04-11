@@ -20,12 +20,12 @@ family: cross-behavior-consistency
 mechanism_signature: contradiction-blocker-with-local-exemption
 max_followups: 1
 control_required: true
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-03, ec-14, ec-24, ec-19, ec-30, ec-32]
+explore_baseline_loss: 131.49
+explore_loss: 121.27
+explore_delta: -10.22
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -65,4 +65,17 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-03, ec-14, ec-24, ec-19, ec-30, ec-32`  
+Baseline subset loss: `131.49`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-contradiction-gate | 121.2651 | -10.2246 | improved 1, hurt 3, flat 2 | ec-30 drives 100% of gain |
+| v2-primary-plus-agentic-counterbalance | 140.5019 | +9.0122 | improved 0, hurt 4, flat 2 | n/a |
+
+Winner: `v1-primary-contradiction-gate` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
 

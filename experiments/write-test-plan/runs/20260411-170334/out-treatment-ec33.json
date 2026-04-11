@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Storing a PASS review summary is blocked when any stored dimension finding for the same round has a FAIL verdict.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at module handoff (summary write path must query/findings store by round). REAL-INFRA/LLM-DEP/MULTI-STEP: none required. LOWER-LEVEL-MISS-PROOF above Unit: a unit test of validator logic can pass while real repo query filters wrong round or misses one dimension, allowing PASS incorrectly. REJECTION-GATE: rejected System/Agentic/Workflow because behavior text only requires checking stored findings vs summary for same round; no OS/network/subprocess, no model judgment, no multi-agent sequence.",
+      "test_description": "Wire summary service + findings repository (real local DB or filesystem-backed repo). Seed same-round findings with at least one FAIL, attempt to persist PASS summary, assert write is rejected with explicit reason and no PASS record committed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0.03,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict computation reads per-dimension stored findings directly and does not rely only on hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: bug appears when gate module consumes repository data vs summary text source. REAL-INFRA: no real OS/network needed. LLM-DEP: verdict source-selection is deterministic infra logic. LOWER-LEVEL-MISS-PROOF above Unit: a pure function test cannot catch wiring regression where gate accidentally reads summary field and ignores findings table. REJECTION-GATE: rejected Agentic/Workflow because behavior text is about data source precedence, not model output quality or multi-step agent pipeline.",
+      "test_description": "Compose gate service with real in-process persistence. Store conflicting data (summary says PASS, one stored dimension says FAIL). Run stop-gate computation and assert FAIL/block decision comes from stored findings path (e.g., verify queried findings and decision rationale references dimension verdicts).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary text overrides require an explicit override flag and produce an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: requires interaction between request handling, gate logic, and audit sink. REAL-INFRA: local audit store is sufficient; no external infra required. LLM-DEP/MULTI-STEP: none. LOWER-LEVEL-MISS-PROOF above Unit: unit tests can validate 'flag required' but miss failure where warning record is not persisted or not linked to round/user due to module wiring.",
+      "test_description": "Invoke summary-finalization endpoint/service twice through real module wiring: (1) override text without flag -> rejected; (2) with explicit flag -> accepted only if audit warning record is written with round id, actor, timestamp, and reason.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.72,
+        "System": 0.05,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, the gate requires a review round identifier produced after the latest fix commit before PASS can be finalized.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is state handoff between commit-tracking metadata and review-round metadata. REAL-INFRA: behavior text does not require invoking real git/subprocess; ordering can be validated via persisted commit/round ids/timestamps. LLM-DEP: freshness check is deterministic. LOWER-LEVEL-MISS-PROOF above Unit: unit test of comparison logic misses integration bug where gate reads stale commit pointer or wrong branch head from state store. REJECTION-GATE: rejected System because no concrete text mandates real VCS subprocess/network, only 'latest fix commit' ordering semantics.",
+      "test_description": "Using real in-process stores, record fix commit C2 newer than prior reviewed commit C1. Attempt PASS with round tied to C1 -> blocked. Add round id tied to C2 -> PASS eligibility restored. Assert gate enforces round.commit >= latest_fix_commit invariant.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.63,
+        "System": 0.17,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "In the live review loop, PASS cannot finalize unless a fresh review-agent round runs on the updated diff.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: requires sequenced steps (apply fix -> updated diff detected -> launch review agent round -> gate finalization). LLM-DEP: a real review-agent run is part of the acceptance path; stubbing run completion can hide orchestration defects around true agent-run lifecycle. LOWER-LEVEL-MISS-PROOF above Unit: unit logic cannot catch stale-loop bug where orchestrator marks 'fresh' without actual new round execution. LOWER-LEVEL-MISS-PROOF above Integration: integration with mocked agent always returns immediate success and can miss live pipeline failures where no real round is created for new diff before PASS attempt.",
+      "test_description": "Execute end-to-end live loop: create failing review, apply code fix commit, attempt finalize before rerun (must block), trigger real review-agent round on updated diff, then allow finalization only after new round id/state is recorded for that diff.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.2,
+        "System": 0.07,
+        "Agentic": 0.25,
+        "Workflow": 0.45
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "If review rounds are exhausted with unresolved MUST-FIX findings in stored results, the outcome is escalation rather than PASS.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: depends on orchestrator + persistence state (remaining rounds + MUST-FIX flags). REAL-INFRA: no real network/subprocess required. LLM-DEP: uses stored results, not model quality in this behavior statement. LOWER-LEVEL-MISS-PROOF above Unit: unit rule test misses defects where exhausted-round counter or MUST-FIX status is misread from persisted state, yielding PASS. REJECTION-GATE: rejected Workflow because behavior text is explicitly about stored results at exhaustion, not executing multiple live agentic steps.",
+      "test_description": "Seed persistent review state with rounds_remaining=0 and unresolved MUST-FIX findings. Run outcome computation through orchestrator + repo wiring, assert final status = escalation and PASS is impossible.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.74,
+        "System": 0.05,
+        "Agentic": 0.08,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "In a live multi-round review workflow, exhausted rounds with unresolved MUST-FIX findings still block PASS and emit escalation.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: explicitly 'live multi-round review workflow' with repeated rounds and terminal escalation behavior. LLM-DEP: round progression is coupled to review-agent stage outputs/state transitions. LOWER-LEVEL-MISS-PROOF above Unit: unit tests cannot expose cross-round state carryover bugs (MUST-FIX lost between rounds). LOWER-LEVEL-MISS-PROOF above Integration: mocked rounds can miss real workflow defects where unresolved findings persist but final gate still opens after round-limit due to orchestration timing/order issues. REJECTION-GATE: rejected plain Agentic because behavior requires sequence across multiple rounds, not one model call.",
+      "test_description": "Run real multi-round pipeline with configured max rounds N, keep at least one MUST-FIX unresolved across rounds, reach exhaustion, then assert: PASS remains blocked, escalation event emitted once, and final state references unresolved finding ids.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.12,
+        "System": 0.06,
+        "Agentic": 0.3,
+        "Workflow": 0.5
+      }
+    }
+  ]
+}

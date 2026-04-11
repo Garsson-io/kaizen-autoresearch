@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-24",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Primary translator output is grammatically coherent and meaning-preserving, not literal word substitution.",
+      "minimum_level": "Agentic",
+      "justification": "Minimal failing invariant: the primary API can return fluent-looking text that changes meaning. Violation occurs only when evaluating real model output quality (grammar + semantic fidelity), which a stub cannot expose. REAL-INFRA could suggest System because it is a real API call, but LLM-DEP is the tighter boundary and dominates. REJECTION-GATE: rejected Integration because behavior text requires quality of translation content ('grammatically coherent', 'preserves meaning'), not just routing/retry mechanics; rejected Workflow because only one model decision is under test.",
+      "test_description": "Call the real neural translation API on a curated multilingual set (idioms, tense, negation, named entities) and assert quality thresholds via semantic equivalence rubric/metric plus grammar checks; fail if meaning drift or incoherence exceeds threshold.",
+      "plan_consistent": true,
+      "plan_consistent_note": "This test genuinely needs real model outputs; any lower-level fake would mask the target failure.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.06,
+        "System": 0.03,
+        "Agentic": 0.82,
+        "Workflow": 0.08
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "On primary API 503, service falls back transparently to dictionary translator and still returns success.",
+      "minimum_level": "Integration",
+      "justification": "Minimal failing invariant: when primary returns 503, orchestrator must invoke fallback path and return a translation instead of an error. Failure is at module handoff (API client -> fallback translator -> response mapper). INTEGRATION-BRAKE: (a) no real OS/network/subprocess required; a controlled 503 stub is sufficient, (b) no dependence on model output quality, (c) no multi-agentic chain, (d) not LLM-stage handoff correctness. REJECTION-GATE: rejected System because behavior text is specifically status-code handling ('returns a 503 error'), reproducible with in-process stub.",
+      "test_description": "Wire service with a fake primary client that deterministically returns HTTP 503 and a real fallback dictionary module; assert caller receives non-error translated text and telemetry marks fallback_used=true.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The described failure appears at module interaction; a unit test on one function is too low, and higher levels are unnecessary.",
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.74,
+        "System": 0.16,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Fallback dictionary returns the correct stored translation for phrases present in SQLite.",
+      "minimum_level": "Integration",
+      "justification": "Minimal failing invariant: given an existing phrase key in SQLite, lookup returns exactly the stored translation. Failure boundary is SQL/query/schema wiring and repository mapping, not pure function logic. INTEGRATION-BRAKE: (a) no need for real network/subprocess/OS-specific behavior beyond local DB access, (b) no AI output dependence, (c) no multi-step agentic chain. REJECTION-GATE: rejected Unit because behavior text explicitly anchors correctness to 'stored in a local SQLite database', so DB interaction is part of the behavior.",
+      "test_description": "Run against a seeded local SQLite test DB, execute phrase lookup through fallback translator module, and assert exact match with seeded translation including Unicode/diacritics cases.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires real local DB wiring to catch schema/query mismatches that pure unit tests miss.",
+      "level_probabilities": {
+        "Unit": 0.17,
+        "Integration": 0.78,
+        "System": 0.04,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Quality tracker computes edit distance between primary and fallback outputs and stores the metric.",
+      "minimum_level": "Integration",
+      "justification": "Minimal failing invariant: persisted metric equals true character-level edit distance for a given output pair. This behavior couples computation and persistence; failures can occur in either algorithm-to-storage handoff or write path. INTEGRATION-BRAKE: (a) local DB/module wiring is enough; no real network/subprocess needed, (b) no dependence on real model judgment (inputs can be fixtures), (c) no multi-agentic sequence. REJECTION-GATE: rejected Unit because behavior text includes 'stores the metric', which introduces a module/DB boundary beyond pure algorithm logic.",
+      "test_description": "Feed deterministic primary/fallback strings through quality-tracking service with real repository, verify stored value equals expected character-level edit distance across edge cases (empty string, insertion-only, Unicode).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Lower-level unit test would validate math only, but not the required persistence behavior.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.06,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "When both translators are available, service returns primary translation and logs quality comparison asynchronously.",
+      "minimum_level": "Integration",
+      "justification": "Minimal failing invariant: response path must prefer primary output while background task records comparison without blocking/altering response. Failure is orchestration across modules (primary result selection + async metric logging). INTEGRATION-BRAKE: (a) no mandatory real OS/network/subprocess to expose this; controlled in-process components suffice, (b) behavior does not depend on model output quality, only source selection and side-effect execution, (c) not a multi-agentic chain. REJECTION-GATE: rejected Agentic despite real translator existence because behavior text is about control flow ('returns the primary translation and logs ... in the background'), not judging translation quality.",
+      "test_description": "Use deterministic stubs for primary/fallback outputs, run service with real async executor/repository wiring, assert immediate response equals primary output and eventually persisted comparison record appears with matching request correlation id.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test explicitly exercises async module handoff; unit tests would miss race/dispatch wiring failures.",
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.7,
+        "System": 0.14,
+        "Agentic": 0.1,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

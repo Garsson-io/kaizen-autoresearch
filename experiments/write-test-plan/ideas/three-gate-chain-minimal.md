@@ -16,12 +16,12 @@ change_type: framing
 risk: Chain may still be too rigid for terse tasks with implicit context.
 prereqs: Keep it additive and short; do not alter global decision ordering.
 related: [behavior-quote-grounding-gate, lower-level-miss-proof-gate, no-generic-wiring-claims-rule]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -63,3 +63,16 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-strict-3-gates | 70.8580 | +3.1186 | improved 2, hurt 3, flat 1 | n/a |
+| v2-primary-plus-counterbalance | 68.4668 | +0.7273 | improved 2, hurt 2, flat 2 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
+

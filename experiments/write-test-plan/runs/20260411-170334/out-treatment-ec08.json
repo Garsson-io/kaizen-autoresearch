@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-08",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The wait time between retries doubles with each consecutive failure, up to a configured maximum.",
+      "minimum_level": "Unit",
+      "justification": "This is local backoff math (attempt -> delay with cap) and does not require module handoff, I/O, subprocesses, or model output. Rejection gate: System/Agentic/Workflow are disqualified because the behavior text is only about delay computation, not real HTTP/OS/LLM steps.",
+      "test_description": "Test a pure backoff function with a table of consecutive failure counts and a configured max; assert exponential growth then cap saturation (e.g., 100, 200, 400, 800, 1000, 1000).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.86,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The retry logic correctly identifies a rate-limit response and computes the appropriate wait time before the next attempt.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is response-shape handoff between HTTP wrapper output and retry classifier/backoff module. Lower-level miss-proof: a Unit test of classifier logic can miss real failures where the HTTP client surfaces status/headers in a different field (e.g., `error.response.status` vs `status`) so rate-limit detection never triggers. Integration brake: no real OS/network/subprocess required; no AI output dependence; no multi-agent chain. Rejection gate: System is disqualified because behavior only requires identifying response data and computing delay, which can be reproduced with in-process stub responses.",
+      "test_description": "Wire retry module with a stub transport returning a realistic rate-limit error object (status + headers/body). Assert the logic classifies it as rate-limited and schedules the expected wait duration.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "After the wait, the client actually resends the original request and returns the successful result to the caller transparently.",
+      "minimum_level": "Integration",
+      "justification": "This is orchestration across retry scheduler, timer abstraction, and transport call replay. Lower-level miss-proof: Unit tests of resend helper or return mapping alone miss bugs where request payload/context is not preserved across the retry boundary, so the second attempt sends different input. Integration brake: no real network/OS required; fake clock + stub transport can expose this. Rejection gate: System is disqualified by behavior text (resend/orchestration) without requiring real infrastructure semantics.",
+      "test_description": "Using fake timers and a stub transport (first call rate-limited, second succeeds), assert the second attempt receives the original request arguments and `call()` resolves with the success payload without exposing retry internals.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.84,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After the configured maximum number of retries, the client returns a typed `QuotaExhaustedError` rather than a generic error.",
+      "minimum_level": "Integration",
+      "justification": "Requires interaction between retry counter exhaustion and error translation layer. Lower-level miss-proof: Unit-testing only the error class or mapper misses failures where the retry loop throws the raw transport error before mapper execution. Integration brake: no real OS/network required; deterministic stubs can drive exhaustion. Rejection gate: System is disqualified because behavior is about final error typing after local retry orchestration, not real infra behavior.",
+      "test_description": "Configure max retries N, stub transport to always return rate-limit failures, run `call()`, and assert rejection is specifically `QuotaExhaustedError` (type/instance and expected fields), not a generic error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.76,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The full retry chain — initial call, backoff retries, quota tracking — terminates correctly and does not loop indefinitely before surfacing the error.",
+      "minimum_level": "Integration",
+      "justification": "This is a multi-module local state-machine termination property (attempt accounting + quota tracking + stop condition). Lower-level miss-proof: Unit tests of each component (counter, backoff, quota bucket) can all pass while integration bug (counter not incremented on one path) causes endless retries. Integration brake: no real OS/network/subprocess needed with fake clock and stub transport. Rejection gate: Workflow is disqualified because there are no agentic model decisions; System is disqualified because indefinite-loop risk here is internal orchestration, reproducible in-process.",
+      "test_description": "Drive the client with a stub transport that never succeeds, advance fake time, and assert the call settles (rejects) after the expected bounded number of attempts and total delay budget; additionally assert no further retries are scheduled afterward.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.87,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Requests issued concurrently from multiple async callers in the same process all draw from the same shared quota bucket.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at shared-state/module boundary under concurrent callers (client instances/call paths must reference one quota manager). Lower-level miss-proof: Unit-testing bucket arithmetic misses wiring bugs where each caller gets its own bucket instance, violating shared quota only under concurrent integration usage. Integration brake: behavior explicitly scopes to same process; no real network/OS required. Rejection gate: System is disqualified because shared in-process coordination can be validated with local async tasks and stub transport.",
+      "test_description": "Launch multiple concurrent `call()` invocations against one process-local library setup with deterministic stub responses and a low quota; assert aggregate admitted/blocked behavior matches one shared bucket, not per-caller independent quotas.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.06,
+        "Integration": 0.9,
+        "System": 0.04,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When multiple requests are waiting to be sent, they are dispatched in the order they were originally submitted.",
+      "minimum_level": "Integration",
+      "justification": "This is queue ordering across async scheduling + dispatcher modules. Lower-level miss-proof: Unit tests of queue data structure may pass while integration bug in scheduler re-enqueues/promotes newer requests, breaking FIFO at dispatch time. Integration brake: no real OS/network/subprocess needed; ordering can be observed with in-process stubs and controlled timing. Rejection gate: System is disqualified because the behavior text concerns logical submission order, not infrastructure-specific semantics.",
+      "test_description": "Enqueue multiple calls quickly while quota/rate-limit gating forces waiting; use a stub transport that records dispatch order; release capacity and assert dispatch sequence matches submission sequence exactly.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

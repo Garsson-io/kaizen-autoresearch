@@ -19,12 +19,12 @@ family: label-communication
 mechanism_signature: soft-strictness-valve-adjacent-only
 max_followups: 1
 control_required: true
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 61.04
+explore_delta: -6.70
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -65,3 +65,17 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-all-adjacent-valve | 63.0855 | -4.6539 | improved 3, hurt 2, flat 1 | distributed |
+| v2-primary-above-system-valve | 61.0380 | -6.7014 | improved 3, hurt 1, flat 2 | distributed |
+
+Winner: `v2-primary-above-system-valve` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

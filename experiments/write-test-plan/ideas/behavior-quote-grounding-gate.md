@@ -16,12 +16,12 @@ change_type: framing
 risk: Could under-call higher levels if the quote requirement is too strict when behavior text is terse.
 prereqs: Must be inserted in KEY-QUESTIONS (not SELF-CHECK) to avoid process-overhead regressions.
 related: [minimal-failing-invariant-first, bidirectional-rejection-evidence-gate, system-agentic-negative-contrast]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 66.25
+explore_delta: -1.49
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -61,3 +61,17 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-quoted-evidence | 72.4495 | +4.7101 | improved 1, hurt 3, flat 2 | n/a |
+| v2-primary-plus-counterbalance | 66.2496 | -1.4898 | improved 1, hurt 2, flat 3 | ec-07 drives 73% of gain |
+
+Winner: `v2-primary-plus-counterbalance` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "This failure is at a module boundary (HTTP handler -> signature verifier -> queue publisher): the key check is both 401 response and no enqueue side effect. In-process wiring with a fake/spied queue is sufficient. Rejected higher level: behavior text does not require real network/OS/subprocess, and has no AI/ML dependency.",
+      "test_description": "Run the handler with an invalid `X-Signature-256` over a real raw body buffer, assert HTTP 401, and assert the enqueue module was not called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "The bug appears in ordering between handler response and queue write completion across modules. Minimum infra is handler + real queue adapter (or transactional fake with explicit write-complete signal) in one process. Rejected System: behavior does not require real external network/subprocess; local module coordination is the target.",
+      "test_description": "Instrument queue `write` completion and response send time; assert `write` completes before 200 is emitted for the same request.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "This is async handoff correctness between ingress handler and downstream processor modules. A controlled slow downstream promise in-process exposes the failure. Rejected System: no real OS/network behavior is required beyond normal async scheduling.",
+      "test_description": "Use a downstream processor stub that blocks on a deferred promise; send a valid event and assert response returns before resolving that promise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "This is a real-time latency SLO under concurrency; failures commonly depend on event-loop contention, timer behavior, socket handling, and runtime scheduling. Mocked timers/in-process fakes can hide these wall-clock effects. Rejected lower levels: behavior explicitly requires wall-clock bound under concurrent load.",
+      "test_description": "Start the real HTTP service process, generate concurrent requests while earlier events trigger slow downstream work, and measure end-to-end client-observed latency; assert each ack is <3s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.78,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Deduplication correctness is at the boundary between request handling, idempotency store/check, and queue write side effect. A single-function unit test misses race/ordering across modules. Rejected System: can be caught with in-process components and local persistence.",
+      "test_description": "Submit the same event ID twice through the handler with realistic storage wiring; assert only one queue write occurs and second request is treated as duplicate.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "This validates module interaction and HTTP mapping from queue backpressure signal -> status/header contract. A queue stub that returns `full` is enough. Rejected System: no real infrastructure behavior is necessary for this mapping behavior.",
+      "test_description": "Configure queue interface to return `full`; invoke handler and assert HTTP 503 plus non-empty `Retry-After`, and no successful enqueue side effect.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.8,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This tests real queue implementation + persistence layer behavior (local DB/filesystem class of dependency), not just handler mapping. It exceeds Unit because capacity enforcement emerges from component wiring/state. Rejected System: behavior text is about local persistent queue semantics, not external OS/network/subprocess contracts.",
+      "test_description": "Instantiate the real persistent queue backend with a small configured capacity, enqueue up to limit, then enqueue one more and assert explicit rejection/error without corrupting prior entries.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.8,
+        "System": 0.15,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

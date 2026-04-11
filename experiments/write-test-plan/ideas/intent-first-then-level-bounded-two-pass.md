@@ -21,12 +21,12 @@ family: label-communication
 mechanism_signature: intent-then-level-bounded-pass
 max_followups: 1
 control_required: true
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -66,3 +66,16 @@ Current status: untested.
 
 ## Reusable Lesson
 Pending first run.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-primary-full-two-pass | 71.6439 | +3.9045 | improved 0, hurt 2, flat 4 | n/a |
+| v2-primary-scoped-two-pass | 71.3921 | +3.6527 | improved 0, hurt 3, flat 3 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
+
