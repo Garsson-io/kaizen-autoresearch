@@ -15,7 +15,9 @@
  */
 
 import { z } from "zod";
+import { fileURLToPath } from "node:url";
 import { runEvalProcess } from "./run-eval-process.js";
+import { consumeFlag, consumeFlagValue } from "./cli-args.js";
 
 const VerifyResult = z.object({
   score: z.number().min(0).max(100),
@@ -43,31 +45,12 @@ function fail(message: string, details?: string): never {
   process.exit(1);
 }
 
-function buildVerifyArgs(allArgs: string[]): VerifyArgs {
+export function buildVerifyArgs(allArgs: string[]): VerifyArgs {
   const consumed = new Set<number>();
-
-  const takeValue = (flag: string): string | undefined => {
-    const idx = allArgs.indexOf(flag);
-    if (idx < 0) return undefined;
-    consumed.add(idx);
-    if (idx + 1 < allArgs.length) {
-      consumed.add(idx + 1);
-      return allArgs[idx + 1];
-    }
-    return undefined;
-  };
-
-  const hasFlag = (flag: string): boolean => {
-    const idx = allArgs.indexOf(flag);
-    if (idx < 0) return false;
-    consumed.add(idx);
-    return true;
-  };
-
-  const mockValue = takeValue("--mock");
-  const mockLossValue = takeValue("--mock-loss");
-  const timeoutValue = takeValue("--timeout-ms");
-  const dryCheck = hasFlag("--dry-check") || hasFlag("--no-run");
+  const mockValue = consumeFlagValue(allArgs, "--mock", consumed);
+  const mockLossValue = consumeFlagValue(allArgs, "--mock-loss", consumed);
+  const timeoutValue = consumeFlagValue(allArgs, "--timeout-ms", consumed);
+  const dryCheck = consumeFlag(allArgs, "--dry-check", consumed) || consumeFlag(allArgs, "--no-run", consumed);
 
   const timeoutNum = timeoutValue === undefined ? NaN : Number(timeoutValue);
   const timeoutMs = Number.isFinite(timeoutNum) && timeoutNum > 0 ? timeoutNum : 3_600_000;
@@ -76,7 +59,7 @@ function buildVerifyArgs(allArgs: string[]): VerifyArgs {
   return { dryCheck, timeoutMs, mockValue, mockLossValue, passThroughArgs };
 }
 
-function parseAndValidateResult(raw: string): z.infer<typeof VerifyResult> {
+export function parseAndValidateResult(raw: string): z.infer<typeof VerifyResult> {
   const parsed = parseOutput(raw);
   return VerifyResult.parse({
     score: Math.min(100, Math.max(0, parsed.score)),
@@ -85,7 +68,7 @@ function parseAndValidateResult(raw: string): z.infer<typeof VerifyResult> {
   });
 }
 
-function parseOutput(raw: string): ParsedMetrics {
+export function parseOutput(raw: string): ParsedMetrics {
   // Prefer structured METRICS_JSON line (emitted by score.ts --json via run-eval.sh)
   const metricsJsonMatch = raw.match(/^METRICS_JSON:\s*(.+)$/m);
   if (metricsJsonMatch) {
@@ -114,7 +97,7 @@ function parseOutput(raw: string): ParsedMetrics {
   };
 }
 
-async function main() {
+export async function main() {
   const { dryCheck, timeoutMs, mockValue, mockLossValue, passThroughArgs } = buildVerifyArgs(args);
   let raw: string;
   if (dryCheck) {
@@ -149,4 +132,6 @@ async function main() {
   console.log(JSON.stringify(result));
 }
 
-void main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  void main();
+}

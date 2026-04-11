@@ -13,6 +13,7 @@
 import { execSync } from "child_process";
 import { writeFileSync } from "fs";
 import { join } from "path";
+import { defaultModelForCli } from "./model-config.js";
 
 interface Result {
   iteration: number;
@@ -247,7 +248,7 @@ const results: Result[] = [
   },
 ];
 
-const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+const DEFAULT_MODEL = defaultModelForCli("claude");
 const jsonl =
   results
     .map((r) =>

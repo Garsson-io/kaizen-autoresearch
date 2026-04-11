@@ -28,37 +28,34 @@
  *     --section "TOP-DOWN-ELIMINATION" --edit-type add
  */
 
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { PATHS, EXP_DIR } from "./paths.js";
 import { IterationResult } from "../src/schema.js";
+import { appendJsonl, readJsonl } from "./jsonl.js";
+import { getFlagValue } from "./cli-args.js";
 
 // ─── Arg parsing ──────────────────────────────────────────────────────────────
 
 function arg(name: string, required = false): string | null {
-  const args = process.argv.slice(2);
-  const idx = args.indexOf(`--${name}`);
-  if (idx < 0) {
+  const value = getFlagValue(process.argv.slice(2), `--${name}`);
+  if (value === undefined) {
     if (required) { console.error(`Missing required arg --${name}`); process.exit(1); }
     return null;
   }
-  const val = args[idx + 1];
-  if (!val || val.startsWith("--")) {
+  if (!value || value.startsWith("--")) {
     if (required) { console.error(`Missing value for --${name}`); process.exit(1); }
     return null;
   }
-  return val;
+  return value;
 }
 
 // ─── Load existing results ────────────────────────────────────────────────────
 
 function loadResults(): IterationResult[] {
-  if (!existsSync(PATHS.results)) return [];
-  return readFileSync(PATHS.results, "utf8")
-    .split("\n").filter(Boolean)
-    .map(l => IterationResult.parse(JSON.parse(l)));
+  return readJsonl(PATHS.results, (line) => IterationResult.parse(JSON.parse(line)));
 }
 
 // ─── Compute reference loss ───────────────────────────────────────────────────
@@ -186,7 +183,7 @@ function main() {
   IterationResult.parse(entry); // throws if invalid
 
   // Append to JSONL
-  appendFileSync(PATHS.results, JSON.stringify(entry) + "\n", "utf8");
+  appendJsonl(PATHS.results, entry);
 
   // Update idea status
   const ideaUpdated = ideaId ? updateIdeaStatus(ideaId, status) : false;

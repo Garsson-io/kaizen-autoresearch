@@ -11,19 +11,15 @@
  *   npx tsx scripts/results.ts --model gpt-5.3-codex --last 10
  */
 
-import { readFileSync } from "fs";
 import { IterationResult } from "../src/schema.js";
 import { PATHS } from "./paths.js";
+import { readJsonl } from "./jsonl.js";
+import { getFlagValue, hasFlag } from "./cli-args.js";
 
 const resultsPath = PATHS.results;
 
 function loadResults(): IterationResult[] {
-  const content = readFileSync(resultsPath, "utf8").trim();
-  if (!content) return [];
-  return content.split("\n").map((line) => {
-    const parsed = IterationResult.parse(JSON.parse(line));
-    return parsed;
-  });
+  return readJsonl(resultsPath, (line) => IterationResult.parse(JSON.parse(line)));
 }
 
 function printTable(results: IterationResult[]) {
@@ -130,39 +126,12 @@ function printSummary(results: IterationResult[]) {
 const allResults = loadResults();
 const args = process.argv.slice(2);
 
-let modelFilter: string | null = null;
-let showKeeps = false;
-let showSummary = false;
-let showJson = false;
-let lastN: number | null = null;
-
-for (let i = 0; i < args.length; i++) {
-  const arg = args[i];
-  switch (arg) {
-    case "--model": {
-      modelFilter = args[i + 1] ?? null;
-      i++;
-      break;
-    }
-    case "--keeps":
-      showKeeps = true;
-      break;
-    case "--summary":
-      showSummary = true;
-      break;
-    case "--json":
-      showJson = true;
-      break;
-    case "--last": {
-      const raw = args[i + 1];
-      lastN = raw ? parseInt(raw, 10) : 5;
-      i++;
-      break;
-    }
-    default:
-      break;
-  }
-}
+const modelFilter = getFlagValue(args, "--model") ?? null;
+const showKeeps = hasFlag(args, "--keeps");
+const showSummary = hasFlag(args, "--summary");
+const showJson = hasFlag(args, "--json");
+const lastRaw = getFlagValue(args, "--last");
+const lastN = hasFlag(args, "--last") ? (lastRaw ? parseInt(lastRaw, 10) : 5) : null;
 
 let results = allResults;
 if (modelFilter) {

@@ -9,9 +9,11 @@
  *   npx tsx scripts/run-stats.ts --json                 # JSON output
  */
 
-import { readdirSync, readFileSync, existsSync, appendFileSync, realpathSync } from "fs";
+import { readdirSync, readFileSync, existsSync, realpathSync } from "fs";
 import { join, basename } from "path";
 import { fileURLToPath } from "url";
+import { appendJsonl } from "./jsonl.js";
+import { getFlagValue, hasFlag } from "./cli-args.js";
 
 interface ProbeStats {
   task: string;
@@ -198,10 +200,10 @@ function buildSummary(probes: ProbeStats[], runDirName: string): RunSummary {
 
 function main() {
 const args = process.argv.slice(2);
-const runArg = args.includes("--run") ? args[args.indexOf("--run") + 1] : undefined;
-const showAll = args.includes("--all");
-const jsonOut = args.includes("--json");
-const appendLog = args.includes("--append-log");
+const runArg = getFlagValue(args, "--run");
+const showAll = hasFlag(args, "--all");
+const jsonOut = hasFlag(args, "--json");
+const appendLog = hasFlag(args, "--append-log");
 
 // --append-log: parse latest run, append one JSON line to run-stats.jsonl, print summary
 if (appendLog) {
@@ -222,7 +224,7 @@ if (appendLog) {
 
   const summary = buildSummary(probes, runDirName);
   const logPath = join(PATHS.runs, "..", "run-stats.jsonl");
-  appendFileSync(logPath, JSON.stringify(summary) + "\n");
+  appendJsonl(logPath, summary);
 
   printSummary(probes, runDir);
   console.log(`\n→ Appended to run-stats.jsonl`);

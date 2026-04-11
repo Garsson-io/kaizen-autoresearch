@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # run-eval.sh — Run corpus tasks for a given prompt and score them.
+# NOTE: TypeScript runner config in scripts/model-config.ts is source of truth.
+# Keep defaults here aligned; verify with scripts/check-runner-config.ts.
 #
 # Usage:
 #   ./run-eval.sh                                    # treatment prompt, round 1 (neutral), Codex defaults

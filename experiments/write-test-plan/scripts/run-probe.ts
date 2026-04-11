@@ -15,7 +15,6 @@
  *     --condition baseline --out out.json
  */
 
-import { spawnSync } from "node:child_process";
 import { writeFileSync, readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -29,6 +28,8 @@ import {
   type SupportedCli,
   type ReasoningEffort,
 } from "./model-config.js";
+import { getFlagValue } from "./cli-args.js";
+import { runCommandSync } from "./process-utils.js";
 
 const LEVEL_DEFS = `
 Level definitions — choose the LOWEST level that can catch a real failure:
@@ -228,7 +229,7 @@ function runProbe(opts: {
     // --disable-slash-commands: remove slash commands from context
     // --strict-mcp-config: block all MCP servers (no Sentry, Linear, etc.)
     // --max-turns 1: one response only (structured output)
-    const result = spawnSync("claude", [
+    const result = runCommandSync("claude", [
       "-p",
       "--json-schema", PROBE_SCHEMA,
       "--output-format", "stream-json",
@@ -275,7 +276,7 @@ function runProbe(opts: {
     const lastMessageFile = join(tmp, "last-message.txt");
     try {
       writeFileSync(schemaFile, PROBE_SCHEMA, "utf-8");
-      const result = spawnSync("codex", [
+      const result = runCommandSync("codex", [
         "exec",
         "--config", `model_reasoning_effort="${opts.reasoningEffort}"`,
         "--output-schema", schemaFile,
@@ -333,16 +334,14 @@ function runProbe(opts: {
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-const get = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
-
-const taskId = get("--task");
-const condition = get("--condition") as "baseline" | "treatment" | undefined;
-const cliRaw = get("--cli") ?? "claude";
-const outFile = get("--out") ?? `out-${condition}-${taskId?.toLowerCase().replace("-", "")}.json`;
-const reasoningEffortRaw = get("--reasoning-effort") ?? DEFAULT_REASONING_EFFORT;
-const issueFile = get("--issue-file");
-const promptFile = get("--prompt-file");
-const issueBody = get("--issue-body") ?? (issueFile ? readFileSync(issueFile, "utf-8") : undefined);
+const taskId = getFlagValue(args, "--task");
+const condition = getFlagValue(args, "--condition") as "baseline" | "treatment" | undefined;
+const cliRaw = getFlagValue(args, "--cli") ?? "claude";
+const outFile = getFlagValue(args, "--out") ?? `out-${condition}-${taskId?.toLowerCase().replace("-", "")}.json`;
+const reasoningEffortRaw = getFlagValue(args, "--reasoning-effort") ?? DEFAULT_REASONING_EFFORT;
+const issueFile = getFlagValue(args, "--issue-file");
+const promptFile = getFlagValue(args, "--prompt-file");
+const issueBody = getFlagValue(args, "--issue-body") ?? (issueFile ? readFileSync(issueFile, "utf-8") : undefined);
 
 if (!taskId || !condition || !issueBody) {
   console.error("Usage: run-probe-native.ts --task EC-04 --condition treatment --issue-body '...' [--cli claude|codex] [--out out.json] [--model ...] [--prompt-file prompts/probe-treatment.md]");
@@ -367,6 +366,6 @@ if (promptFile && !existsSync(promptFile)) {
 
 const cli: SupportedCli = cliRaw;
 const reasoningEffort: ReasoningEffort = reasoningEffortRaw;
-const model = get("--model") ?? defaultModelForCli(cli);
+const model = getFlagValue(args, "--model") ?? defaultModelForCli(cli);
 
 runProbe({ taskId, condition, issueBody, model, outFile, cli, reasoningEffort, promptFile });

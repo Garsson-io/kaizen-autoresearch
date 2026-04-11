@@ -24,6 +24,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { ProbeOutput, GroundTruth, LEVEL_INDEX } from "../src/schema.js";
 import { PATHS, REPO_ROOT, getRunDir } from "./paths.js";
+import { getFlagValue, hasFlag } from "./cli-args.js";
 
 function parseFile(path: string): unknown {
   const raw = readFileSync(path, "utf-8");
@@ -211,13 +212,16 @@ export function buildMetrics(results: ScoreResult[]): Record<string, number> {
 
 function main() {
   const args = process.argv.slice(2);
-  const get = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; };
-  const jsonMode = args.includes("--json");
+  const jsonMode = hasFlag(args, "--json");
 
-  const outputFile = get("--output") ? resolveInputPath(get("--output")!) : undefined;
-  const gtFile = get("--gt") ? resolveInputPath(get("--gt")!) : undefined;
-  const outputDir = get("--output-dir") ? resolveRunDirArg(get("--output-dir")!) : undefined;
-  const gtDir = get("--gt-dir") ? resolveInputPath(get("--gt-dir")!) : PATHS.groundTruth;
+  const outputFileRaw = getFlagValue(args, "--output");
+  const gtFileRaw = getFlagValue(args, "--gt");
+  const outputDirRaw = getFlagValue(args, "--output-dir");
+  const gtDirRaw = getFlagValue(args, "--gt-dir");
+  const outputFile = outputFileRaw ? resolveInputPath(outputFileRaw) : undefined;
+  const gtFile = gtFileRaw ? resolveInputPath(gtFileRaw) : undefined;
+  const outputDir = outputDirRaw ? resolveRunDirArg(outputDirRaw) : undefined;
+  const gtDir = gtDirRaw ? resolveInputPath(gtDirRaw) : PATHS.groundTruth;
 
   const results: ScoreResult[] = [];
   // In --json mode, send human-readable display to stderr so stdout carries only JSON

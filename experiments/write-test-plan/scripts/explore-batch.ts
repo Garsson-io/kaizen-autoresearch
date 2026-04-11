@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { Command } from "commander";
+import { runCommandSync } from "./process-utils.js";
 
 type Signal = "signal" | "concentrated-signal" | "no-signal";
 
@@ -63,7 +63,7 @@ function runExploreOnce(params: {
   ];
   if (params.force) args.push("--force");
 
-  const proc = spawnSync("npx", args, {
+  const proc = runCommandSync("npx", args, {
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
   });
