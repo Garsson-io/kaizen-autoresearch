@@ -22,10 +22,14 @@ explore_baseline_loss: 58.06
 explore_loss: null
 explore_delta: null
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Make second-pass review conditional instead of universal:
 - First pass produces label + rationale + confidence word.
 - If rationale includes uncertainty cues (`maybe`, `unclear`, `likely`, `depends`) or low confidence, run exactly one forced retry with stricter evidence rules.
@@ -43,8 +47,7 @@ Models can game this by using confident language even when uncertain. Then the r
 
 Conversely, if uncertainty cues are too broad, this collapses back into always-two-pass behavior.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-13, ec-08, ec-33, ec-25, ec-31, ec-20`  
 Baseline subset loss: `58.06`
 
@@ -55,3 +58,32 @@ Baseline subset loss: `58.06`
 | v3-adjacent-only-retry | 64.4418 | +6.3792 | improved 0, hurt 2, flat 4 | n/a |
 
 No winner — all variations flat or worse. Classification: `no-signal`.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Hedging language may be stylistic rather than true uncertainty, causing unnecessary retries.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

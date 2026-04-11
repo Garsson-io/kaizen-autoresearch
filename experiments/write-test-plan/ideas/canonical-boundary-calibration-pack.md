@@ -23,10 +23,14 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Embed a tiny stable set of boundary examples (2-3 per adjacent pair) that define the decision edge:
 - Unit vs Integration
 - Integration vs System
@@ -42,3 +46,36 @@ This gives consistent anchors across runs and reduces drift from ad-hoc wording 
 ## Scathing Critique
 
 If examples are too close to corpus wording, gains may come from imitation rather than real reasoning.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Pack can overfit model behavior to a narrow set of examples.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

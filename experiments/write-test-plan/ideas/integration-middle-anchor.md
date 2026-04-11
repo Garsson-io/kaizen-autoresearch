@@ -21,10 +21,14 @@ explore_baseline_loss: 55.78
 explore_loss: 49.64592132396043
 explore_delta: -6.134078676039568
 explore_date: 2026-03-28
+last_run: 20260328-225446
+last_iteration: 35
+last_outcome: discard
+last_delta: 9.079870259515767
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 Add an Integration-specific contrast block directly under the `Integration` level definition:
 
 ```md
@@ -42,8 +46,7 @@ The current prompt gives `Integration` only one short positive definition, while
 
 This may be the same mistake as `unit-algo-parenthetical` in a softer form: once the model sees more text around the Unit/Integration boundary, it may over-apply the new language and relabel anything with more than one noun as Integration. The current diagnosis also comes from a single expanded-corpus run plus a taxonomy file that still reflects the older 30-task distribution, so the apparent Integration crisis may be partly noise or measurement lag. If so, adding an Integration anchor could spend prompt budget on a transient pattern while regressing the hard-won Agentic gains.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-03, ec-14, ec-17, ec-20`  
 Baseline subset loss: `55.78`
 
@@ -55,3 +58,32 @@ Baseline subset loss: `55.78`
 
 Winner: `v1-anchor-basic` by aggregate loss, but classification is `concentrated-signal` (outlier-driven improvement).  
 Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Hypothesis
+
+Anchor Integration as the local-wiring middle layer with explicit adjacent contrasts should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Extra Integration guidance may still bleed downward into Unit or upward into System if the contrast language is too vague
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 35 | 20260328-225446 | discard | 9.079870259515767 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

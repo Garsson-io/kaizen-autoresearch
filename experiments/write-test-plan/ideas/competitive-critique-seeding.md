@@ -15,16 +15,20 @@ change_type: meta-cognitive
 risk: Can cause reflexive contrarian behavior (rejecting good reasoning) unless acceptance criteria are explicit.
 prereqs: Critique must require behavior-quoted evidence, not tone/style disagreement.
 related: [two-step-review-loop, adversarial-self-debate, hypothesis-validation-step]
-explore_status: signal
-explore_tasks: [ec-15, ec-08, ec-33, ec-27, ec-32, ec-19]
-explore_baseline_loss: 80.27
-explore_loss: 70.41
-explore_delta: -9.87
-explore_date: 2026-04-10
+explore_status: concentrated-signal
+explore_tasks: [ec-35, ec-31, ec-23, ec-03, ec-34, ec-24, ec-29, ec-20]
+explore_baseline_loss: 97.62
+explore_loss: 96.15
+explore_delta: -1.47
+explore_date: 2026-04-11
+last_run: 20260411-002056
+last_iteration: 64
+last_outcome: discard
+last_delta: 28.5687
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Before finalizing each behavior level, force the model to critique a candidate answer that may be wrong. The candidate can be framed as coming from a competitor model, a random baseline, or a pre-baked canned rationale.
 
 Goal: trigger deeper second-pass reasoning and reduce first-answer anchoring.
@@ -66,15 +70,44 @@ This can operationalize the user's intuition: bad candidate answers often trigge
 
 "Competitive framing" may add noise and persona bias rather than real rigor. If the model over-learns to attack, calibration drops and false negatives rise.
 
-## Epistemological status
-
-Explore subset (stratified): `ec-15, ec-08, ec-33, ec-27, ec-32, ec-19`  
-Baseline subset loss: `80.27`
+## Epistemological Status
+Explore subset (stratified): `ec-35, ec-31, ec-23, ec-03, ec-34, ec-24, ec-29, ec-20`  
+Baseline subset loss: `97.62`
 
 | Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
 |---|---:|---:|---|---|
-| v1-competitor-audit | 70.4053 | -9.8688 | improved 4, hurt 1, flat 1 | distributed |
-| v2-mixed-quality-review | 90.9123 | +10.6382 | improved 0, hurt 2, flat 4 | n/a |
-| v3-bogus-trap-reject | 81.6664 | +1.3923 | improved 2, hurt 3, flat 1 | n/a |
+| v1-competitor-audit | 115.1191 | +17.5010 | improved 2, hurt 5, flat 1 | n/a |
+| v2-mixed-quality-review | 96.1471 | -1.4710 | improved 4, hurt 2, flat 2 | distributed |
+| v3-bogus-trap-reject | 100.8220 | +3.2039 | improved 2, hurt 4, flat 2 | n/a |
 
-Winner: `v1-competitor-audit` by aggregate loss, classification is `signal`.  
+Winner: `v2-mixed-quality-review` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Can cause reflexive contrarian behavior (rejecting good reasoning) unless acceptance criteria are explicit.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 64 | 20260411-002056 | discard | 28.5687 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

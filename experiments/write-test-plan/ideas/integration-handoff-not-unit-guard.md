@@ -18,10 +18,14 @@ explore_baseline_loss: 65.53
 explore_loss: 60.15702795152423
 explore_delta: -5.3729720484757735
 explore_date: 2026-03-28
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 Add one explicit clause to `MOCK-MISS`:
 
 ```md
@@ -36,8 +40,7 @@ The current rule explains Unit eligibility but does not explicitly negate Unit a
 
 The model may already implicitly know this from existing wording, so this could be redundant and become a no-op.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-20, ec-24, ec-28, ec-32`  
 Baseline subset loss: `65.53`
 
@@ -48,3 +51,32 @@ Baseline subset loss: `65.53`
 | v3-contrast-guard | 70.7021 | +5.1721 | improved 1, hurt 3, flat 0 | — |
 
 Classification: `no-signal` for loop execution (no majority improvement and concentrated gains).
+
+## Hypothesis
+
+Add explicit Not-Unit handoff guard to MOCK-MISS should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could over-steer to Integration and increase Unit->Integration overprediction.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

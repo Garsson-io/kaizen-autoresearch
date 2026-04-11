@@ -21,8 +21,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Question
 
 When accuracy is unstable, what helps more in practice:
@@ -60,3 +65,40 @@ Subset used: `ec-02, ec-03, ec-04, ec-07, ec-13, ec-19, ec-32, ec-33`
 | two-pass + high | 127.78 |
 
 Conclusion: increasing reasoning effort to `high` hurts on this subset, and two-pass prompting is closer to baseline at `medium` effort but still slightly worse than baseline-medium. Operational default should remain `medium` effort.
+
+## Hypothesis
+
+Compare two-pass prompting vs higher reasoning effort (2x2 ablation) should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Can confuse mechanism attribution unless all cells are run on the same task subset and model.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

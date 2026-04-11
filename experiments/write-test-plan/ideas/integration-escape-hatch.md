@@ -24,8 +24,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: 20260329-014055
+last_iteration: 41
+last_outcome: discard
+last_delta: 19.644039267294605
+retry_trigger: null
+owner: null
 ---
-
 ## Hypothesis
 
 Sonnet has an "Integration anchor" — 53 of 82 errors (65%) predict Integration. This is fundamentally different from Codex's Unit anchor. The model collapses everything to Integration in both directions: Unit behaviors get pulled up ("modules exist in this feature"), and System/Agentic behaviors get pulled down ("we can wire modules together to test this").
@@ -72,3 +77,36 @@ The "down-test" could be dangerous: the model might rationalize that ANY behavio
 The "up-test" restates REAL-INFRA/LLM-DEP/MULTI-STEP which the model already applied and chose Integration over. Re-applying the same questions might just produce the same answer. The hope is that asking "does it need something no in-process fake can reproduce?" reframes the question enough to break the pattern.
 
 Finally, this idea assumes the Integration anchor is stable across runs. If it's a one-run artifact of noise, this optimization is chasing ghosts. We need at least one more baseline run to confirm the pattern.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Adding Integration-specific gates could over-correct and create new confusion at other boundaries.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 41 | 20260329-014055 | discard | 19.644039267294605 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

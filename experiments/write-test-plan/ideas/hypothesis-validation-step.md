@@ -14,8 +14,13 @@ change_type: meta-cognitive
 risk: Falsification adds significant token cost; model may produce pro-forma falsification that doesn't change the answer
 prereqs: null
 related: [adversarial-self-debate, counterfactual-mock, solution-collapse-prevention]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#983 — Phase 4.5 step 4: "HYPOTHESIS / VALIDATION / IF WRONG"; Garsson-io/kaizen#747 — "the implementor should form hypotheses about what could break"*
 
 ## Steelman
@@ -68,3 +73,40 @@ The model chose a falsification condition that conveniently doesn't challenge it
 Also, HYPOTHESIS/VALIDATION/IF WRONG adds 4 lines of structured output per behavior. For a 10-behavior task, that's 40 lines of reasoning that the structured JSON schema doesn't capture. Either you add these fields to the schema (bloating the output and changing the scorer) or they exist only in the model's internal reasoning (invisible and unverifiable).
 
 The kaizen Phase 4.5 works because a human reviews the hypothesis and can catch "that falsification condition is too narrow." In our automated eval pipeline, there's no human in the loop — the model checks itself and moves on.
+
+## Hypothesis
+
+Treat each level choice as a hypothesis — require falsification attempt should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Falsification adds significant token cost; model may produce pro-forma falsification that doesn't change the answer
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

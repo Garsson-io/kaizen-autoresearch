@@ -16,8 +16,13 @@ change_type: structural
 risk: Two-pass adds latency and complexity; errors in pass 1 cascade to pass 2
 prereqs: Structured output schema would need a dependency_list field, or pass 1 is internal reasoning only
 related: [counterfactual-mock, signal-scoring-rubric]
+last_run: 20260330-200455
+last_iteration: 56
+last_outcome: discard
+last_delta: 28.653309731777426
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The current prompt asks the model to do two things simultaneously: (1) identify what external dependencies a behavior has, and (2) map those dependencies to a test level. Combining these steps means the model's dependency identification is biased by its level heuristics — if it "knows" the answer is System, it won't look hard for AI dependencies.
@@ -53,3 +58,40 @@ The two-pass approach doesn't add new knowledge. It just restructures the same r
 Also, the schema implications are real. Either you add a `dependency_list` field to the structured output (changing the eval pipeline) or you rely on the model's internal reasoning for pass 1 (which is invisible and unverifiable). The current structured output schema has no place for dependency tags.
 
 Finally, two-pass prompts are fragile with smaller models. Haiku may lose track of pass 1 outputs when executing pass 2, especially for tasks with 10 behaviors. The prompt would work better with Opus or Sonnet, but the experiment uses haiku for speed and cost.
+
+## Hypothesis
+
+Two-pass — extract dependencies first, then classify should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Two-pass adds latency and complexity; errors in pass 1 cascade to pass 2
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 56 | 20260330-200455 | discard | 28.653309731777426 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

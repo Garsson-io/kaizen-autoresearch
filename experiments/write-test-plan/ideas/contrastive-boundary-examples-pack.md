@@ -24,8 +24,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: 20260330-194215
+last_iteration: 51
+last_outcome: discard
+last_delta: 26.925838881427353
+retry_trigger: null
+owner: null
 ---
-
 ## Hypothesis
 
 Current definitions are abstract and allow drift. A compact contrastive pack can supply concrete anchors for each adjacent boundary without full few-shot overload.
@@ -66,3 +71,35 @@ Because examples are contrastive and paired, they are less likely to produce one
 
 Even compact examples can dominate model pattern-matching and create template overfitting. If behavior wording differs from examples, the model may still revert to old heuristics. This is also a larger token increase, which could hurt consistency.
 
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Example anchoring could overfit to patterns and harm out-of-distribution behaviors.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 51 | 20260330-194215 | discard | 26.925838881427353 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

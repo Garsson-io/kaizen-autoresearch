@@ -15,8 +15,13 @@ change_type: ensemble
 risk: 3x API cost; majority vote still fails if all 3 variants share the same blind spot
 prereqs: Changes to run-eval.sh to support multi-prompt voting
 related: [top-down-elimination, counterfactual-mock, signal-scoring-rubric]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 Instead of finding one perfect prompt, run three different prompts and take the majority vote per behavior:
@@ -39,3 +44,40 @@ More fundamentally, if all three prompts share the same blind spot (they all fai
 The implementation complexity is high: you need to modify run-eval.sh, run-probe.ts, and score.ts to support multi-prompt voting. This is no longer a prompt-only change — it's a pipeline change. And pipeline changes are outside the scope of the autoresearch loop, which can only modify treatment.md.
 
 Parked: revisit if single-prompt approaches plateau AND the eval budget allows 3x cost.
+
+## Hypothesis
+
+Run 3 prompt variants, majority vote per behavior should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: 3x API cost; majority vote still fails if all 3 variants share the same blind spot
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

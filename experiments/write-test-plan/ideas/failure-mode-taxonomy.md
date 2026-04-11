@@ -16,8 +16,13 @@ change_type: representational
 risk: Taxonomy may be too rigid; novel failure modes that don't fit get misclassified
 prereqs: null
 related: [observable-behavior-framing, solution-collapse-prevention, signal-scoring-rubric]
+last_run: null
+last_iteration: 8
+last_outcome: discard
+last_delta: -4.2
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#747 — "the failure mode taxonomy that's missing"*
 
 ## Steelman
@@ -57,3 +62,40 @@ This is a lookup table disguised as reasoning. If the model could correctly iden
 Also, real behaviors often have multiple failure modes at different levels. EC-04 behavior 5 ("when API signals rate too high, module waits and retries") has both an environment failure mode (API returns 429 → System) and a logic failure mode (retry logic is wrong → Unit). The taxonomy says "pick the failure mode" but doesn't say which one when there are multiple. The existing prompt handles this with "choose the LOWEST level that catches a real failure" — but that instruction ALSO fails for multi-modal behaviors.
 
 The taxonomy from #747 was designed for human engineers writing testing plans, not for LLMs classifying in a structured output. Human engineers can hold multiple failure modes in mind and reason about tradeoffs. An LLM producing a JSON object picks one path and follows it. A rigid taxonomy may force the model into a binary choice that doesn't reflect the behavior's actual complexity.
+
+## Hypothesis
+
+Give the model a failure mode taxonomy — map failure types to levels should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Taxonomy may be too rigid; novel failure modes that don't fit get misclassified
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 8 |  | discard | -4.2 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

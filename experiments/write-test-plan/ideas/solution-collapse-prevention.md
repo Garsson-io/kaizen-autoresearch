@@ -16,8 +16,13 @@ change_type: structural
 risk: Extra reasoning step may degrade rather than improve — model may name a wrong failure mode and then consistently misclassify
 prereqs: null
 related: [counterfactual-mock, two-pass-dependency-extraction, observable-behavior-framing, seam-map-cross-check]
+last_run: 20260330-195744
+last_iteration: 54
+last_outcome: discard
+last_delta: 45.951502026997844
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#724 — "solution collapse at every layer — the system optimizes for closing issues, not understanding problems"*
 
 ## Steelman
@@ -54,3 +59,40 @@ The core issue remains: the model doesn't know that "external AI classification 
 Also, #724 is about multi-step agent workflows where each step can collapse independently. Our task is single-shot classification — there's only one step. Solution collapse in a pipeline (where the implementor doesn't question the spec) is a different cognitive failure than classification error in a single prompt (where the model lacks a concept).
 
 Adding 3 substeps per behavior triples the token cost and the surface area for errors. Each substep is a place where the model can go wrong, and errors in step 1 (wrong failure mode) cascade to step 3 (wrong level). The current single-step approach at least keeps errors local to each behavior.
+
+## Hypothesis
+
+Force the model to name the failure mode before choosing the level should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Extra reasoning step may degrade rather than improve — model may name a wrong failure mode and then consistently misclassify
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 54 | 20260330-195744 | discard | 45.951502026997844 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

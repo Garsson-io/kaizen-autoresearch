@@ -23,10 +23,14 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Replace one-shot 5-class selection with four binary decisions:
 
 1. Unit vs Integration
@@ -47,3 +51,36 @@ This is easy to try: it is prompt structure only, no evaluator rewrite required.
 If the first comparison is wrong, all later comparisons are constrained by that error. This could reduce catastrophic jumps but increase sticky local errors.
 
 It also increases token cost and may induce mechanical reasoning that sounds rigorous but is still wrong.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Early wrong boundary decisions can propagate upward through the tournament.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

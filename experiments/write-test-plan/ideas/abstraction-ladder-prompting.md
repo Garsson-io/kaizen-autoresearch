@@ -14,8 +14,13 @@ change_type: meta-cognitive
 risk: Abstraction climbing may produce vague categories that don't help with classification
 prereqs: null
 related: [solution-collapse-prevention, failure-mode-taxonomy]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#268 — "Agents don't spontaneously climb the abstraction ladder"*
 
 ## Steelman
@@ -50,3 +55,40 @@ The #268 problem (agents don't generalize) applies to multi-turn conversations w
 Also, adding yet another reasoning step before the key questions dilutes the prompt. The model now has: dependency categorization → key questions → level selection → self-check. Four reasoning stages for what should be a single classification judgment. Each stage is a place for the model to wander off track.
 
 The strongest version of this idea is just the concrete-agentic-example idea: instead of asking the model to "categorize the dependency," just tell it: "AI/LLM APIs are non-deterministic. External services that always return the same result for the same input are deterministic." That's a fact, not a reasoning step.
+
+## Hypothesis
+
+Force explicit abstraction climbing — "what category does this belong to?" should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Abstraction climbing may produce vague categories that don't help with classification
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

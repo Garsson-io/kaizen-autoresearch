@@ -14,8 +14,13 @@ change_type: representational
 risk: Examples may anchor the model on specific patterns and hurt generalization to novel tasks
 prereqs: null
 related: [concrete-agentic-example, counterfactual-mock]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The model's primary failure is not understanding that "external AI classification API" implies non-determinism. No amount of definitional rewording will fix this if the model doesn't have a concrete reference point for what Agentic looks like in practice.
@@ -52,3 +57,40 @@ The 30-task corpus now includes 4 "misleading surface" tasks (EC-12, EC-16, EC-1
 Also, examples consume token budget. The treatment prompt is currently 23 lines. Adding 2-3 worked examples might double it. For a fast model like haiku, this may increase latency and token cost without proportional benefit.
 
 The deeper issue: examples are a band-aid. They fix specific failure patterns without improving the model's general reasoning. Every new confusion pair requires a new example. The prompt grows linearly with failure modes instead of converging on a robust classification framework.
+
+## Hypothesis
+
+Add 2-3 worked examples covering exact confusion pairs should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Examples may anchor the model on specific patterns and hurt generalization to novel tasks
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

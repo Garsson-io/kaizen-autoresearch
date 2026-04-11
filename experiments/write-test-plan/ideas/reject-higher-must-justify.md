@@ -22,8 +22,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: 20260329-015626
+last_iteration: 42
+last_outcome: keep
+last_delta: -27.055162739793804
+retry_trigger: null
+owner: null
 ---
-
 ## Hypothesis
 
 43% of sonnet's errors are self-aware -- the model considers the correct higher level during reasoning but then overrides itself and picks Integration. The current prompt's bottom-up flow and SELF-CHECK ("would it pass at a lower one?") create a downward gravitational pull. Once the model has considered a higher level and is wavering, the prompt's structure encourages it to "play it safe" by picking Integration.
@@ -54,3 +59,36 @@ It's also low-risk because it only fires when the model has already considered a
 The model may learn to simply not mention the higher level in its reasoning, avoiding the gate entirely. If the model stops "considering" higher levels to dodge the justification requirement, this becomes a no-op or worse -- it could suppress the consideration of higher levels entirely, reducing the model's reasoning breadth.
 
 Also, "concrete disqualifying evidence" is vague. The model can always fabricate a disqualification reason from behavior text. Whether it does depends on how literally it follows the instruction.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could slow reasoning and produce verbose justifications that still arrive at wrong answers.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 42 | 20260329-015626 | keep | -27.055162739793804 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

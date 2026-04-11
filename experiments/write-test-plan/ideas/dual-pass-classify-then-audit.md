@@ -25,8 +25,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: 20260330-193441
+last_iteration: 50
+last_outcome: discard
+last_delta: 51.32412101306295
+retry_trigger: null
+owner: null
 ---
-
 ## Hypothesis
 
 Single-pass decisions are brittle and prone to confirmation bias. A second audit pass can catch both over-escalation and under-escalation if constrained to behavior evidence only.
@@ -62,3 +67,36 @@ It may improve robustness because the audit is symmetric, unlike prior edits tha
 Two-pass reasoning can increase variance and latency; weaker runs may produce contradictory audits and unstable final choices. If the model does not faithfully follow "no hypothetical facts," this becomes extra prose with minimal effect.
 
 This is high-effort and may be harder to isolate causally in evaluation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: More reasoning steps can amplify errors if the first-pass hypothesis is wrong.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 50 | 20260330-193441 | discard | 51.32412101306295 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

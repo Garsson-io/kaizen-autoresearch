@@ -12,8 +12,13 @@ change_type: structural
 risk: Run 1 iter 1 tried reordering + adding examples and hurt score. This isolates just the reorder.
 prereqs: null
 related: [top-down-elimination]
+last_run: 20260328-135203
+last_iteration: 14
+last_outcome: no-op
+last_delta: -0.1
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 Run 1 iter 1 reordered questions AND added examples — it dropped 3.5 points. But we can't attribute the drop to reordering vs examples because both changed simultaneously. The atomic test: swap ONLY the Agentic and System question lines, change nothing else.
@@ -28,3 +33,40 @@ This is a zero-text-change experiment — same word count, same definitions, jus
 The current question order is bottom-up (lowest first), which is the natural escalation for "choose the LOWEST." Reordering to check higher levels first contradicts the framing. The model may get confused by the inconsistency between "choose the LOWEST" and "check highest first."
 
 Also, the model doesn't actually follow the questions as a sequential checklist — it reads all definitions and questions, then makes a holistic judgment. Line order may not matter to the model's attention mechanism.
+
+## Hypothesis
+
+Move Agentic question before System question (minimal reorder, no text change) should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Run 1 iter 1 tried reordering + adding examples and hurt score. This isolates just the reorder.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 14 | 20260328-135203 | no-op | -0.1 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

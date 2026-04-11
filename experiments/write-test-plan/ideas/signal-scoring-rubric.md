@@ -14,8 +14,13 @@ change_type: representational
 risk: Point system may be too rigid — edge cases that don't fit the rubric get misclassified
 prereqs: null
 related: [top-down-elimination]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The current prompt uses verbal reasoning ("Does correctness depend on what a real LLM produces?") which is inherently fuzzy. Different behaviors activate different heuristics and the model can rationalize any answer. A numeric rubric removes ambiguity:
@@ -43,3 +48,40 @@ Real behaviors don't map to clean point values. What about a behavior that needs
 More fundamentally, the problem isn't that the model can't reason about levels — it scored 87.2% on the full corpus. The problem is that it doesn't recognize certain AI signals (specifically "external AI classification API" → non-deterministic). A point system doesn't teach it new facts; it just repackages the same question in numeric form.
 
 And the rigidity is a real risk. The treatment-l12 idea (12-step ladder mapped to 5 levels) was a similar "add more structure" approach and it scored WORSE (71.2%). More structure doesn't mean more accuracy — it can mean more places to make mapping errors.
+
+## Hypothesis
+
+Numeric signal-scoring rubric (replace verbal reasoning with points) should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Point system may be too rigid — edge cases that don't fit the rubric get misclassified
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

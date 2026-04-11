@@ -12,10 +12,14 @@ change_type: representational
 risk: May cause U2 explosion if "it is Unit" anchor biases model downward too hard; similar risk to unit-algo-parenthetical but via KEY-QUESTIONS not LEVEL-DEFS
 prereqs: null
 related: [minimize-bias-reframe, unit-algo-parenthetical]
+last_run: 20260329-004857
+last_iteration: 39
+last_outcome: discard
+last_delta: 14.554338617581909
+retry_trigger: null
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 ```diff
 -  - **MOCK-MISS**: Could a pure in-process mock miss this failure? If yes → at least Integration.
 +  - **MOCK-MISS**: Does THIS SPECIFIC BEHAVIOR describe a failure that only appears when multiple modules interact — not just a failure that could theoretically exist somewhere in the feature? If the behavior tests one function's logic, parsing, or algorithm, it is Unit even if the broader feature has integration points. Only escalate to Integration when the behavior's own failure mode is at a module boundary.
@@ -41,3 +45,36 @@ Unit anchor causing over-correction downward. If codex latches on to "it is Unit
 permission, the Integration→Agentic/System misses could worsen (5 Integration→Agentic and
 9 Integration→System errors currently). The haiku failure mode (U2 explosion) came from LEVEL-DEFS
 but a similar mechanism could apply here via KEY-QUESTIONS.
+
+## Hypothesis
+
+Scope MOCK-MISS to the specific behavior's failure mode, not hypothetical wiring failures should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May cause U2 explosion if "it is Unit" anchor biases model downward too hard; similar risk to unit-algo-parenthetical but via KEY-QUESTIONS not LEVEL-DEFS
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 39 | 20260329-004857 | discard | 14.554338617581909 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

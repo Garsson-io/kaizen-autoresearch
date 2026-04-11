@@ -23,10 +23,14 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Use three explicit roles per behavior:
 
 1. Proposer: output initial label + evidence.
@@ -55,3 +59,36 @@ Role prompting does not guarantee cognitive diversity; the same base model can p
 Cost/latency roughly triples, which may be unacceptable for iterative runs. It also complicates evaluation because failures could come from proposer, critic, or judge logic.
 
 If the tie-break policy defaults upward, this may reduce under-prediction while inflating over-prediction, hurting total loss.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Correlated model biases may survive all three roles and add cost without improving accuracy.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

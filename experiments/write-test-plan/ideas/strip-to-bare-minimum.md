@@ -14,8 +14,13 @@ change_type: structural
 risk: May lose the correct classifications that the key questions currently enable
 prereqs: null
 related: [minimize-bias-reframe]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The baseline prompt (no guidance at all) scores 72.3%. The treatment prompt (with level defs + key questions) scores 85.2% on 30 tasks. But every attempt to ADD more text in run 1 HURT the score. This suggests haiku has a sweet spot — the current prompt may already be past it.
@@ -29,3 +34,40 @@ Test: definitions-only prompt (no key questions, no self-check). If it scores hi
 The baseline has NO definitions and scores 72%. The treatment has definitions + questions and scores 85%. Removing the questions would be somewhere between — likely 72-85%. The questions ARE providing value for non-Agentic classifications (EC-01, EC-05, EC-06, EC-18 all score 99-100%).
 
 The Agentic failure is specific to 11 behaviors. Stripping the prompt hurts the 117 correct classifications to maybe fix 11. Bad tradeoff.
+
+## Hypothesis
+
+Strip the prompt to absolute minimum — test if LESS guidance beats MORE should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May lose the correct classifications that the key questions currently enable
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

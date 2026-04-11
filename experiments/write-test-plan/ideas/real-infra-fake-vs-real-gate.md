@@ -19,10 +19,14 @@ explore_baseline_loss: 57.63
 explore_loss: 56.83365925805262
 explore_delta: -0.7963407419473754
 explore_date: 2026-03-28
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 Add one clarifying `Think` line under `REAL-INFRA`:
 
 ```md
@@ -37,8 +41,7 @@ The current REAL-INFRA check is one-directional and tends to be answered from su
 
 This may duplicate existing questions and produce no measurable gain. Worse, if interpreted literally, it could push too many behaviors down to Integration when real infra effects are subtle.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-31, ec-10, ec-03, ec-20`  
 Baseline subset loss: `57.63`
 
@@ -49,3 +52,32 @@ Baseline subset loss: `57.63`
 | v3-negative-gate | 61.5681 | +3.9381 | improved 1, hurt 1, flat 2 | — |
 
 Classification: `no-signal` for loop execution (no majority improvement, tiny aggregate change, and concentrated effect).
+
+## Hypothesis
+
+REAL-INFRA gate — require exact failure-mode dependence on real infra before escalating to System should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could become a no-op if redundant with existing REAL-INFRA wording, or overcorrect to Integration.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

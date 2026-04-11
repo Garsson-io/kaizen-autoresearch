@@ -12,8 +12,13 @@ change_type: representational
 risk: Model may over-anchor on the specific example and miss other Agentic patterns
 prereqs: null
 related: [few-shot-worked-examples, explicit-cost-of-error]
+last_run: 20260328-155121
+last_iteration: 19
+last_outcome: keep
+last_delta: -79.84
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The simplest possible fix for the #1 failure mode. The current Agentic definition is:
@@ -40,3 +45,40 @@ This was already partially tried. The current treatment prompt already says "res
 The autoresearch run 1 report tried variants in this direction (adding examples, clarifying Agentic) and none improved the score. The prompt is at a local optimum — small wording changes don't move the needle. You need a structural change (different reasoning framework) not a definitional change (better Agentic description).
 
 Also, the "mock returns fixed label but real model varies" example is tightly coupled to EC-04. It will fix EC-04 behaviors 3-4 but may not generalize to EC-13 (content moderation), EC-21 (feedback processing), or EC-30 (recommendation engine) where the Agentic signal is different.
+
+## Hypothesis
+
+Add concrete Agentic example inline with level definition should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Model may over-anchor on the specific example and miss other Agentic patterns
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 19 | 20260328-155121 | keep | -79.84 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

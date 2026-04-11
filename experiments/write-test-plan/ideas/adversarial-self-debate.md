@@ -14,8 +14,13 @@ change_type: meta-cognitive
 risk: Doubles reasoning length per behavior, may introduce inconsistency when debate is inconclusive
 prereqs: null
 related: [counterfactual-mock, top-down-elimination]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The current prompt asks the model to pick ONE level and then self-check. But self-checking your own answer is weak — confirmation bias means the model will rationalize whatever it already chose. A debate format forces genuine deliberation:
@@ -42,3 +47,40 @@ For EC-09 (plugin loader), the debate for every behavior would be: "Could be Uni
 Worse, the debate format can produce false ties. When the model generates equally compelling arguments for System AND Agentic, it has to break the tie somehow. The "pick the lower level" instruction biases toward System — the exact failure mode we're trying to fix.
 
 The self-check in the current prompt (plan_consistent) already scores 100%. The model doesn't lack the ability to reason about its own answers. It lacks the knowledge that AI APIs are non-deterministic. A debate doesn't inject new knowledge — it just processes the same incomplete understanding more elaborately.
+
+## Hypothesis
+
+Self-debate — argue for two candidate levels, pick the survivor should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Doubles reasoning length per behavior, may introduce inconsistency when debate is inconclusive
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

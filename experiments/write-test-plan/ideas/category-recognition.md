@@ -12,8 +12,13 @@ change_type: structural
 risk: Keywords alone may over-trigger; structural tests add complexity
 prereqs: null
 related: [two-pass-dependency-extraction, signal-scoring-rubric, failure-mode-taxonomy]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#986 — "two-pass category recognition — keyword scan plus structural test confirmation"*
 
 ## Steelman
@@ -51,3 +56,40 @@ The keyword scan in pass 1 is brittle. EC-21 (feedback processor) uses "analyzer
 And pass 2's structural tests are exactly what the current key questions already do: "Does correctness depend on what a real LLM produces?" The model answers "no" for EC-04 behavior 3 because it doesn't connect "external AI classification API" to "LLM." Rephrasing the question as "Does the output VARY non-deterministically?" doesn't change the model's understanding of the component.
 
 The #986 algorithm works for category recognition in issues (where you have the full issue text and can search for structural patterns). Applying it to single-behavior classification is a forced analogy — the structural tests need context that a single behavior description may not provide.
+
+## Hypothesis
+
+Two-pass recognition — keyword scan then structural confirmation should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Keywords alone may over-trigger; structural tests add complexity
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

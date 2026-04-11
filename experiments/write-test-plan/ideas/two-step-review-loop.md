@@ -21,10 +21,14 @@ explore_baseline_loss: 80.27
 explore_loss: 80.09
 explore_delta: -0.19
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Require a hard two-step reasoning flow for each behavior:
 
 1) produce a provisional level + justification,
@@ -73,8 +77,7 @@ This directly targets a recurring failure mode: model gives correct caveats, the
 
 If the model treats pass-2 as a formatting ritual, quality may not improve while cost/latency rises. The approach needs validation checks strong enough to detect fake compliance.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-15, ec-08, ec-33, ec-27, ec-32, ec-19`  
 Baseline subset loss: `80.27`
 
@@ -86,3 +89,32 @@ Baseline subset loss: `80.27`
 
 Winner: `v1-two-pass-self-check` by aggregate loss, classification is `concentrated-signal`.  
 Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Extra structure can increase verbosity and may overfit to process compliance instead of better level decisions.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

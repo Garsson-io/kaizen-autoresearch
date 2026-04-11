@@ -21,10 +21,14 @@ explore_baseline_loss: 77.83
 explore_loss: 76.81
 explore_delta: -1.02
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Under `LLM-DEP`, add a strict floor:
 if pass/fail depends on model output content quality (correctness, relevance, factuality, ranking, moderation, generation quality), minimum level is Agentic.
 
@@ -38,8 +42,7 @@ Current top weighted-loss pairs are `Integration->Agentic` and `Unit->Agentic`. 
 
 The model may claim every behavior implicitly judges output quality and over-call Agentic. The plumbing-only exception must be precise or this collapses calibration.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-15, ec-08, ec-35, ec-28, ec-32, ec-19`  
 Baseline subset loss: `77.83`
 
@@ -51,3 +54,32 @@ Baseline subset loss: `77.83`
 
 Winner: `v1-content-quality-floor` by aggregate loss, classification is `concentrated-signal`.  
 Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could over-escalate plumbing-only model-call behaviors if exception is vague.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

@@ -20,8 +20,13 @@ explore_baseline_loss: 66.32074626371675
 explore_loss: 94.25259126931918
 explore_delta: 27.93184500560243
 explore_date: 2026-03-29
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
 ## Steelman
 
 The current level definitions say what each level IS. They don't say what it ISN'T. For confusion pairs, explicit disambiguation is more powerful than better definitions:
@@ -46,8 +51,7 @@ The negative examples also add length without adding new information. "NOT Syste
 
 There's also the "System vs Agentic" framing assumes the model has already narrowed to these two choices. But the model doesn't know it's in the System-Agentic decision space — it might be considering Unit vs System. Adding System-Agentic disambiguation doesn't help if the model never gets that far.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-02, ec-03, ec-05, ec-06, ec-04, ec-07`  
 Baseline subset loss: `66.32`
 
@@ -58,3 +62,36 @@ Baseline subset loss: `66.32`
 | v3-combined-contrast | 127.4395 | +61.1187 | improved 0, hurt 6, flat 0 | n/a |
 
 No winner — all variations flat or worse. Classification: `no-signal`.
+
+## Hypothesis
+
+Add "NOT this" disambiguation between adjacent levels should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Negative examples can confuse — the model may focus on what NOT to do rather than what to do
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

@@ -21,10 +21,14 @@ explore_baseline_loss: 79.78
 explore_loss: null
 explore_delta: null
 explore_date: 2026-04-11
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Iteration 2 shows complementary strengths between `v1` and `v3`:
 - `v3` ("PLUMBING-ONLY EXCEPTION (STRICT)") produced the strongest first-pass gain (`-23.46`) and reduced high-weight EC-11 misses.
 - `v1` ("IA-UA DEMOTION PROOF") held up better on holdout and avoided a local Integration-over-Unit miss on EC-35.
@@ -66,8 +70,7 @@ Because this is one additive guard block (not a structural rewrite), it is low-e
 
 The combined rule may be cognitively heavy and produce branch confusion. The model may cherry-pick the local escape to bypass the demotion guard, or over-apply the demotion guard and ignore the escape. If that happens, this will simply preserve winner-flip instability in a new wording.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-28, ec-06, ec-20, ec-31, ec-17, ec-29`  
 Baseline subset loss: `79.78`
 
@@ -79,3 +82,31 @@ Baseline subset loss: `79.78`
 
 No winner — all variations flat or worse. Classification: `no-signal`.
 
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could create contradictory branching if the "local-unit" escape is interpreted too broadly.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

@@ -14,8 +14,13 @@ change_type: framing
 risk: May read as generic "try harder" instruction with no signal value
 prereqs: null
 related: [explicit-cost-of-error, persona-with-trauma]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#1014, #1019 — agents default to lower levels and self-certify correctness*
 
 ## Steelman
@@ -42,3 +47,40 @@ The model isn't choosing System because it's trying to avoid complexity. It's ch
 The #1014 and #1019 incidents involve a different cognitive architecture: multi-step plan formation where heuristics pre-fire and rationalization follows. Our task is single-shot classification — there's no plan to default to, no deferral mechanism, no self-certification. The model outputs one JSON per behavior. It doesn't have the opportunity to "defer" Agentic classification to a follow-up.
 
 Adding "do NOT choose lower to avoid complexity" is functionally the same as "think carefully about Agentic" — which is exactly the kind of generic instruction the `program.md` ground rules say not to add ("Add generic 'think carefully' language — no signal value"). Unless the model is actively reasoning about test complexity (which we have no evidence for), this instruction addresses a phantom failure mode.
+
+## Hypothesis
+
+Explicit anti-deferral instruction — "never classify lower to avoid complexity" should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May read as generic "try harder" instruction with no signal value
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

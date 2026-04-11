@@ -12,8 +12,13 @@ change_type: representational
 risk: May push some correct Integration predictions up to System, worsening O2 (Integration->System, impact 8)
 prereqs: null
 related: [variance-probe-question, counterfactual-mock, observable-behavior-framing]
+last_run: 20260329-021446
+last_iteration: 43
+last_outcome: keep
+last_delta: -12.451789609392238
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 U3 ("Integration suffices") is the #3 failure pattern by impact (30), with 10 cases where the model predicts Integration but GT is System. The model's reasoning: "wiring modules together catches this." But the actual failure requires real network latency, real subprocess exit codes, or real OS filesystem behavior that no in-process fake reproduces.
@@ -50,3 +55,40 @@ Also, the variance-probe worked because it introduced a genuinely NEW dimension 
 The O2 risk is small but real. EC-12 and EC-16 are adversarial tasks designed to look like they need real infra when they don't. The model currently handles these correctly (88-100%). Adding a "could a fake catch this?" probe might cause the model to second-guess its correct Integration answers on these tasks.
 
 Finally, one data point (variance-probe) is not a pattern. It could be that the variance-probe worked because of its specific content, not because "Think lines under KEY-QUESTIONS" is a generalizable technique.
+
+## Hypothesis
+
+Add Think line under REAL-INFRA — "would an in-process fake catch this failure?" should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May push some correct Integration predictions up to System, worsening O2 (Integration->System, impact 8)
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 43 | 20260329-021446 | keep | -12.451789609392238 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

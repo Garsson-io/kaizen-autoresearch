@@ -23,8 +23,13 @@ explore_baseline_loss: 58.36
 explore_loss: null
 explore_delta: null
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
 ## Steelman
 
 Meta-learning shows a recurring tradeoff: fixing Unit vs Integration can create under-calls at System/Agentic/Workflow. Add one explicit balancing line:
@@ -37,8 +42,7 @@ This keeps pressure on overcalled Integration while protecting higher-level corr
 
 This may be too generic to produce measurable improvement and could act as contradictory guidance if placed near strong Unit disambiguators. Without concrete examples, the model may acknowledge the rule but still default to existing habits.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-13, ec-08, ec-33, ec-26, ec-31, ec-20`  
 Baseline subset loss: `58.36`
 
@@ -49,3 +53,36 @@ Baseline subset loss: `58.36`
 | v3-balance-in-selfcheck | 65.9556 | +7.5947 | improved 1, hurt 3, flat 2 | n/a |
 
 No winner — all variations flat or worse. Classification: `no-signal`.
+
+## Hypothesis
+
+Add guardrail line to reduce Unit-Integration errors without suppressing higher escalations should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: A broad balancing sentence may be too weak to move behavior or too vague to be actionable.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

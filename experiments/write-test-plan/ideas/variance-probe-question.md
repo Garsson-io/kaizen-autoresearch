@@ -12,8 +12,13 @@ change_type: representational
 risk: Model may over-apply variance reasoning to flaky network calls (non-deterministic but not Agentic)
 prereqs: null
 related: [determinism-test, concrete-agentic-example, mock-exposes-nothing, counterfactual-mock]
+last_run: 20260328-145025
+last_iteration: 16
+last_outcome: keep
+last_delta: -6.24
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The #1 failure pattern (U1, impact 40) is that the model treats AI/LLM APIs as ordinary mockable services. The current LLM-DEP question asks:
@@ -46,3 +51,40 @@ The "100 runs" framing might also confuse the model on behaviors where the test 
 Also, this is still fundamentally a question the model can answer wrong. The current MOCK-HIDE question is already a counterfactual ("Would mocking this dependency always pass, hiding a real failure?") and the model answers it wrong. Rephrasing the question from "would a mock hide a failure?" to "would 100 runs give different results?" may not change the model's underlying misunderstanding that AI APIs are deterministic services.
 
 The safest version would add VARIANCE as a NEW question rather than replacing LLM-DEP, since meta-failures show replacements hurt. But adding yet another question risks information overload -- the prompt already has 5 key questions.
+
+## Hypothesis
+
+Replace LLM-DEP with concrete variance probe -- "100 runs, same input, same output?" should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Model may over-apply variance reasoning to flaky network calls (non-deterministic but not Agentic)
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 16 | 20260328-145025 | keep | -6.24 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

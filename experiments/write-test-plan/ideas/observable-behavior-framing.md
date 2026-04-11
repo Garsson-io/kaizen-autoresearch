@@ -16,8 +16,13 @@ change_type: representational
 risk: Observable failure framing may be too abstract; model may struggle to map behaviors to failure modes
 prereqs: null
 related: [counterfactual-mock, concrete-agentic-example]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#1020 — "describe observable behavior, not infrastructure"*
 
 ## Steelman
@@ -61,3 +66,40 @@ For EC-04 behavior 3 ("classification result consistent across repeated calls"),
 Also, these definitions are less precise than the infrastructure definitions. "Failure is in wiring" is vaguer than "several modules wired together, local DB or filesystem." Vagueness helps the model be creative (maybe it'll correctly identify the AI failure) but also helps it be wrong in novel ways.
 
 The current 87.2% score came from the infrastructure-centric definitions. Switching to failure-centric definitions is a significant prompt rewrite with uncertain payoff — exactly the kind of "too many variables, can't diagnose" change the program.md warns against.
+
+## Hypothesis
+
+Reframe level definitions around observable failure modes, not infrastructure should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Observable failure framing may be too abstract; model may struggle to map behaviors to failure modes
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

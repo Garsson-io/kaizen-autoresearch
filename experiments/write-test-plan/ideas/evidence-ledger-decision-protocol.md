@@ -22,8 +22,13 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: 20260330-195418
+last_iteration: 53
+last_outcome: discard
+last_delta: 33.937752225089184
+retry_trigger: null
+owner: null
 ---
-
 ## Hypothesis
 
 The model is losing calibration because it mixes observed behavior evidence with hypothetical risks. This idea introduces a strict, short protocol: build a two-column evidence ledger first, then classify from observed evidence only.
@@ -60,3 +65,35 @@ The model may still mark speculative claims as "observed" and bypass the guard e
 
 The protocol could become performative: the model writes ledger lines but still follows prior heuristics when selecting levels.
 
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Adds cognitive overhead and may reduce compliance if the model shortcuts the ledger.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 53 | 20260330-195418 | discard | 33.937752225089184 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

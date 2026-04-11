@@ -22,10 +22,14 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Create a fixed "hard-case canary" subset and require any new idea to beat baseline on that subset before running full corpus.
 
 Suggested composition:
@@ -43,3 +47,36 @@ Given known noise, this also stabilizes comparisons by holding a fixed tough sli
 ## Scathing Critique
 
 A fixed canary can become a hidden training target. Improvements may not generalize if the model starts implicitly optimizing to those examples.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Canary over-optimization may miss regressions outside the canary set.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

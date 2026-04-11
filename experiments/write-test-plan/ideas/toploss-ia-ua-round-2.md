@@ -21,10 +21,14 @@ explore_baseline_loss: 32.03
 explore_loss: 30.71
 explore_delta: -1.32
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Target top weighted-loss pairs (Integration->Agentic, Unit->Agentic) with explicit demotion-proof rules.
 
 ## Steelman
@@ -35,8 +39,7 @@ Forces quoted evidence before choosing below Agentic in AI-dependent behaviors.
 
 May over-call Agentic if proofs are too strict.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-09, ec-36, ec-04, ec-35, ec-16, ec-26`  
 Baseline subset loss: `32.03`
 
@@ -51,3 +54,32 @@ Baseline subset loss: `32.03`
 
 Winner: `v1` by aggregate loss, classification is `concentrated-signal`.  
 Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Could over-escalate Agentic when behavior wording is vague.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

@@ -24,10 +24,14 @@ explore_baseline_loss: 77.83
 explore_loss: null
 explore_delta: null
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Stop asking the model to do "free-form classify in one shot." Instead, force a two-stage protocol:
 
 1. Extract a fixed feature vector from each behavior with evidence quotes.
@@ -70,8 +74,7 @@ It can also become brittle. Real behaviors often satisfy multiple signals (e.g.,
 
 Finally, this is expensive to integrate into the current eval harness and may break comparability unless carefully staged as an optional alternate scorer.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-15, ec-08, ec-35, ec-28, ec-32, ec-19`  
 Baseline subset loss: `77.83`
 
@@ -82,3 +85,32 @@ Baseline subset loss: `77.83`
 | v3-feature-conservative-agentic | 101.9113 | +24.0802 | improved 0, hurt 4, flat 2 | n/a |
 
 No winner — all variations flat or worse. Classification: `no-signal`.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: If extracted features are wrong, the deterministic mapper confidently produces the wrong level.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

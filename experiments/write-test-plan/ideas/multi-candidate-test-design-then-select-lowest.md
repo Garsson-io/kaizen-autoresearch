@@ -23,10 +23,14 @@ explore_baseline_loss: 77.83
 explore_loss: 74.58
 explore_delta: -3.25
 explore_date: 2026-04-10
+last_run: 20260411-011347
+last_iteration: 66
+last_outcome: discard
+last_delta: 67.2659
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Stop doing direct level classification. For each behavior, require candidate test designs at multiple levels (for example Unit + Integration + higher-level candidate), each with:
 - setup/infrastructure
 - assertion
@@ -45,8 +49,7 @@ It should reduce both over- and under-calls because the model must justify failu
 
 This may inflate verbosity without improving correctness if candidate tests are shallow or repetitive. The model might generate superficially different candidates with identical coverage claims.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-15, ec-08, ec-35, ec-28, ec-32, ec-19`  
 Baseline subset loss: `77.83`
 
@@ -58,3 +61,32 @@ Baseline subset loss: `77.83`
 
 Winner: `v2-three-candidate-coverage` by aggregate loss, classification is `concentrated-signal`.  
 Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Token cost increases and candidate generation can become formulaic if constraints are weak.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: concentrated-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 66 | 20260411-011347 | discard | 67.2659 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

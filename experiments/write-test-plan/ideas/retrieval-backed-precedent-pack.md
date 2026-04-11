@@ -23,10 +23,14 @@ explore_baseline_loss: null
 explore_loss: null
 explore_delta: null
 explore_date: null
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Before classifying each behavior, retrieve 2-4 nearest precedent snippets from prior disagreement cases (model vs GT), then force an explicit "same as / different from" comparison.
 
 Protocol:
@@ -54,3 +58,36 @@ Nearest-neighbor retrieval is brittle when behavior descriptions are short. Sema
 This can also leak benchmark answers into evaluation if the precedent bank includes near-duplicate corpus items. You may improve loss by memorization, not reasoning.
 
 Operationally, this needs embeddings, indexing, and careful data hygiene. It's a significant architecture change for uncertain upside.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Retrieval can overfit to the current corpus and anchor to the wrong precedent.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

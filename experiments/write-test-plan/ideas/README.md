@@ -41,6 +41,14 @@ explore_baseline_loss: null    # baseline loss on explore_tasks from runs/latest
 explore_loss: null             # best variation loss
 explore_delta: null            # explore_loss - explore_baseline_loss (negative = better)
 explore_date: null             # ISO date of explore run
+
+# Optional v2 tracking fields (recommended)
+last_run: null                 # e.g. 20260411-011347
+last_iteration: null           # e.g. 66
+last_outcome: null             # keep | discard | no-op | crash | no-promote | null
+last_delta: null               # numeric delta from latest outcome, or null
+retry_trigger: null            # short condition required to retry this idea
+owner: null                    # optional maintainer tag
 ---
 ```
 
@@ -59,6 +67,30 @@ explore_date: null             # ISO date of explore run
 | `explore_loss` | Best variation loss on `explore_tasks`. Set by `explore.ts`. |
 | `explore_delta` | `explore_loss − explore_baseline_loss`. Negative = better. Set by `explore.ts`. |
 | `explore_date` | Date the explore run was done. Set by `explore.ts`. |
+| `last_run` | Latest full-run timestamped directory for this idea from history, if any. |
+| `last_iteration` | Latest iteration number where this idea appeared in results log. |
+| `last_outcome` | Latest observed outcome from results history (`keep`, `discard`, `no-op`, `crash`, `no-promote`) or `null`. |
+| `last_delta` | Latest delta associated with `last_outcome`, or `null` if unavailable. |
+| `retry_trigger` | Explicit condition required before retrying idea (model/corpus/GT/top-loss-pair change, etc). |
+| `owner` | Optional maintainer/owner tag for handoff clarity. |
+
+## Body Format (v2, canonical)
+
+Use these headings in this exact order for new ideas. Existing ideas should be backfilled toward this shape:
+
+1. `## Hypothesis`
+2. `## Exact Edit`
+3. `## Expected Signal`
+4. `## Explore Plan`
+5. `## Promotion Gate`
+6. `## Epistemological Status`
+7. `## Run History` (append-only)
+8. `## Reusable Lesson`
+
+Notes:
+- `## Core idea` is legacy; prefer `## Hypothesis`.
+- `## The change` is legacy; prefer `## Exact Edit`.
+- Promotion policy is canonical in `program.md`; link to it instead of restating divergent rules.
 
 ## How to Use
 

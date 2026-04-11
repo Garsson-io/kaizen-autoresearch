@@ -12,10 +12,14 @@ change_type: representational
 risk: Redundant with existing MOCK-HIDE question; low-information addition
 prereqs: concrete-agentic-example
 related: [concrete-agentic-example, anti-lazy-dont-mock]
+last_run: 20260328-184249
+last_iteration: 24
+last_outcome: no-op
+last_delta: 1.01
+retry_trigger: null
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 Append anti-mock clause to Agentic definition line:
 
 ```diff
@@ -23,8 +27,7 @@ Append anti-mock clause to Agentic definition line:
 +  - **Agentic** — result depends on real LLM non-determinism or a real AI/ML model call (e.g., classification, scoring, generation APIs); mocking the model tests your mock, not the system
 ```
 
-## Epistemological status
-
+## Epistemological Status
 **FULL CORPUS RUN — NO-OP.**
 
 Tested 2026-03-28, iter 24.
@@ -56,3 +59,32 @@ from applying it. Definition expansion cannot fix that.
 
 Do not retry. U1 requires a different approach than definition expansion — possibly few-shot
 examples of issue text patterns that signal Agentic, not further definition elaboration.
+
+## Hypothesis
+
+Append anti-mock clause to Agentic definition should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Redundant with existing MOCK-HIDE question; low-information addition
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 24 | 20260328-184249 | no-op | 1.01 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

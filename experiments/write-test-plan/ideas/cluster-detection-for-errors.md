@@ -16,8 +16,13 @@ change_type: meta-cognitive
 risk: This is a diagnostic approach, not a prompt change — the insights still need to be translated into prompt edits
 prereqs: At least 1 full corpus run with justification fields populated
 related: [failure-mode-taxonomy, solution-collapse-prevention]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 *Source: Garsson-io/kaizen#960 — "recognize when individual issues are symptoms of a systemic gap requiring meta-level prevention"*
 
 ## Steelman
@@ -50,3 +55,40 @@ Also, the clusters are already known. The leaderboard says: "Primary failure: Ag
 The #960 approach is powerful for systems with hundreds of issues where patterns are invisible to humans. Our experiment has 30 tasks with 165 behaviors — a human can scan the score breakdown and identify clusters in 5 minutes. The diagnostic methodology doesn't need automation at this scale.
 
 That said: the justification-taxonomy analysis (already referenced in program.md) IS this idea in practice. Reading the model's justifications and clustering them by reasoning pattern is exactly what #960 proposes. So this idea is already partially implemented — it just needs someone to actually do the analysis after the next eval run.
+
+## Hypothesis
+
+Post-hoc error clustering — find categories of misclassification, fix categories not instances should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: This is a diagnostic approach, not a prompt change — the insights still need to be translated into prompt edits
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

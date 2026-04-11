@@ -12,8 +12,13 @@ change_type: framing
 risk: Persona framing may override careful reasoning with emotional bias toward over-testing
 prereqs: null
 related: [explicit-cost-of-error, concrete-agentic-example]
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 ```
@@ -41,3 +46,40 @@ The "trauma" approach is a sledgehammer. Yes, it will fix EC-04 (AI API → Agen
 The persona also conflicts with the "choose the LOWEST level" instruction. The persona says "be suspicious of mocks" while the prompt says "minimize the level." The model has to reconcile these, and different behaviors may trigger different resolutions.
 
 Finally, this approach doesn't scale. When you discover a new failure mode (e.g., Workflow under-prediction), you'd need to add another trauma to the backstory. The persona becomes a collection of war stories rather than a classification framework.
+
+## Hypothesis
+
+QA persona who shipped a bug due to under-testing AI should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Persona framing may override careful reasoning with emotional bias toward over-testing
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

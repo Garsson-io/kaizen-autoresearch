@@ -15,8 +15,13 @@ change_type: framing
 risk: May cause over-prediction if the model stops anchoring to minimum
 prereqs: null
 related: [counterfactual-mock, top-down-elimination]
+last_run: null
+last_iteration: 6
+last_outcome: keep
+last_delta: 2.7
+retry_trigger: null
+owner: null
 ---
-
 ## Steelman
 
 The justification taxonomy (U1) reveals that the model KNOWS the correct answer then talks itself down. EC-04 b3: "Agentic-level tests with real API calls would be required, but the minimum to catch 'caching is broken' is Unit." This is the "choose the LOWEST" instruction causing a systematic minimize bias.
@@ -30,3 +35,40 @@ Evidence: 42 under-predictions vs 38 over-predictions confirms the model under-p
 "Choose the LOWEST" is actually correct test engineering advice — you don't want unnecessary infrastructure. Removing this anchor may cause the model to over-predict aggressively, turning 42 under-predictions into 60 over-predictions. Over-prediction hurts precision (20% of score).
 
 Also, the model's parenthetical acknowledgments might be post-hoc rationalizations in the justification text, not actual reasoning that influenced the classification. The model may have decided Unit first and then generated the justification, including the parenthetical as a hedge. Changing the framing instruction wouldn't affect a decision that was already made before reasoning.
+
+## Hypothesis
+
+Reframe "choose the LOWEST" to "choose the level that matches the failure boundary" should reduce targeted confusion by improving decision-boundary clarity.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May cause over-prediction if the model stops anchoring to minimum
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 6 |  | keep | 2.7 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

@@ -14,10 +14,14 @@ change_type: representational
 risk: May cause marginal over-prediction to Agentic for pure algorithm behaviors in non-AI tasks
 prereqs: null
 related: [variance-probe-question, observable-behavior-framing, system-agentic-negative-contrast]
+last_run: 20260330-234454
+last_iteration: 58
+last_outcome: keep
+last_delta: -3.6885
+retry_trigger: null
+owner: null
 ---
-
-## The change
-
+## Exact Edit
 Add one sentence after the "Also Agentic" paragraph in LLM-DEP that explicitly
 names and blocks the dominant escape hatch: "I can write a deterministic test
 assertion, therefore this doesn't depend on LLM output."
@@ -63,3 +67,36 @@ bolded, and standalone — it names the specific reasoning move ("that you CAN
 write a deterministic assertion") and says "this does not mean." Direct
 prohibition of a named reasoning step is more salient than a parenthetical
 exception. At low effort and zero structural change, the downside is minimal.
+
+## Hypothesis
+
+Block "I can write a deterministic assertion" escape from Agentic demotion should reduce targeted confusion by improving decision-boundary clarity.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: May cause marginal over-prediction to Agentic for pure algorithm behaviors in non-AI tasks
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: null.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Epistemological Status
+
+Current status: null.
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+| 58 | 20260330-234454 | keep | -3.6885 | backfilled from results log |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.

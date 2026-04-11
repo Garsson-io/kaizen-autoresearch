@@ -23,10 +23,14 @@ explore_baseline_loss: 58.36
 explore_loss: null
 explore_delta: null
 explore_date: 2026-04-10
+last_run: null
+last_iteration: null
+last_outcome: null
+last_delta: null
+retry_trigger: Retry only after model/corpus/GT/top-loss-pair change.
+owner: null
 ---
-
-## Core idea
-
+## Hypothesis
 Before final label, require:
 1. `top1` candidate level
 2. `top2` runner-up level
@@ -45,8 +49,7 @@ It is cheap: output-structure change only.
 
 If the model picks a weak fake runner-up, the contrast step becomes performative. Also, cases where the true label is not in top2 remain unfixed.
 
-## Epistemological status
-
+## Epistemological Status
 Explore subset (stratified): `ec-13, ec-08, ec-33, ec-26, ec-31, ec-20`  
 Baseline subset loss: `58.36`
 
@@ -57,3 +60,32 @@ Baseline subset loss: `58.36`
 | v3-top2-flip | 59.0340 | +0.6731 | improved 2, hurt 1, flat 3 | n/a |
 
 No winner — all variations flat or worse. Classification: `no-signal`.
+
+## Exact Edit
+
+Specify the exact prompt section and minimal diff before running explore/full eval.
+
+## Expected Signal
+
+- Primary targets: See frontmatter confusion_pairs.
+- Expected effect: lower weighted loss on targeted pairs.
+- Risk watch: Can add verbosity and still miss when both top candidates are wrong.
+
+## Explore Plan
+
+- Define v1/v2/v3 variants with one isolated change each.
+- Current explore_status: no-signal.
+
+## Promotion Gate
+
+Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
+
+## Run History
+
+| Iter | Run | Outcome | Delta | Note |
+|---:|---|---|---:|---|
+|  |  |  |  | no run recorded |
+
+## Reusable Lesson
+
+TODO: record one portable lesson after each try.
