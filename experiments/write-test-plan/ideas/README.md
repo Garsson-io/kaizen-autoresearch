@@ -31,6 +31,12 @@ change_type: structural | representational | framing | meta-cognitive | ensemble
 risk: What could go wrong (one sentence)
 prereqs: What must be true for this to work (one sentence, or null)
 related: [other-idea-id, ...]
+
+# Optional family/convergence metadata (recommended)
+family: null                    # family cluster label, e.g. "memory-slots"
+mechanism_signature: null       # stable core mechanism id, e.g. "quote+miss-proof"
+max_followups: null             # integer retry cap for this family branch
+control_required: null          # bool; hybrid explore must include parent/control arm
 # Explore pre-screening results (auto-populated by scripts/explore.ts)
 # READ docs/explore-tool.md WHEN you need to understand how these fields are computed,
 #   signal classification rules, or the JSON output schema
@@ -61,6 +67,10 @@ owner: null                    # optional maintainer tag
 | `targets` | Failure modes from `leaderboard.md`: `agentic_underprediction`, `workflow_gap`, `unit_overprediction`, `consistency_failures`, `noise_sensitivity`. |
 | `confusion_pairs` | The specific label boundaries this idea targets. |
 | `change_type` | `structural` = reorder/restructure. `representational` = change how levels are described. `framing` = change the task framing. `meta-cognitive` = add self-check/reasoning steps. `ensemble` = run multiple variants. |
+| `family` | Optional family cluster label used to track retries and convergence policy. |
+| `mechanism_signature` | Optional concise signature of the core mechanism for anti-drift checks. |
+| `max_followups` | Optional cap on retries for this family branch before forced promote-or-park. |
+| `control_required` | Optional boolean: hybrid explores should include unchanged parent/control arm. |
 | `explore_status` | `null` = not yet explored. `signal` = aggregate delta negative with distributed improvement (exit code 0). `concentrated-signal` = aggregate negative but concentrated in a small outlier subset (exit code 3). `no-signal` = flat or worse (exit code 2). Auto-set by `explore.ts`. See `docs/explore-tool.md` "Signal classification" for exact computation. Promotion policy is defined in `program.md` (not here). |
 | `explore_tasks` | Task IDs used in the explore run (typically 4). Auto-selected by `explore.ts` stratification or overridden with `--tasks`. |
 | `explore_baseline_loss` | Baseline loss on `explore_tasks` from `runs/latest/`. Computed by `explore.ts`. |
@@ -100,6 +110,7 @@ Notes:
 3. One idea per iteration (atomic)
 4. Before committing a full run: if `explore_status` is null, run `npx tsx scripts/explore.ts <idea-id>` first (or `/explore`)
 5. IDEATE should prioritize ideas with `explore_status: signal` over `explore_status: null`.
+   If `family` exists, keep retries within that family explicit and honor `max_followups`.
 6. Promotion to EDIT/full run follows `program.md` gates (including holdout/no-promote rules).
 7. To view past explore results: `npx tsx scripts/explore.ts <idea-id> --summary`
 8. To validate idea metadata shape: `npx tsx scripts/ideas-index.ts --table` (the script uses Zod validation and reports frontmatter issues to stderr).

@@ -49,7 +49,9 @@ Every step is either **perception** (tools compute structured evidence), **cogni
    If a variation uses terms like "near-tie"/"ambiguous", include numeric thresholds (default near-tie: top-2 gap `<= 0.10`) so runs are reproducible.
 4. **Enforce high-leverage selection policy** (hard gate): follow `program.md` LOOP step 4.45. Prefer novel top-loss-targeted ideas, require real mechanism + falsification criterion, forbid no-op variations, and avoid throughput-driven legacy recheck batches.
    Also enforce dynamic selection: do not pre-fill future iteration candidates. Select only the current iteration candidate from the latest evidence, and leave future TODO candidates as evidence-driven TBD placeholders.
+   Enforce complexity budget: 1 core mechanism + 1 scope modifier max per iteration. If over budget, split before explore.
 5. **Run post-explore learning synthesis when needed** (hard gate): if explore result is `no-promote` or `family-signal`, mine justifications from the compared explore run dirs (full + task-focused `extract-thinking.ts`), write a LEARNING DELTA note (what each variant fixed/broke), and either (a) create a merge/selector follow-up idea or (b) return to IDEATE with explicit no-mechanism evidence. Follow `program.md` LOOP step 4.6.
+   For hybrid/merge ideas, require a parent-variant control arm in explore and compare against it on holdout. For family-signal branches, allow one convergence follow-up then force promote-or-park.
 6. **Taxonomy pattern discovery** (after `--summary`): for each confusion pair with ≥3 cumulative unmatched occurrences, read those full blocks from `unmatched.md` (full justification + thinking — no truncation) and the existing taxonomy file descriptions. Decide: does this fit an existing pattern (update its `confusion_pair` list) or is it a new reasoning trap (create new file)? After any change, run `--reprocess-unmatched` to backfill history. → Full procedure: `taxonomy/README.md` § "The three-step MINE taxonomy flow".
 7. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 8. **META write-back is mandatory**: after each run, update `experiments/<name>/meta-failures.md` with whether the current result confirms, weakens, or falsifies a process hypothesis (with concrete run IDs and deltas). If no meta update is warranted, add a brief "no new meta evidence" note in the iteration log/commit message.
@@ -86,6 +88,12 @@ Before IDEATE, explicitly record the top-2 weighted-loss confusion pairs and ens
 ## Edit-type discipline (always)
 
 - Follow the EDIT-TYPE gate exactly as defined in `program.md` LOOP step 5 (`ADD`/`REPLACE`/`DELETE` + diff-shape verification).
+
+## Fast-path heuristic (practical default)
+
+- Prefer the smallest testable intervention first: one additive core rule + optional one scope gate.
+- If a change can be expressed without new sections/routers, prefer that form for the first explore.
+- Escalate to heavier structure only after two failed simple attempts with clear evidence.
 
 ## Task list = inner loop visibility
 

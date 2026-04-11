@@ -170,6 +170,9 @@ LOOP:
        This step is required for auditability; do not run explore without it.
   4.45. HIGH-LEVERAGE CHECK POLICY (MANDATORY)
        Use explore budget for information gain, not loop count throughput:
+       - **Complexity budget (default)**: per iteration, allow at most 1 core mechanism + 1 scope modifier.
+         If a candidate combines multiple independent mechanisms (e.g., router + new evidence format + pair filter),
+         split it before explore. Treat over-budget candidates as invalid.
        - **Novelty first**: prefer `explore_status: null` ideas that target current top-2 weighted-loss pairs.
        - **Dynamic selection only**: do **not** pre-assign idea candidates for future iterations (e.g., 22/30, 23/30, ...).
          Choose the next candidate only after finishing the current iteration's explore outcome and learning synthesis.
@@ -202,6 +205,9 @@ LOOP:
          - if winner flips but both candidates are meaningfully negative across passes -> treat as
            **family-signal** (idea family works, single winner unstable). Do not promote a single
            variant yet; create a merge/selector follow-up idea and re-run explore.
+       - Hybrid/merge ideas must include a **control arm** in explore:
+         include the best prior parent variant unchanged; if the hybrid does not beat this control on holdout,
+         classify as `no-promote` for that hybrid.
        - `no-promote` is a valid outcome. Never force a winner just to continue the loop.
        Already-set: use the recorded explore result — no new run needed.
        After any explore run, commit the output dirs:
@@ -243,6 +249,10 @@ LOOP:
          - concrete evidence lines from both variants
          - one additive merged edit hypothesis
          - clear falsification criterion for next explore
+       e. Family-signal convergence cap:
+         - Allow at most **one** dedicated follow-up explore for the same family-signal branch.
+         - After that follow-up, force an explicit outcome: `promote one` or `park family for 2 iterations`.
+         - Do not keep chaining hybrids without a promotion/park decision.
   5. EDIT — make one atomic change to treatment.md. Be explicit: adding X, removing Y, or replacing Y with X.
      **EDIT-TYPE GATE (MANDATORY, ALWAYS):**
      - Before editing, declare intent in notes/commit text as exactly one of: `ADD`, `REPLACE`, `DELETE`.

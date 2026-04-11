@@ -491,3 +491,20 @@ Apr 10-11 regressions show the largest losses came from false-positive promotion
 **Lesson**:
 - "Looks improved" in both passes is still insufficient when concentration and winner identity are unstable.
 - Winner-flip should not auto-promote a single variant. If both winners are meaningfully negative across independent slices, treat as `family-signal` and run a merge/selector follow-up explore; otherwise keep `no-promote`.
+
+---
+
+### When to stop a family (anti-thrash rule)
+
+**Status**: confirmed process policy
+
+**Problem**:
+Repeated hybridization inside one family can create process complexity without convergence.
+
+**Operational rule**:
+- After `family-signal`, run at most one dedicated convergence follow-up.
+- That follow-up must include a control arm (best prior parent variant unchanged).
+- If follow-up does not yield a stable promotable winner, park the family for 2 iterations.
+
+**Lesson**:
+Strict gate + simple intervention beats repeated complex rewrites. Stop chaining hybrids when convergence fails.
