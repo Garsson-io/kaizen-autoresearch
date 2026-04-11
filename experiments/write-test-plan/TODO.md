@@ -271,16 +271,22 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 14/20 (candidate: `agentic-floor-content-dependence-gate`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+### Iteration 14/20 (candidate: `two-step-review-loop`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (re-test prior concentrated candidate with explicit user-facing brief)
+- [x] IDEATE (selected for consistency mechanism + prior near-signal)
+- [x] CANDIDATE BRIEF
+  - Rationale: validate whether two-pass audit can deliver stable non-concentrated gains.
+  - Variations reused (exact prompt additions):
+    - `v1-two-pass-self-check`: add TWO-PASS provisional+review instruction.
+    - `v2-pass-markers`: add explicit PASS1 -> PASS2-AUDIT -> FINAL sequence.
+    - `v3-adjacent-challenge`: add adjacent counter-argument + evidence rejection rule.
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (pass1 seed614: concentrated-signal, v2 delta -2.26; holdout seed714: concentrated-signal, v2 delta -4.68)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (same winner and meaningful delta, but concentration did not reduce: 78% -> 79% on ec-34; gate outcome no-promote)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
@@ -299,7 +305,7 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 16/20 (candidate: `two-step-review-loop`)
+### Iteration 16/20 (candidate: `agentic-floor-content-dependence-gate`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
