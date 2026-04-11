@@ -251,16 +251,22 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 13/20 (candidate: `non-negotiable-boundary-gates`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+### Iteration 13/20 (candidate: `multi-candidate-test-design-then-select-lowest`)
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (retry of prior concentrated candidate under calibrated gate)
+- [x] IDEATE (selected for direct decision-boundary forcing mechanism)
+- [x] CANDIDATE BRIEF
+  - Rationale: historically concentrated improvement (`-3.25`) but unstable; retest with explicit candidate-test mechanism.
+  - Variations reused (exact prompt additions):
+    - `v1-adjacent-two-candidates`: add CANDIDATE-TEST-CHECK requiring two adjacent candidate tests and lower-level catch check.
+    - `v2-three-candidate-coverage`: add CANDIDATE-TEST-CHECK requiring low/current/high candidates with catch/miss analysis.
+    - `v3-candidate-plus-miss-proof`: add CANDIDATE-TEST-CHECK requiring explicit lower-level miss proof tied to behavior text.
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check: `no-signal`, all 3 variants regressed)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (mechanism adds reasoning overhead; broad regressions, especially on mid/high mixed tasks)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
@@ -279,7 +285,7 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 15/20 (candidate: `multi-candidate-test-design-then-select-lowest`)
+### Iteration 15/20 (candidate: `non-negotiable-boundary-gates`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META

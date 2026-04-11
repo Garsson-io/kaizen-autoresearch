@@ -161,6 +161,10 @@ LOOP:
          - if creating new variations: list each variation label and show the exact added/changed prompt lines
          - if reusing existing variations: list each variation label and show the exact diff vs treatment.md
        - **Decision expectation**: what would count as promote / family-signal / no-promote under current gate
+       Also publish this brief to the user in-chat before explore:
+       - selected idea
+       - why chosen now
+       - exact prompt changes for each variation (real diff lines, not summaries)
        This step is required for auditability; do not run explore without it.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)
        If the idea returned by IDEATE has explore_status: null:
