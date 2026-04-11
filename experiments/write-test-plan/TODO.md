@@ -497,3 +497,158 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Loop complete (20/20)
+
+---
+
+## Codex Iteration Loop (10 new runs) — 2026-04-11
+Selection rule: after each completed iteration, pick the next candidate from fresh evidence only. Do not prefill future candidates.
+
+### Iteration 21/30 (candidate: `memory-slots-selector-hybrid`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 22/30 (candidate: `TBD (evidence-driven after Iteration 21)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 23/30 (candidate: `TBD (evidence-driven after Iteration 22)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 24/30 (candidate: `TBD (evidence-driven after Iteration 23)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 25/30 (candidate: `TBD (evidence-driven after Iteration 24)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 26/30 (candidate: `TBD (evidence-driven after Iteration 25)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 27/30 (candidate: `TBD (evidence-driven after Iteration 26)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 28/30 (candidate: `TBD (evidence-driven after Iteration 27)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 29/30 (candidate: `TBD (evidence-driven after Iteration 28)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Next iteration
+
+### Iteration 30/30 (candidate: `TBD (evidence-driven after Iteration 29)`)
+- [ ] MINE
+- [ ] DIAGNOSE
+- [ ] META
+- [ ] IDEATE
+- [ ] CANDIDATE BRIEF
+- [ ] EXPLORE + PROMOTION-EVIDENCE GATE
+- [ ] POST-EXPLORE LEARNING SYNTHESIS
+- [ ] EDIT + COMMIT
+- [ ] RUN + SCORE
+- [ ] LOG + TAXONOMY FLOW
+- [ ] COMMIT RUNS
+- [ ] COMMIT STATE
+- [ ] → Loop complete (30/30)
