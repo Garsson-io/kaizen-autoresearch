@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-15",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The embedding vector produced for a given query string has the correct dimensionality for the vector database index.",
+      "minimum_level": "Agentic",
+      "justification": "Escalation quote: \"uses an embedding model to convert the query into a vector\" and behavior text \"embedding vector produced for a given query string has the correct dimensionality.\" Concrete miss at lower level (Integration): a stubbed embedder can always return the expected length, so it will miss a real provider/model mismatch (for example, model version/config returns 3072 dims while index expects 1536). Rejection gate for higher level: not Workflow, because this behavior validates one model output property (vector length), not multiple agentic decisions in sequence.",
+      "test_description": "Call the real configured embedding model with fixed queries, read the live index dimension from the vector DB schema/config, and assert every returned embedding length equals index dimension.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.25,
+        "System": 0.15,
+        "Agentic": 0.45,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The similarity search returns results ordered by descending cosine similarity score.",
+      "minimum_level": "System",
+      "justification": "Escalation quote: \"performs a similarity search against a vector database\" and \"returns the top-K results ranked by relevance.\" Concrete miss at lower level (Integration): an in-process fake can return perfectly sorted scores, but the real DB/client path can return approximate neighbors, tie ordering, or unsorted payloads over real transport that break descending-order guarantees. Rejection gate for higher levels: not Agentic/Workflow because correctness here is DB scoring/order behavior, not LLM judgment quality or multi-agentic sequencing.",
+      "test_description": "Run against the real vector database engine via the real client/protocol, seed known vectors, execute similarity search through the API path, and assert returned scores are monotonically non-increasing (and expected IDs for controlled fixtures).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.25,
+        "System": 0.6,
+        "Agentic": 0.07,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The LLM re-ranking step changes the order of at least some results compared to the raw similarity ranking when the query has nuanced intent.",
+      "minimum_level": "Agentic",
+      "justification": "Escalation quote: \"LLM re-ranking step\" and \"when the query has nuanced intent.\" Concrete miss at lower level (Integration): a mocked reranker with canned outputs will always pass the reorder assertion and cannot reveal whether the real model actually understands nuanced intent and changes ranking appropriately. Rejection gate for higher level: not Workflow because this behavior targets one agentic decision point (reranking), not a multi-agentic pipeline requirement.",
+      "test_description": "Use real LLM reranking on curated nuanced-intent cases where raw vector similarity is intentionally misleading, compare raw vs reranked order, and assert meaningful reorder occurs (with repeat-run tolerance for nondeterminism).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.09,
+        "System": 0.05,
+        "Agentic": 0.75,
+        "Workflow": 0.1
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "A query with no close matches in the database returns an empty result set rather than low-relevance noise.",
+      "minimum_level": "Integration",
+      "justification": "Escalation quote: \"returns an empty result set rather than low-relevance noise\" implies score-threshold handoff from search layer to API response shaping. Concrete miss at lower level (Unit): unit-testing only threshold logic can miss integration bugs where repository/search adapters pass wrong score fields/scales and leak low-relevance items. Integration-brake checks: (a) no mandatory real OS/network/subprocess to reproduce this contract failure; (b) no dependence on real LLM/ML quality if fixed low-score fixtures are wired through modules; (c) no multi-agentic chain; (d) no LLM-stage orchestration here. Rejection gate for higher levels: behavior text does not require real model judgment or real infra timing/protocol effects.",
+      "test_description": "Wire search service + repository adapter + response mapper with controlled low-similarity fixtures, run query flow, and assert API returns an empty list (no low-score top-K leakage).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.6,
+        "System": 0.12,
+        "Agentic": 0.06,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "The end-to-end latency from receiving the query to returning re-ranked results stays below 2 seconds for the median case.",
+      "minimum_level": "Workflow",
+      "justification": "Escalation quote: \"end-to-end latency ... to returning re-ranked results\" plus pipeline description includes embedding-model step and LLM reranking step in sequence. Concrete miss at lower level (Agentic): measuring one real model call in isolation misses cross-step queuing, orchestration overhead, and compounded latency across embedding -> vector search -> LLM rerank needed for true median end-to-end behavior. This is multiple agentic steps in sequence, so Workflow is the minimum boundary.",
+      "test_description": "Execute a realistic end-to-end benchmark through the API using real embedding service, real vector DB, and real LLM reranker; run enough median-case queries after warmup; assert p50 total latency is <2.0s and capture per-stage timing for diagnosis.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0,
+        "Integration": 0.04,
+        "System": 0.2,
+        "Agentic": 0.26,
+        "Workflow": 0.5
+      }
+    }
+  ]
+}
