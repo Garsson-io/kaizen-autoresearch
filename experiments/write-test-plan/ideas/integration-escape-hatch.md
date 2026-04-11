@@ -18,12 +18,12 @@ change_type: structural
 risk: Adding Integration-specific gates could over-correct and create new confusion at other boundaries.
 prereqs: Keep existing MOCK-MISS, REAL-INFRA, LLM-DEP, MULTI-STEP questions intact.
 related: [integration-contract-invariant-gate, top-down-elimination, contrastive-boundary-examples-pack, infra-probe-question, system-environment-artifact-split]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-06, ec-08, ec-24, ec-12, ec-34, ec-20, ec-19, ec-17]
+explore_baseline_loss: 97.39
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-11
 last_run: 20260329-014055
 last_iteration: 41
 last_outcome: discard
@@ -110,3 +110,17 @@ Current status: null.
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-06, ec-08, ec-24, ec-12, ec-34, ec-20, ec-19, ec-17`  
+Baseline subset loss: `97.39`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-integration-check-core | 104.5395 | +7.1470 | improved 1, hurt 5, flat 2 | n/a |
+| v2-integration-check-quote-burden | 104.0261 | +6.6336 | improved 2, hurt 3, flat 3 | n/a |
+| v3-integration-check-minimal | 108.0085 | +10.6161 | improved 1, hurt 2, flat 5 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
+
