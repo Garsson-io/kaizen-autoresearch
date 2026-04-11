@@ -11,7 +11,7 @@ confusion_pairs:
 change_type: meta-cognitive
 risk: Backfilled placeholder from crash-only historical run; mechanism and targets need curation before reuse.
 prereqs: null
-related: []
+related: [system-environment-artifact-split, concrete-system-example, infra-probe-question]
 explore_status: null
 explore_tasks: []
 explore_baseline_loss: null
@@ -25,29 +25,6 @@ last_delta: null
 retry_trigger: null
 owner: null
 ---
-Backfilled placeholder idea file created from `autoresearch-results.jsonl` history.
-
-- Latest iteration: 62
-- Latest run: 20260331-022843
-- Latest outcome: crash
-- Note: iteration aborted due runtime limits per run log; no terminal keep/discard outcome recorded.
-
-Replace placeholder metadata (`targets`/`confusion_pairs`/`change_type`) with curated values before retry.
-
-## Hypothesis
-
-RG Integration Dual Quote Gate V1 should reduce targeted confusion by improving decision-boundary clarity.
-
-## Exact Edit
-
-Specify the exact prompt section and minimal diff before running explore/full eval.
-
-## Expected Signal
-
-- Primary targets: See frontmatter confusion_pairs.
-- Expected effect: lower weighted loss on targeted pairs.
-- Risk watch: Backfilled placeholder from crash-only historical run; mechanism and targets need curation before reuse.
-
 ## Explore Plan
 
 - Define v1/v2/v3 variants with one isolated change each.
@@ -59,14 +36,48 @@ Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability
 
 ## Epistemological Status
 
-Current status: null.
+
+Latest known outcome: crash.
+Latest run: 20260331-022843.
+Latest delta: unknown.
+
+If retried, require two-step explore (seed/subset change) before promotion.
 
 ## Run History
 
+
 | Iter | Run | Outcome | Delta | Note |
 |---:|---|---|---:|---|
-| 62 | 20260331-022843 | crash |  | backfilled from results log |
+| 62 | 20260331-022843 | crash | — | backfilled from results log |
 
 ## Reusable Lesson
 
-TODO: record one portable lesson after each try.
+
+No quality signal yet (crash). Re-run the same idea only after execution reliability is restored and tracked.
+
+## Hypothesis
+
+Historical evidence suggests this idea changes REJECTION-GATE via add. Expected effect is on Integration-System by reducing repeated misclassification patterns seen before iteration 62.
+
+## Exact Edit
+
+- Target: `experiments/write-test-plan/prompts/treatment.md`
+- Historical locus: REJECTION-GATE
+- Historical edit type: add
+- Suggested next edit: replay the smallest previously attempted variant, then run explore holdout before any full-corpus promotion.
+
+## Steelman
+
+Latest recorded attempt (20260331-022843) unknown loss (n/a).
+
+Run note: iter aborted: codex usage limit and claude credit timeout/limit prevented full eval; treatment edit reverted
+
+## Scathing Critique
+
+Current record is partially reconstructed from logs, so mechanism details are incomplete. Risk: retrying without reconstructing the exact prior wording may repeat failure modes or misattribute success. Require explicit diff reconstruction before retry.
+
+## Expected Signal
+
+- Primary targets: Integration-System.
+- Success criterion: improve weighted loss on these pairs without introducing a larger adjacent-pair regression.
+- Watch risk: Backfilled placeholder from crash-only historical run; mechanism and targets need curation before reuse..
