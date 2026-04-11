@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-31",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Command segmentation treats newline-separated statements as separate segments, not one monolithic block.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: failure is in segmentation logic itself (single parsing boundary), not inherently a module handoff. REAL-INFRA/LLM-DEP/MULTI-STEP: none. Candidate tests: Unit setup: pass a multi-line command string with assignments + command into segmenter; assertion: returns distinct segments per newline statement; catches bug where parser collapses into one segment. Adjacent Integration setup: run full PostToolUse classification pipeline; assertion: intermediate segments list is split; catches same bug but with extra wiring. Lower level (Unit) still catches the stated failure mode directly. Rejection gate for higher levels: behavior text is only about \"command segmentation\" and does not require OS/network/subprocess, AI output, or multi-agent sequencing.",
+      "test_description": "Unit-test the segmentation function with shell blocks containing newline-separated assignments and commands; assert exact segment boundaries and order are preserved.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.86,
+        "Integration": 0.13,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "A multi-line shell block with variable assignments followed by `gh pr create` is recognized as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: incident was misclassification of a whole block as not_a_trigger, which is typically a segmentation->trigger-classifier interaction. REAL-INFRA: no real subprocess/network required if command text is input. LLM-DEP/MULTI-STEP: none. Candidate tests: Integration setup: feed realistic multi-line shell block into hook pipeline (segmenter + trigger detector); assertion: classification includes PR-create trigger; catches handoff bug where last segment is ignored. Adjacent Unit setup: test only trigger-matcher on isolated string `gh pr create`; assertion: true; misses real failure where segmentation provides wrong input. Integration is minimum that catches the reported failure boundary. Rejection gate for System/Agentic/Workflow: behavior is recognition from command text only, no requirement for real gh execution, model output, or multi-agent chain.",
+      "test_description": "Integration-test PostToolUse classification path with a multi-line command payload (`VAR=...` lines then `gh pr create`); assert final classification is PR-create trigger (not `not_a_trigger`).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.78,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A similar multi-line block that ends with `gh issue create` is not incorrectly treated as a PR-create trigger.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: negative-case correctness depends on same segmentation->trigger-classifier module interaction as behavior 2. REAL-INFRA: no real gh call needed to catch false positive classification. LLM-DEP/MULTI-STEP: none. Candidate tests: Integration setup: pass multiline assignments + `gh issue create` through pipeline; assertion: no PR-create trigger emitted; catches over-broad matching after segmentation. Adjacent Unit setup: regex/function test for `gh issue create`; assertion: false; may miss pipeline context bugs (e.g., wrong segment selected). Integration remains minimum. Rejection gate for higher levels: behavior text is classification-only and does not require subprocess/network/AI decisions.",
+      "test_description": "Integration-test classification with a multiline payload ending in `gh issue create`; assert hook result is explicitly non-PR trigger while preserving other command detection behavior.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.22,
+        "Integration": 0.75,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When a PR-create trigger is detected, the hook can reconstruct and persist the PR identifier needed by the review loop state.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: bug risk is at module boundary between trigger result, identifier reconstruction, and state persistence. REAL-INFRA: local filesystem persistence is involved but can be covered with in-process temp filesystem/local file IO under Integration. LLM-DEP/MULTI-STEP: none. Candidate tests: Integration setup: inject detected PR-create event plus command/output context into hook, write to temp state path; assertion: persisted file contains reconstructed PR identifier in expected field. Catches serialization/contract mismatch across modules. Adjacent Unit setup: test `reconstruct_pr_id()` in isolation; assertion: returns expected id; misses persistence mapping/path/format failures. Rejection gate for System: behavior does not require real `gh` subprocess or network response, only reconstruction and persistence once trigger is detected.",
+      "test_description": "Integration-test detector->identifier-reconstruction->state-writer flow using temp filesystem; assert persisted state includes the exact PR identifier required by downstream review loop.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.19,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "After PR-create detection, the review gate state is written in a form that the pre-tool enforcement hook can read and enforce.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is explicitly a cross-hook contract (writer in PostToolUse, reader/enforcer in PreToolUse), i.e., multi-module handoff. REAL-INFRA: local file IO only; no need for real subprocess/network to catch schema/compatibility failure. LLM-DEP/MULTI-STEP: no model decisions. Candidate tests: Integration setup: run PostToolUse state write, then invoke PreToolUse enforcement reader against same temp state file; assertion: enforcement activates for gated commands. Catches incompatible schema/field names/version issues. Adjacent System setup: execute hooks as separate OS subprocesses end-to-end; assertion: enforcement blocks as expected; catches additional process/env issues but not required for the stated behavior. Rejection gate for System: behavior text focuses on \"written in a form that ... can read and enforce\" (data contract), not OS process behavior.",
+      "test_description": "Integration-test cross-hook interoperability: write review-gate state via PostToolUse path, then read/enforce via PreToolUse path from temp storage; assert enforcement decision reflects the written state.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.09,
+        "Integration": 0.79,
+        "System": 0.11,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

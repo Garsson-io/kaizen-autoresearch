@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-33",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Block storing a PASS summary when any stored dimension finding in the same round is FAIL.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at module handoff (summary write path must read findings store), not just one pure function. REAL-INFRA/LLM-DEP/MULTI-STEP: no real OS/network/LLM required. Candidate tests: Unit alt: call `canPass(findings)` with FAIL and expect false (catches local predicate bugs only). Integration chosen: persist findings with one FAIL, call summary-save service with PASS text, assert transaction rejected. This catches the real regression where persistence path trusted manual text and skipped store cross-check. Rejected higher level: behavior text is only about \"stored dimension finding\" vs \"storing a PASS review summary\"; no subprocess/network/model output is required.",
+      "test_description": "Setup: create round R with stored per-dimension findings including at least one FAIL, then submit PASS summary for R via the summary persistence/service layer. Assertion: save is rejected with validation error and no PASS summary record is committed. Failure caught: gate/save path that trusts summary text and ignores stored FAIL findings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.65,
+        "System": 0.04,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Stop-gate verdict uses stored per-dimension findings directly, not only hand-written summary text.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: requires wiring gate computation to findings repository plus summary repository. REAL-INFRA: no OS/network requirement. LLM-DEP: correctness depends on data source choice, not model judgment. Candidate tests: Unit alt: pure function `computeVerdict(summaryText)` returns PASS/FAIL (would miss wrong repository wiring). Integration chosen: store findings with FAIL and a conflicting PASS summary text, run stop-gate computation service, assert FAIL. Rejected higher level: behavior explicitly says compare \"stored findings\" vs \"summary text\"; no real external infra/model needed.",
+      "test_description": "Setup: persist round findings containing FAIL and also persist manual summary text claiming all PASS. Assertion: stop-gate returns FAIL (or not-PASS) by reading findings records, proving summary text alone cannot flip verdict. Failure caught: gate implementation sourcing verdict from free-form summary text.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.7,
+        "System": 0.04,
+        "Agentic": 0.04,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Manual summary overrides need explicit override flag and must emit an auditable warning record.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: true failure spans request validation + summary write + audit sink/log store. REAL-INFRA: local in-process audit repository is enough; no OS/network needed. LLM-DEP/MULTI-STEP: none. Candidate tests: Unit alt: validator rejects missing flag (misses missing audit emission). Integration chosen: submit override attempt with/without flag through service and inspect persisted audit warning. Rejected higher levels: behavior text is policy/audit wiring, not real external infra or model output.",
+      "test_description": "Setup: submit manual override once without override flag and once with flag through the same API/service; attach audit store. Assertion: no-flag request is rejected; flagged request is accepted and writes a warning/audit event containing actor, round, and reason. Failure caught: silent manual override or missing audit trail.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.72,
+        "System": 0.08,
+        "Agentic": 0.03,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "After Phase 4 fixes, PASS finalization requires a review-round id generated after the latest fix commit.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: bug appears in handoff between fix-commit metadata and review-round freshness checks. REAL-INFRA: can be caught with local commit-id/timestamp records (no real git process required if commit metadata is already modeled in app state). Candidate tests: Unit alt: compare two timestamps/ids (misses retrieval/source wiring). Integration chosen: persist latest fix commit C2 and an older review round from C1, then attempt PASS finalize, assert blocked until new round tied to C2 exists. Rejected System based on behavior text: it requires \"review round identifier produced after the latest fix commit\"; this can be validated from stored metadata without real subprocess if schema stores commit linkage.",
+      "test_description": "Setup: record fix commits C1 then C2; associate existing review round only with C1; attempt PASS finalize. Assertion: finalize is denied until a new review round id linked to post-C2 state is present. Failure caught: accepting stale pre-fix review evidence.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.63,
+        "System": 0.2,
+        "Agentic": 0.05,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "In the live review loop, PASS cannot finalize unless a fresh review-agent round ran on the updated diff.",
+      "minimum_level": "Agentic",
+      "justification": "INTEGRATION-BRAKE(d): this is orchestration across LLM-involved stages (updated diff -> review-agent run -> finalize gate). A fake \"round completed\" flag can hide failures where real agent execution/freshness semantics break. LLM-DEP: execution path includes real review-agent call; even with deterministic assertion, model-call path must be exercised to catch real live-loop regressions. Candidate tests: Integration alt: stub runner marks round fresh and assert PASS blocked/allowed (can pass while live agent pipeline is broken). Agentic chosen: run real agent round on updated diff and verify gate behavior before/after run. Rejected Workflow: behavior requires one fresh agentic round, not multiple sequential model decisions.",
+      "test_description": "Setup: create updated diff after a fix commit; attempt PASS finalize before running live review agent (expect blocked), then trigger a real review-agent round on that diff and retry finalize. Assertion: PASS can only proceed after that fresh round id exists. Failure caught: gate allowing finalization on stale/manual summary without actual post-fix agent run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.45,
+        "System": 0.1,
+        "Agentic": 0.35,
+        "Workflow": 0.05
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When rounds are exhausted and stored results still contain unresolved MUST-FIX findings, outcome is escalation (not PASS).",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: needs policy engine + rounds counter + findings store interaction. REAL-INFRA: no real OS/network/subprocess requirement. LLM-DEP: decision depends on stored MUST-FIX flags, not model output quality. Candidate tests: Unit alt: `decideOutcome(roundsLeft, hasMustFix)` pure function (misses wiring to persisted findings/round-state). Integration chosen: persist exhausted rounds and unresolved MUST-FIX records, run outcome computation service, assert escalation. Rejected higher levels: behavior text references \"stored results\" and exhaustion policy only.",
+      "test_description": "Setup: persist review state with rounds_exhausted=true and at least one unresolved MUST-FIX finding. Assertion: decision endpoint/service returns escalation status and explicitly not PASS. Failure caught: terminal-state logic that ignores unresolved MUST-FIX findings.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.68,
+        "System": 0.04,
+        "Agentic": 0.05,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "In live multi-round review workflow, exhausted rounds with unresolved MUST-FIX still block PASS and emit escalation.",
+      "minimum_level": "Workflow",
+      "justification": "MULTI-STEP: explicitly \"live multi-round review workflow\" with exhaustion and unresolved findings across rounds implies sequential agentic stages and state carryover. INTEGRATION-BRAKE(d): this is planner/round loop/handoff correctness, not a single module check. Candidate tests: Agentic alt: one real round plus forced exhausted flag then assert escalation (can miss cross-round carryover bugs). Workflow chosen: execute multiple live rounds until limit with unresolved MUST-FIX and assert PASS remains blocked plus escalation emitted. Rejected lower levels: behavior text requires multi-round live workflow semantics, which single-step tests do not cover.",
+      "test_description": "Setup: run an end-to-end live review loop over multiple rounds (with real round transitions), keep at least one MUST-FIX unresolved through final allowed round. Assertion: final state blocks PASS and emits escalation event/record. Failure caught: multi-round pipeline bug that incorrectly finalizes PASS at exhaustion.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.2,
+        "System": 0.07,
+        "Agentic": 0.25,
+        "Workflow": 0.45
+      }
+    }
+  ]
+}
