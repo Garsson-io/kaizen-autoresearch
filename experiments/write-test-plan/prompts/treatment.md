@@ -27,6 +27,12 @@ a real failure — not just to verify happy-path logic.
     **Caution — deterministic-assertion trap**: Two things can be tested with fakes/stubs: (1) the code that wraps or orchestrates the LLM (routing, retries, state machine), (2) the tools the LLM calls (search, calculator, executor). One thing cannot: (3) the decisions the LLM itself makes — what it classifies, generates, ranks, selects, or how it responds to a skill/prompt/hook change intended to steer its behavior. A deterministic fixture replaces the model's actual judgment with a constant, so it can never verify whether the LLM decides correctly or whether steering worked. If the behavior tests LLM output quality or the effect of steering the LLM, keep Agentic regardless of how the assertion is written.
   - **MULTI-STEP**: Does it require multiple real agentic steps in sequence? → Workflow.
 
+- **AGENT-MEMORY-SLOTS** (only when provisional choice is above Unit):
+  Slot A: quote the exact behavior phrase driving your level choice.
+  Slot B: name the decisive boundary signal (handoff / real-infra / model-output / multi-step agentic).
+  Slot C: state one concrete miss if lowered by one adjacent level.
+  Final label must reference Slot B and Slot C.
+
 - **SELF-CHECK** (plan_consistent): After deciding each level, does your
   test_description actually require that level, or would it pass at a lower one?
 
