@@ -166,6 +166,16 @@ LOOP:
        - why chosen now
        - exact prompt changes for each variation (real diff lines, not summaries)
        This step is required for auditability; do not run explore without it.
+  4.45. HIGH-LEVERAGE CHECK POLICY (MANDATORY)
+       Use explore budget for information gain, not loop count throughput:
+       - **Novelty first**: prefer `explore_status: null` ideas that target current top-2 weighted-loss pairs.
+       - **Recheck old ideas only with a trigger**: prior `signal`/`concentrated-signal` ideas may be rechecked only if
+         there is a concrete new trigger (gate change, model/corpus change, or new merged mechanism from step 4.6).
+       - **Mechanism requirement**: each selected idea must state one specific failure mechanism and one falsification criterion.
+       - **Variation quality bar**: each variation must include a real prompt diff (no-op variants are invalid).
+       - **Expected-win targeting**: before explore, name at least 2 high-impact tasks/confusion pairs the change is expected to improve.
+       - **Stop-loss**: after 2 consecutive broad `no-signal` outcomes (all variants regress or weak/noisy deltas), stop the family and ideate anew.
+       - **No throughput loops**: do not run batches of legacy rechecks just to satisfy iteration count.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)
        If the idea returned by IDEATE has explore_status: null:
          a. Write N variation treatment.md files into runs/explore/ dirs
