@@ -142,8 +142,11 @@ export type StratificationOpts = z.infer<typeof StratificationOptsZ>;
 interface CliOpts {
   ideaId: string;
   tasks: string[] | null;
+  labels: string[] | null;
   selectCount: number | undefined;
+  strictVariationCount: number | undefined;
   seed: number | undefined;
+  latestBatch: boolean;
   dryRun: boolean;
   scoreOnly: boolean;
   summary: boolean;
@@ -225,6 +228,34 @@ export function discoverVariations(ideaId: string): VariationDir[] {
   }
 
   return variations;
+}
+
+function extractVariationTimestamp(dirPath: string): string | null {
+  const name = dirPath.split("/").at(-1) ?? dirPath;
+  const m = name.match(/-(\d{8}-\d{6})$/);
+  return m ? m[1] : null;
+}
+
+function pickLatestByLabel(variations: VariationDir[], labels: string[]): VariationDir[] {
+  const selected: VariationDir[] = [];
+  for (const label of labels) {
+    const candidates = variations.filter(v => v.label === label);
+    if (candidates.length === 0) continue;
+    let best = candidates[0];
+    for (const c of candidates.slice(1)) {
+      const tsBest = extractVariationTimestamp(best.dir);
+      const tsCur = extractVariationTimestamp(c.dir);
+      if (tsBest && tsCur) {
+        if (tsCur > tsBest) best = c;
+      } else if (!tsBest && tsCur) {
+        best = c;
+      } else if (!tsBest && !tsCur && c.dir > best.dir) {
+        best = c;
+      }
+    }
+    selected.push(best);
+  }
+  return selected;
 }
 
 // -- Exported functions: Per-task loss from any run dir --
@@ -900,6 +931,15 @@ function parseTasksCsv(value: string): string[] {
   return tasks;
 }
 
+function parseLabelsCsv(value: string): string[] {
+  const labels = value.split(",").map(t => t.trim()).filter(Boolean);
+  const invalid = labels.filter(l => /\s/.test(l));
+  if (invalid.length > 0) {
+    throw new InvalidArgumentError(`invalid labels (no spaces allowed): ${invalid.join(", ")}`);
+  }
+  return labels;
+}
+
 function parsePositiveInt(value: string): number {
   const n = parseInt(value, 10);
   if (isNaN(n) || n < 1) throw new InvalidArgumentError(`"${value}" is not a positive integer`);
@@ -921,6 +961,9 @@ const program = new Command()
   )
   .argument("<idea-id>", "idea ID to explore (must have a file in ideas/)")
   .option("--tasks <ids>", "override task selection (comma-separated ec-NN)", parseTasksCsv)
+  .option("--labels <ids>", "run only specific variation labels (comma-separated)", parseLabelsCsv)
+  .option("--latest-batch", "use only variations from the latest timestamp batch")
+  .option("--strict-variation-count <n>", "fail if discovered variation count after filters != N", parseInt2Plus)
   .option("--select-count <n>", "pick N tasks instead of default 6", parseInt2Plus)
   .option("--seed <n>", "seed for deterministic weighted randomization", parsePositiveInt)
   .option("--dry-run", "show the plan without executing")
@@ -937,6 +980,9 @@ async function main() {
   const ideaId: string = program.args[0];
   const flags = program.opts<{
     tasks?: string[];
+    labels?: string[];
+    latestBatch?: boolean;
+    strictVariationCount?: number;
     selectCount?: number;
     seed?: number;
     dryRun?: boolean;
@@ -950,8 +996,11 @@ async function main() {
   const opts: CliOpts = {
     ideaId,
     tasks: flags.tasks ?? null,
+    labels: flags.labels ?? null,
     selectCount: flags.selectCount,
+    strictVariationCount: flags.strictVariationCount,
     seed: flags.seed,
+    latestBatch: flags.latestBatch ?? false,
     dryRun: flags.dryRun ?? false,
     scoreOnly: flags.scoreOnly ?? false,
     summary: flags.summary ?? false,
@@ -1021,11 +1070,47 @@ async function main() {
     return;
   }
 
-  const variations = discoverVariations(opts.ideaId);
+  let variations = discoverVariations(opts.ideaId);
   if (variations.length === 0) {
     console.error(`No variation dirs found. Expected: runs/explore/${opts.ideaId}-v<N>-<label>-<timestamp>/treatment.md`);
     console.error("Create variation dirs with treatment.md files first, then re-run.");
     process.exit(1);
+  }
+
+  if (opts.latestBatch) {
+    const byTs = variations
+      .map(v => ({ v, ts: extractVariationTimestamp(v.dir) }))
+      .filter(x => x.ts !== null) as Array<{ v: VariationDir; ts: string }>;
+    if (byTs.length === 0) {
+      console.error("No timestamped variation dirs found for --latest-batch.");
+      process.exit(1);
+    }
+    const latestTs = byTs.map(x => x.ts).sort().at(-1)!;
+    variations = byTs.filter(x => x.ts === latestTs).map(x => x.v);
+    log(`Filtered to latest batch ${latestTs}: ${variations.map(v => v.label).join(", ")}`);
+  }
+
+  if (opts.labels && opts.labels.length > 0) {
+    const selected = pickLatestByLabel(variations, opts.labels);
+    const missing = opts.labels.filter(label => !selected.some(v => v.label === label));
+    if (missing.length > 0) {
+      console.error(`Requested variation label(s) not found: ${missing.join(", ")}`);
+      process.exit(1);
+    }
+    variations = selected;
+    log(`Filtered by labels (latest per label): ${variations.map(v => v.label).join(", ")}`);
+  }
+
+  if (opts.strictVariationCount !== undefined && variations.length !== opts.strictVariationCount) {
+    console.error(
+      `Variation count mismatch: expected ${opts.strictVariationCount}, found ${variations.length} after filters.`
+    );
+    console.error(`Found labels: ${variations.map(v => v.label).join(", ")}`);
+    process.exit(1);
+  }
+
+  if (!opts.labels && !opts.latestBatch && variations.length > 3) {
+    log(`Warning: discovered ${variations.length} variations. Use --latest-batch and/or --labels for stricter selection.`);
   }
 
   log(`Found ${variations.length} variation(s): ${variations.map(v => v.label).join(", ")}`);

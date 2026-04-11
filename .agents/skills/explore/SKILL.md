@@ -99,6 +99,12 @@ npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID --seed 42
 # Pick 8 tasks instead of default 6
 npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID --select-count 8
 
+# Run only the intended two new variants (avoid legacy dirs)
+npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID \
+  --latest-batch \
+  --labels v1-my-primary,v2-my-primary-plus-counterbalance \
+  --strict-variation-count 2
+
 # Don't write to explore-log or idea file (just print results)
 npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID --no-persist
 
@@ -110,6 +116,9 @@ npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID --summary
 
 # Machine-readable JSON output
 npx tsx experiments/write-test-plan/scripts/explore.ts $IDEA_ID --json
+
+# If a run gets stuck, stop only this experiment's workers safely
+experiments/write-test-plan/scripts/stop-evals.sh
 ```
 
 **Exit codes**: 0 = signal, 1 = error, 2 = no-signal, 3 = concentrated-signal.

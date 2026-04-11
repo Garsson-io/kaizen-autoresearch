@@ -46,6 +46,9 @@ Arguments:
 
 Options:
   --tasks <ids>       override task selection (comma-separated ec-NN)
+  --labels <ids>      run only specific variation labels (comma-separated)
+  --latest-batch      use only variations from the latest timestamp batch
+  --strict-variation-count <n>  fail if discovered variation count after filters != N
   --select-count <n>  pick N tasks instead of default 6
   --seed <n>          seed for deterministic weighted randomization
   --dry-run           show the plan without executing
@@ -57,6 +60,27 @@ Options:
   -h, --help          display help for command
 
 Exit codes: 0=signal  1=error  2=no-signal  3=concentrated-signal
+```
+
+### Variation selection QoL flags
+
+Use these together to avoid accidentally re-running legacy variation dirs:
+
+```bash
+npx tsx experiments/write-test-plan/scripts/explore.ts my-idea \
+  --latest-batch \
+  --labels v1-primary-only,v2-primary-plus-counterbalance \
+  --strict-variation-count 2
+```
+
+- `--latest-batch`: keep only dirs from the newest `YYYYMMDD-HHMMSS` batch.
+- `--labels`: choose exact variation labels; if duplicates exist, picks latest dir per label.
+- `--strict-variation-count`: hard-fail if filtered set size is not exactly what you expected.
+
+If you accidentally launch too many probes, stop them safely with:
+
+```bash
+experiments/write-test-plan/scripts/stop-evals.sh
 ```
 
 Invalid arguments produce clear errors with the usage hint:
