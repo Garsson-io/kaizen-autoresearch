@@ -17,12 +17,12 @@ change_type: structural
 risk: Token cost increases and candidate generation can become formulaic if constraints are weak.
 prereqs: Prompt must enforce concrete candidate structure (setup/assertion/catches/misses) before final choice.
 related: [write-test-first, pairwise-boundary-tournament, top2-runner-up-contrast-gate]
-explore_status: concentrated-signal
-explore_tasks: [ec-15, ec-08, ec-35, ec-28, ec-32, ec-19]
-explore_baseline_loss: 77.83
-explore_loss: 74.58
-explore_delta: -3.25
-explore_date: 2026-04-10
+explore_status: no-signal
+explore_tasks: [ec-08, ec-34, ec-10, ec-03, ec-24, ec-31, ec-14, ec-33]
+explore_baseline_loss: 99.66
+explore_loss: null
+explore_delta: null
+explore_date: 2026-04-11
 last_run: 20260411-011347
 last_iteration: 66
 last_outcome: discard
@@ -90,3 +90,17 @@ Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-08, ec-34, ec-10, ec-03, ec-24, ec-31, ec-14, ec-33`  
+Baseline subset loss: `99.66`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-adjacent-two-candidates | 112.1589 | +12.5019 | improved 2, hurt 5, flat 1 | n/a |
+| v2-three-candidate-coverage | 102.2065 | +2.5495 | improved 1, hurt 1, flat 6 | n/a |
+| v3-candidate-plus-miss-proof | 108.7795 | +9.1225 | improved 1, hurt 4, flat 3 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
+

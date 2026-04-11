@@ -29,54 +29,25 @@ last_delta: null
 retry_trigger: null
 owner: null
 ---
-## Hypothesis
-Create a fixed "hard-case canary" subset and require any new idea to beat baseline on that subset before running full corpus.
 
-Suggested composition:
-- 2-3 Unit-Integration traps
-- 2-3 Integration-System traps
-- 2-3 System-Agentic traps
-- 1-2 Agentic-Workflow traps
+## Hypothesis
 
 ## Steelman
 
-This gives fast fail-fast signal on exactly the failure modes that repeatedly dominate loss. It cuts wasted full runs on ideas that are dead on arrival.
-
-Given known noise, this also stabilizes comparisons by holding a fixed tough slice.
-
 ## Scathing Critique
-
-A fixed canary can become a hidden training target. Improvements may not generalize if the model starts implicitly optimizing to those examples.
 
 ## Exact Edit
 
-Specify the exact prompt section and minimal diff before running explore/full eval.
-
 ## Expected Signal
-
-- Primary targets: See frontmatter confusion_pairs.
-- Expected effect: lower weighted loss on targeted pairs.
-- Risk watch: Canary over-optimization may miss regressions outside the canary set.
 
 ## Explore Plan
 
-- Define v1/v2/v3 variants with one isolated change each.
-- Current explore_status: null.
-
 ## Promotion Gate
-
-Follow `experiments/write-test-plan/program.md` LOOP step 4.5 (holdout/stability gate and `no-promote` rules).
 
 ## Epistemological Status
 
-Current status: null.
-
 ## Run History
-
-| Iter | Run | Outcome | Delta | Note |
-|---:|---|---|---:|---|
-|  |  |  |  | no run recorded |
 
 ## Reusable Lesson
 
-TODO: record one portable lesson after each try.
+Pending first/next run. After running, record one line: "mechanism worked / failed because <specific boundary effect>".
