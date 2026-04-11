@@ -152,6 +152,16 @@ LOOP:
      It reads ideas/, taxonomy/, meta-failures.md, treatment.md itself.
      It returns: idea id, specific edit (with diff), rationale, skeptic view, and optional meta-note.
      If it creates new ideas, they'll be written to ideas/ by the subagent.
+  4.4. CANDIDATE BRIEF (MANDATORY, BEFORE EXPLORE)
+       Before running explore (or before deciding to reuse an already-set explore result), write a brief in the
+       iteration notes/TODO containing:
+       - **Selected idea**: idea id + why it was chosen now (must reference top-loss targeting and mined evidence)
+       - **Mechanism rationale**: what failure pattern this idea is expected to fix
+       - **Variation set**:
+         - if creating new variations: list each variation label and show the exact added/changed prompt lines
+         - if reusing existing variations: list each variation label and show the exact diff vs treatment.md
+       - **Decision expectation**: what would count as promote / family-signal / no-promote under current gate
+       This step is required for auditability; do not run explore without it.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)
        If the idea returned by IDEATE has explore_status: null:
          a. Write N variation treatment.md files into runs/explore/ dirs

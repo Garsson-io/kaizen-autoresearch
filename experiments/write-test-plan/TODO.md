@@ -232,15 +232,21 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] → Next iteration
 
 ### Iteration 12/20 (candidate: `competitive-critique-seeding`)
-- [ ] MINE
-- [ ] DIAGNOSE
-- [ ] META
-- [ ] IDEATE
-- [ ] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check)
-- [ ] POST-EXPLORE LEARNING SYNTHESIS
-- [ ] EDIT + COMMIT
-- [ ] RUN + SCORE
-- [ ] LOG + TAXONOMY FLOW
+- [x] MINE
+- [x] DIAGNOSE (top-2 weighted loss unchanged: Integration→Agentic, Unit→Agentic)
+- [x] META (re-test prior `signal` candidate under calibrated gate)
+- [x] IDEATE (selected for prior `signal` status + relevance to consistency/agentic failures)
+- [x] CANDIDATE BRIEF
+  - Rationale: previously showed `signal` but regressed on full run; re-check as potential salvage under updated gate.
+  - Variations reused (exact diffs vs treatment):
+    - `v1-competitor-audit`: add SELF-CHECK line forcing one adversarial flaw check.
+    - `v2-mixed-quality-review`: add SELF-CHECK line generating top-choice + runner-up and evidence-based rejection.
+    - `v3-bogus-trap-reject`: add SELF-CHECK line forcing explicit rejection of known bogus shortcuts.
+- [x] EXPLORE + PROMOTION-EVIDENCE GATE (holdout re-check: `concentrated-signal`, winner `v2`, delta `-1.47` = weak/noisy -> no-promote)
+- [x] POST-EXPLORE LEARNING SYNTHESIS (v2 improved 4/8 tasks but effect too small; not meaningful under threshold)
+- [x] EDIT + COMMIT (no-promote: skipped by gate)
+- [x] RUN + SCORE (no-promote: skipped by gate)
+- [x] LOG + TAXONOMY FLOW (explore log + idea epistemology updated)
 - [ ] COMMIT RUNS
 - [ ] COMMIT STATE
 - [ ] → Next iteration
