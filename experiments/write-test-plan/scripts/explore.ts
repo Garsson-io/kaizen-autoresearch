@@ -740,21 +740,29 @@ export function printSummary(ideaId: string): boolean {
     return false;
   }
 
-  const lines = readFileSync(PATHS.exploreLog, "utf-8")
+  const all = readFileSync(PATHS.exploreLog, "utf-8")
     .trim().split("\n").filter(l => l.trim())
     .map(l => ExploreResult.parse(JSON.parse(l)))
     .filter(r => r.idea_id === ideaId);
 
-  if (lines.length === 0) {
+  if (all.length === 0) {
     console.error(`No explore results found for idea '${ideaId}'.`);
     return false;
   }
+
+  // Summary should describe one coherent explore batch, not mixed history.
+  // Use the latest timestamp group by default.
+  const latestTs = [...new Set(all.map(r => r.timestamp))].sort().at(-1)!;
+  const lines = all.filter(r => r.timestamp === latestTs);
 
   const tasks = lines[0].tasks;
   const baselineLoss = lines[0].baseline_loss;
   const winner = lines.find(l => l.winner);
 
   console.log(`\n=== EXPLORE SUMMARY: ${ideaId} ===\n`);
+  if (all.length !== lines.length) {
+    console.log(`Batch timestamp: ${latestTs} (showing ${lines.length}/${all.length} rows)\n`);
+  }
   console.log(`Tasks: ${tasks.join(", ")}`);
   console.log(`Baseline loss: ${baselineLoss.toFixed(2)}\n`);
 
@@ -785,6 +793,9 @@ export function writeExploreLog(
   tasks: string[],
   baselineLoss: number,
   winner: VariationResult | null,
+  signal: Signal,
+  seed?: number,
+  selectCount?: number,
 ) {
   const timestamp = new Date().toISOString();
 
@@ -801,6 +812,21 @@ export function writeExploreLog(
       delta: v.delta,
       prompt_diff: v.variation.label,
       winner: winner?.variation.label === v.variation.label,
+      signal,
+      seed,
+      select_count: selectCount ?? tasks.length,
+      improved: v.improved,
+      hurt: v.hurt,
+      flat: v.flat,
+      concentration_task: v.concentrationTask,
+      concentration_pct: v.concentrationTask ? v.concentrationPct : null,
+      per_task: v.perTask.map(p => ({
+        task: p.taskId,
+        baseline: p.baselineLoss,
+        variation: p.variationLoss,
+        delta: p.delta,
+        direction: p.direction,
+      })),
     });
     appendFileSync(PATHS.exploreLog, JSON.stringify(entry) + "\n");
   }
@@ -975,6 +1001,41 @@ async function main() {
   const fm = parseFrontmatter(ideaContent);
 
   if (fm.explore_status && !opts.force) {
+    if (opts.json) {
+      if (!existsSync(PATHS.exploreLog)) {
+        console.log(JSON.stringify({ signal: "unknown", winner: null, tasks: [], baseline_loss: 0 }));
+        return;
+      }
+      const all = readFileSync(PATHS.exploreLog, "utf-8")
+        .trim().split("\n").filter(l => l.trim())
+        .map(l => ExploreResult.parse(JSON.parse(l)))
+        .filter(r => r.idea_id === opts.ideaId);
+      if (all.length === 0) {
+        console.log(JSON.stringify({ signal: "unknown", winner: null, tasks: [], baseline_loss: 0 }));
+        return;
+      }
+      const latestTs = [...new Set(all.map(r => r.timestamp))].sort().at(-1)!;
+      const lines = all.filter(r => r.timestamp === latestTs);
+      const winner = lines.find(l => l.winner);
+      const signal: Signal = winner
+        ? (winner.signal ?? "signal")
+        : ((lines[0].signal as Signal | undefined) ?? "no-signal");
+      const winnerPayload = winner
+        ? {
+            variation: winner.prompt_diff,
+            loss: winner.variation_loss,
+            delta: winner.delta,
+            concentration_pct: winner.concentration_pct ?? null,
+          }
+        : null;
+      console.log(JSON.stringify({
+        signal,
+        winner: winnerPayload,
+        tasks: lines[0].tasks,
+        baseline_loss: lines[0].baseline_loss,
+      }));
+      return;
+    }
     log(`Idea '${opts.ideaId}' already has explore_status: ${fm.explore_status}`);
     log("Use --force to re-run, or --summary to view results.");
     printSummary(opts.ideaId);
@@ -1123,7 +1184,7 @@ async function main() {
   else printHeatmap(output);
 
   if (opts.persist) {
-    writeExploreLog(opts.ideaId, results, tasks, baselineLoss, winner);
+    writeExploreLog(opts.ideaId, results, tasks, baselineLoss, winner, signal, opts.seed, opts.selectCount);
     updateIdeaFrontmatter(opts.ideaId, tasks, baselineLoss, winner, signal, results);
     log("\nResults written to explore-log.jsonl and idea frontmatter updated.");
   }

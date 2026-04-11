@@ -167,6 +167,22 @@ export const ExploreResult = z.object({
   delta: z.number(),           // variation_loss - baseline_loss (negative = better)
   prompt_diff: z.string(),
   winner: z.boolean(),
+  // Optional richer fields for stability mining (backward compatible with old rows)
+  signal: z.enum(["signal", "concentrated-signal", "no-signal"]).optional(),
+  seed: z.number().int().optional(),
+  select_count: z.number().int().optional(),
+  improved: z.number().int().optional(),
+  hurt: z.number().int().optional(),
+  flat: z.number().int().optional(),
+  concentration_task: z.string().nullable().optional(),
+  concentration_pct: z.number().nullable().optional(),
+  per_task: z.array(z.object({
+    task: z.string(),
+    baseline: z.number(),
+    variation: z.number(),
+    delta: z.number(),
+    direction: z.enum(["improved", "hurt", "flat"]),
+  })).optional(),
 });
 export type ExploreResult = z.infer<typeof ExploreResult>;
 
