@@ -138,6 +138,11 @@ LOOP:
      - Extract the top 2 confusion pairs by weighted loss.
      - The selected idea must explicitly target at least one of those top-2 pairs.
      - If not, reject the idea and return to IDEATE.
+     - **DIRECTIONALITY ALIGNMENT (MANDATORY):**
+       - Infer dominant error direction from the top-loss pairs (e.g., persistent `Integration→System`
+         means under-calling higher levels; `System→Integration` means over-calling higher levels).
+       - Before explore, state whether the candidate mechanism pushes in the same direction.
+       - If mechanism direction conflicts with dominant error direction, reject candidate and return to IDEATE.
      - Pattern counts from taxonomy are tie-breakers only after this gate is satisfied.
   3. META — read meta-failures.md. Check: did this run's result confirm or weaken any meta-hypothesis?
      Update meta-failures.md with new evidence. A meta-hypothesis needs ≥3 supporting data points
@@ -157,6 +162,7 @@ LOOP:
        Before running explore (or before deciding to reuse an already-set explore result), write a brief in the
        iteration notes/TODO containing:
        - **Selected idea**: idea id + why it was chosen now (must reference top-loss targeting and mined evidence)
+       - **Direction check**: dominant error direction from MINE + candidate mechanism direction + pass/fail
        - **Mechanism rationale**: what failure pattern this idea is expected to fix
        - **Variation set**:
          - if creating new variations: list each variation label and show the exact added/changed prompt lines
@@ -183,6 +189,12 @@ LOOP:
        - **Mechanism requirement**: each selected idea must state one specific failure mechanism and one falsification criterion.
        - **Variation quality bar**: each variation must include a real prompt diff (no-op variants are invalid).
        - **Expected-win targeting**: before explore, name at least 2 high-impact tasks/confusion pairs the change is expected to improve.
+       - **Directionality hard gate**: before explore, derive dominant miss direction from MINE
+         (for each top weighted pair, whether current miss is lower->higher or higher->lower).
+         For the candidate idea, declare expected directional effect:
+         `raise-higher-recall` | `raise-lower-recall` | `mixed`.
+         If dominant miss direction and candidate direction conflict, reject candidate and ideate again.
+         Only exception: explicit bi-directional control variant with a stated falsification condition.
        - **Stop-loss**: after 2 consecutive broad `no-signal` outcomes (all variants regress or weak/noisy deltas), stop the family and ideate anew.
        - **No throughput loops**: do not run batches of legacy rechecks just to satisfy iteration count.
   4.5. EXPLORE (optional — skip if idea.explore_status is already set)

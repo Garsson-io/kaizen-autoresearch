@@ -31,6 +31,7 @@ change_type: structural | representational | framing | meta-cognitive | ensemble
 risk: What could go wrong (one sentence)
 prereqs: What must be true for this to work (one sentence, or null)
 related: [other-idea-id, ...]
+direction_intent: null          # raise-higher-recall | raise-lower-recall | mixed | null
 
 # Optional family/convergence metadata (recommended)
 family: null                    # family cluster label, e.g. "memory-slots"
@@ -67,6 +68,7 @@ owner: null                    # optional maintainer tag
 | `targets` | Failure modes from `leaderboard.md`: `agentic_underprediction`, `workflow_gap`, `unit_overprediction`, `consistency_failures`, `noise_sensitivity`. |
 | `confusion_pairs` | The specific label boundaries this idea targets. |
 | `change_type` | `structural` = reorder/restructure. `representational` = change how levels are described. `framing` = change the task framing. `meta-cognitive` = add self-check/reasoning steps. `ensemble` = run multiple variants. |
+| `direction_intent` | Optional declared expected directional effect on boundary errors: `raise-higher-recall`, `raise-lower-recall`, or `mixed`. Used by `program.md` directionality gate during candidate selection. |
 | `family` | Optional family cluster label used to track retries and convergence policy. |
 | `mechanism_signature` | Optional concise signature of the core mechanism for anti-drift checks. |
 | `max_followups` | Optional cap on retries for this family branch before forced promote-or-park. |
