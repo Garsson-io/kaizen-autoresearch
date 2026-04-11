@@ -188,7 +188,13 @@ LOOP:
          there is a concrete new trigger (gate change, model/corpus change, or new merged mechanism from step 4.6).
        - **Mechanism requirement**: each selected idea must state one specific failure mechanism and one falsification criterion.
        - **Variation quality bar**: each variation must include a real prompt diff (no-op variants are invalid).
+       - **Minimal dual-objective pattern (default)**: for each candidate, prefer exactly 2 variants:
+         - `v1`: primary mechanism only (targets top-loss pair)
+         - `v2`: same primary + one short counterbalance line for the predicted side-effect cluster
+         Keep this bounded: 1 primary mechanism + 1 counterbalance line max.
        - **Expected-win targeting**: before explore, name at least 2 high-impact tasks/confusion pairs the change is expected to improve.
+       - **Expected-side-effect targeting**: before explore, name 1-2 confusion pairs most likely to worsen,
+         and state why the counterbalance line should protect them.
        - **Directionality hard gate**: before explore, derive dominant miss direction from MINE
          (for each top weighted pair, whether current miss is lower->higher or higher->lower).
          For the candidate idea, declare expected directional effect:
@@ -209,6 +215,9 @@ LOOP:
        - Promote winner to full 36-task RUN only if:
          - `delta <= -2.0`, and
          - `hurt <= 1` (at most one worsened task).
+       - Side-effect cluster guard (mandatory): define 1-2 expected side-effect confusion pairs before explore.
+         Reject promotion if the winner materially worsens those named pairs on the explore slice.
+         Material worsening default: net loss increase > `+1.0` on any named side-effect pair.
        - Empirical rationale (Apr 10-11): repeated explores showed high instability
          (`66.7%` winner/no-winner flip on repeated ideas; winner-delta std ~`2.58` loss),
          so do not treat a single narrow win as sufficient when regressions are broad.
