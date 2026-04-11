@@ -374,7 +374,7 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 18/20 (candidate: `TBD-novelty-first-toploss`)
+### Iteration 18/20 (candidate: `minimal-proof-bundle-synergy`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
@@ -389,7 +389,7 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 19/20 (candidate: `TBD-novelty-first-toploss`)
+### Iteration 19/20 (candidate: `ace-agent-mode-hardcase-routing`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
@@ -404,7 +404,7 @@ Smoke-tested on EC-09 (42s vs 82s, $0.039 vs $0.061). Need to verify a full 30-t
 - [ ] COMMIT STATE
 - [ ] → Next iteration
 
-### Iteration 20/20 (candidate: `TBD-novelty-first-toploss`)
+### Iteration 20/20 (candidate: `agent-needs-working-memory-slots`)
 - [ ] MINE
 - [ ] DIAGNOSE
 - [ ] META
