@@ -1,0 +1,86 @@
+{
+  "task_id": "EC-12",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Rows with missing required fields are rejected and appear in the dead-letter queue with the original row number.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: Failure is at module handoff (CSV parser -> validator -> DLQ writer with row metadata), not a single-function rule check. REAL-INFRA: No real OS/network/subprocess is required to prove this behavior; in-process components can reproduce it. MOCK-HIDE: A pure unit test of validator would miss row-number propagation and DLQ payload wiring bugs.\nSlot A (evidence quote): \"rejected and appear in the dead-letter queue with the original row number\".\nSlot B (boundary signal): Requires coordination across validation outcome, row indexing, and DLQ enqueue payload.\nSlot C (adjacent-lower miss-proof): Unit-only validator tests would pass even if DLQ writer drops/rewrites row_number.\nFinal label rationale: Integration is required by Slot B and Slot C.\nINTEGRATION-BRAKE: (a) No real OS/network/subprocess required by behavior text. (b) No AI/ML output dependency. (c) No multi-agentic chain. (d) No LLM-stage orchestration.\nREJECTION-GATE: Rejected System because behavior text does not require real queue transport semantics, only correct local handoff to DLQ with row number.",
+      "test_description": "Wire parser, schema validator, and DLQ adapter in-process. Feed a CSV fixture with missing required fields at known line numbers; assert invalid rows are absent from normalized output and present in DLQ records with exact original row numbers.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test exercises cross-module handoff, which cannot be guaranteed by a lower Unit-only test.",
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.68,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "The transformation correctly converts date strings in multiple formats (ISO 8601, US, European) to a single canonical format.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: Behavior is local conversion logic (format parsing/normalization) and does not require module interaction to fail. REAL-INFRA: No OS/network/subprocess needed. MOCK-HIDE: Mocks do not add signal; table-driven inputs catch true failures here.\nREJECTION-GATE: Rejected Integration because behavior text focuses on conversion correctness itself, not inter-module handoff or persistence.",
+      "test_description": "Table-driven tests for the date-normalization function using ISO 8601, US, and European samples (plus ambiguous/invalid edge cases). Assert exact canonical output (or explicit rejection) per input.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Assertions directly target the single transformation boundary, matching Unit scope.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "A CSV file with 500,000 rows completes processing within the configured timeout without running out of memory.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Real failure emerges from end-to-end runtime behavior (streaming/chunking/backpressure), not isolated function logic. REAL-INFRA: Timeout and memory exhaustion are OS/runtime-level effects; in-process fakes cannot faithfully reproduce process memory pressure. MOCK-HIDE: Mocked data sources/sinks can mask buffering and allocation spikes.\nSlot A (evidence quote): \"500,000 rows\" and \"within the configured timeout without running out of memory\".\nSlot B (boundary signal): Requires full pipeline execution under real runtime constraints (scheduler, GC/memory limits, wall-clock timeout).\nSlot C (adjacent-lower miss-proof): Integration with fakes can pass while production process OOMs or breaches timeout due to actual I/O and buffering patterns.\nFinal label rationale: System is required by Slot B and Slot C.\nREJECTION-GATE: Rejected Integration because behavior explicitly asserts process-level timeout/memory characteristics.",
+      "test_description": "Run the pipeline as a real process against a generated 500k-row CSV and real configured timeout/memory limits; monitor completion time and peak memory, and fail on timeout or OOM.",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test explicitly depends on process-level performance characteristics that lower levels cannot validate.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.1,
+        "System": 0.86,
+        "Agentic": 0.01,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "When the S3 bucket returns a transient 503 error, the pipeline retries with exponential backoff rather than failing the entire batch.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Failure often occurs at HTTP/client/SDK boundary (status mapping, retryable classification, timing behavior). REAL-INFRA: Behavior references real HTTP 503 from S3; retry/backoff correctness is sensitive to actual request/response handling and timing. MOCK-HIDE: Mock client methods can always raise a curated error shape, hiding real transport/status-path bugs.\nSlot A (evidence quote): \"S3 bucket returns a transient 503 error\" and \"retries with exponential backoff\".\nSlot B (boundary signal): Requires network client + retry policy + batch controller interaction under actual HTTP failure responses.\nSlot C (adjacent-lower miss-proof): Integration stubs may pass even if real SDK does not classify/propagate 503 as retryable in production path.\nFinal label rationale: System is required by Slot B and Slot C.\nREJECTION-GATE: Rejected Integration because behavior text is explicitly about real S3 503 handling, where mock error shapes can hide failures.",
+      "test_description": "Execute pipeline against an HTTP endpoint (or S3-compatible test target) that returns transient 503 responses before success; assert retry count and exponentially increasing delays, and confirm batch ultimately continues instead of terminal failure.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test requires real HTTP failure semantics and retry timing, which lower levels can misrepresent.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.78,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Rows successfully written to PostgreSQL are not duplicated if the pipeline is restarted mid-batch.",
+      "minimum_level": "System",
+      "justification": "MOCK-MISS: Duplicate prevention spans checkpoint/state persistence, write idempotency, and recovery path across restart. REAL-INFRA: Restart semantics are process/OS behavior; correctness also depends on real DB constraints/transactions. MOCK-HIDE: In-memory fakes can miss commit ordering, transaction boundaries, and crash-recovery edge cases.\nSlot A (evidence quote): \"not duplicated if the pipeline is restarted mid-batch\".\nSlot B (boundary signal): Requires cross-run durability and DB state consistency after interruption/restart.\nSlot C (adjacent-lower miss-proof): Integration in one process can pass while real restart replays rows due to persisted offset/checkpoint mismatch.\nFinal label rationale: System is required by Slot B and Slot C.\nREJECTION-GATE: Rejected Integration because behavior explicitly includes restart mid-batch, which implies process lifecycle and persisted recovery semantics beyond single-run module wiring.",
+      "test_description": "Run pipeline against a real PostgreSQL instance, force interruption mid-batch (terminate process after partial commit), restart pipeline, then assert final table contains exactly one copy per source row (via unique key/count checks).",
+      "plan_consistent": true,
+      "plan_consistent_note": "The test intentionally exercises process restart and durable state, requiring System level.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.23,
+        "System": 0.74,
+        "Agentic": 0.005,
+        "Workflow": 0.005
+      }
+    }
+  ]
+}

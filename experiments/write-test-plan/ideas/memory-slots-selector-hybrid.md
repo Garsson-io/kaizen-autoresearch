@@ -16,12 +16,12 @@ change_type: structural
 risk: Hybrid may still add moderate overhead and regress easy-mid tasks if trigger is too loose.
 prereqs: Keep slot format terse and activate only above Unit, with explicit boundary-signal requirement.
 related: [agent-needs-working-memory-slots]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-04, ec-12, ec-23, ec-06, ec-27, ec-36, ec-14, ec-32]
+explore_baseline_loss: 85.87
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -49,8 +49,22 @@ The memory-slot mechanism is real but variant-sensitive. Combining `v2` scope co
 
 ## Explore Plan
 - v1: above-Unit + terse slots (direct hybrid).
-- v2: hybrid + trigger only on adjacent tie/near-tie.
+- v2: hybrid + trigger only on adjacent tie/near-tie (define near-tie as top-2 gap `<= 0.10`).
 - v3: hybrid + top-loss-pair-only activation.
 
 ## Reusable Lesson
 Created from family-signal; do not promote `agent-needs-working-memory-slots` variants directly.
+After Iteration 21 no-signal, keep near-tie threshold explicit to avoid fuzzy trigger behavior.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-04, ec-12, ec-23, ec-06, ec-27, ec-36, ec-14, ec-32`  
+Baseline subset loss: `85.87`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-hybrid-above-unit-terse | 88.7999 | +2.9332 | improved 2, hurt 3, flat 3 | n/a |
+| v2-hybrid-tie-trigger | 89.4019 | +3.5351 | improved 2, hurt 3, flat 3 | n/a |
+| v3-hybrid-toploss-only | 94.0934 | +8.2266 | improved 2, hurt 5, flat 1 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.
