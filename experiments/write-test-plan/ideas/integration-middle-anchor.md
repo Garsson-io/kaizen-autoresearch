@@ -1,7 +1,7 @@
 ---
 id: integration-middle-anchor
 title: Anchor Integration as the local-wiring middle layer with explicit adjacent contrasts
-status: proposed
+status: rejected
 effort: low
 expected_impact: high
 targets:
