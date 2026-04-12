@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is the handoff between request-construction code and the API client payload. A pure Unit test of a helper could miss wiring regressions (e.g., builder has labels but client adapter drops them). System rejected because behavior text only requires request content, not real network/OS/subprocess. Agentic rejected because correctness does not depend on model output, only outbound payload fields.",
+      "test_description": "Wire classifier module to a stub/fake API client that records outgoing payload. Invoke classify(document, taxonomy) and assert recorded request contains the full taxonomy label set (no omissions, no substitutions).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test explicitly exercises cross-module payload handoff; Unit-only would be weaker.",
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Real failure is often at parser/normalizer/module boundary: API response enters module, taxonomy check applies, caller-facing value is emitted. Unit rejected as minimum because behavior text is end-to-end at module interface ('API returns' -> 'module returns'). System rejected: no real network is required; stub response reproduces failure. Agentic rejected: this is deterministic post-processing of a provided invalid label.",
+      "test_description": "Use a stub API returning an out-of-taxonomy label (e.g., \"medical\") and call classify(). Assert caller receives \"unknown\" and never sees raw unexpected label.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Assertion is on module contract after response handoff, matching Integration scope.",
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.55,
+        "System": 0.02,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "Behavior text isolates one local transformation ('normalization step') with identical input responses. No module interaction or I/O is required to expose nondeterminism/logic bugs here. Higher levels rejected because they add infrastructure not needed for this specific failure mode.",
+      "test_description": "Call normalization function/object repeatedly with the same raw response fixture and assert identical output label every run.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Test is strictly local function determinism, so Unit is sufficient.",
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior explicitly depends on repeated live AI classification outcomes and consistency of model/provider decisions. A mock would hide real nondeterminism and model drift. System considered but rejected as final because network realism alone is not the key risk; correctness criterion is model output consistency from a real AI call. Workflow rejected by behavior text: this is repeated single-step classification, not multiple agentic stages with sequential handoff.",
+      "test_description": "Run N real classification calls for the same (document, taxonomy) over a short window; store raw provider responses and normalized labels. Assert label consistency across calls when raw provider output is unchanged, and allow label change only when provider response content changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Requires real model behavior; stubs cannot detect this class of failure.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.15,
+        "Agentic": 0.78,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at boundary between token-budget logic and dispatch control (whether request is sent, truncated, or rejected). Unit could test tokenizer math but miss that dispatch still occurs incorrectly. System rejected: no real network/OS needed; fake client can prove pre-dispatch enforcement. Agentic rejected: no dependence on AI output quality/content.",
+      "test_description": "Configure small budget; run classify() with oversized document using a fake client. Assert policy outcome (truncate or reject) and assert outbound request length/estimated tokens comply before any dispatch, or no dispatch occurs for reject policy.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Covers multi-module gating behavior, which is the stated risk.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior requires a real AI provider call and provider-reported usage metadata; mocked usage can trivially pass while hiding real tokenizer/provider behavior differences. Integration rejected because the assertion depends on real external AI API reporting, not just local wiring. Workflow rejected because only one agentic step (single classification call) is required.",
+      "test_description": "Execute real classification for representative document(s) against the target provider/model; read provider-reported token usage from response metadata and assert usage <= configured budget per call.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Needs real provider accounting; local fakes cannot validate this boundary.",
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.08,
+        "System": 0.3,
+        "Agentic": 0.58,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Primary failure boundary is retry orchestration between API client wrapper, backoff/wait policy, and caller contract. This is reproducible with deterministic stubbed 429/RateLimit responses and fake time. System rejected because real network timing is not required by behavior text ('API signals rate too high' can be simulated). Agentic rejected because correctness is about retry control flow, not model judgment/output quality.",
+      "test_description": "Stub API to return rate-limit signal on first call and success on second. Use controllable clock/sleeper to verify wait/backoff is invoked, second attempt occurs, and caller gets successful label instead of immediate error.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Integration is the minimum that validates module-to-client retry behavior end-to-end.",
+      "level_probabilities": {
+        "Unit": 0.11,
+        "Integration": 0.7,
+        "System": 0.16,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

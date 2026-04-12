@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is request-builder -> API-client handoff, not model quality. A unit test of a helper could miss dropped fields during module wiring. Real network is not required (REAL-INFRA=no), and correctness does not depend on model output (LLM-DEP=no), so System/Agentic are rejected. Rejection-gate: behavior text is about request contents, not live provider behavior.",
+      "test_description": "Wire classifier module to a fake in-process API client that captures outbound payload. Invoke classify with a taxonomy, then assert the captured request contains the full taxonomy list (no omissions/reordering loss as defined by contract).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.58,
+        "System": 0.04,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Unit",
+      "justification": "This is normalization/validation logic on one response value; a local function/object test can catch forwarding of out-of-taxonomy labels. No OS/network/subprocess needed (REAL-INFRA=no). No dependence on real model judgment (LLM-DEP=no). Rejection-gate for Integration+: behavior text targets mapping rule itself, not cross-module timing/infrastructure.",
+      "test_description": "Call the normalization/classification-result mapping logic with taxonomy `[legal, technical, financial, other]` and raw label `medical`; assert final label is `unknown`.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.7,
+        "Integration": 0.25,
+        "System": 0.02,
+        "Agentic": 0.03,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "Pure determinism/idempotence of normalization; single local boundary. No real infrastructure required. No AI output quality dependency because raw input is fixed fixture. Rejection-gate for higher levels: behavior explicitly scopes to identical raw responses and normalization step.",
+      "test_description": "Run normalization twice (or many times) on the same raw response fixture and taxonomy; assert identical final label each run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "This explicitly requires live model calls and checks stability of model-produced labels across runs. A stub would hide real nondeterminism/drift (MOCK-HIDE=yes, LLM-DEP=yes). Not Workflow because this is repeated single-step classification, not a multi-stage agent pipeline. Rejection-gate for System: behavior depends on model decision consistency, not only HTTP mechanics.",
+      "test_description": "Execute N real classification calls for the same document/taxonomy over a short window, record provider raw responses and final labels, and assert label consistency when raw provider output is unchanged; flag divergence otherwise.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.02,
+        "System": 0.12,
+        "Agentic": 0.82,
+        "Workflow": 0.03
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "Real failure is at module boundary between budget enforcement and dispatch (e.g., over-budget request still sent). In-process wiring with fake client is sufficient; no real OS/network required (REAL-INFRA=no). Does not depend on model output quality (LLM-DEP=no). Rejection-gate for System/Agentic: behavior text is pre-dispatch enforcement logic.",
+      "test_description": "Configure small token budget, pass oversized document, and use a fake client spy. Assert policy outcome (truncate or reject) and verify dispatch behavior matches policy (sanitized payload sent or no send).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.4,
+        "Integration": 0.5,
+        "System": 0.05,
+        "Agentic": 0.05,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Agentic",
+      "justification": "Needs real provider accounting; mocks can always return in-budget usage and miss tokenizer/provider mismatches (MOCK-HIDE=yes). This traverses a real AI API call, and correctness depends on actual provider-reported usage, so Agentic is the safer minimum over Integration/System. Not Workflow: single call metric check, no multi-agent sequence.",
+      "test_description": "Run real classification on representative document(s), capture provider-reported token usage metadata, and assert usage <= configured budget for each call.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.03,
+        "System": 0.26,
+        "Agentic": 0.68,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "Core failure is retry orchestration across local modules (error handling, backoff, retry loop). Can be caught with in-process fake API returning rate-limit then success plus controllable clock. Real network is not required (REAL-INFRA=no), and model output quality is irrelevant (LLM-DEP=no). Rejection-gate for System/Agentic: behavior text is transport/error policy, not live model judgment.",
+      "test_description": "Use fake API client scripted to return rate-limit error then success; invoke classify; assert caller receives success, retry count/backoff behavior matches policy, and no immediate terminal error is returned on first rate-limit response.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.68,
+        "System": 0.1,
+        "Agentic": 0.02,
+        "Workflow": 0
+      }
+    }
+  ]
+}

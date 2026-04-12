@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler-module interaction: signature verifier + HTTP response + queue forwarding gate. A unit test of only HMAC logic misses bugs where invalid requests still get enqueued. Real OS/network/subprocess is not required (in-process HTTP harness and fake queue are sufficient), and no AI/ML output is involved.",
+      "test_description": "Run the webhook handler in-process, send a request with mismatched `X-Signature-256`, assert HTTP 401 and assert queue `enqueue` was not called / queue store unchanged.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: behavior text does not require real network/OS effects; rejected Agentic/Workflow: no model decisions.",
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.66,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "This is explicit cross-module ordering/state handoff (HTTP handler ↔ persistent queue). Unit is too low because the failure appears at the boundary. It does not require real external network or subprocess; a local persistence-backed queue in the same process can expose ordering regressions.",
+      "test_description": "Instrument handler and persistent queue write completion; send a valid request and assert queue write commit timestamp/order occurs before HTTP 200 is emitted.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: no behavior text requiring real external infra beyond local module wiring/persistence; rejected Agentic/Workflow: no AI steps.",
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.08,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "Failure is asynchronous orchestration between handler, queue, and downstream worker trigger. Unit tests of one function can miss await/Promise coupling bugs. Real network/OS is not necessary; in-process server plus deliberately slow downstream stub reproduces the failure.",
+      "test_description": "Use an in-process app with downstream processor delayed (e.g., unresolved promise for several seconds). Send a valid event and assert response returns immediately while downstream remains unfinished.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: no requirement for real HTTP over network or OS primitives; rejected Agentic/Workflow: no model output dependence.",
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.74,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "Behavior is wall-clock SLA under concurrency, sensitive to event-loop scheduling, socket handling, and real timing effects. In-process fakes/timers can hide starvation/queueing failures that appear only with real HTTP and concurrent load. No AI/ML dependency.",
+      "test_description": "Start the real service listener, pre-load slow concurrent downstream work, then send webhook requests over real HTTP and measure end-to-end latency; assert each response is received within 3 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected Integration: behavior text explicitly requires wall-clock and concurrent conditions where mocked timing can mask real failures; rejected Agentic/Workflow: no model decisions.",
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.22,
+        "System": 0.75,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Dedup correctness is at state handoff boundary (ID tracking/persistence + enqueue path). A pure unit test can miss duplicate writes caused by repository/queue interaction. Real external infra is unnecessary if using local persistence/in-process modules.",
+      "test_description": "Submit the same event ID twice through the handler and assert only one persistent queue record exists and second attempt is treated as duplicate (no second write).",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: no explicit need for external network/OS behavior; rejected Agentic/Workflow: no AI dependence.",
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.72,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler-to-queue error propagation and HTTP mapping. Unit-only response mapping is insufficient if queue-full signals are misinterpreted across modules. Real OS/network/subprocess not required; queue-full can be produced by an in-process queue module/fake implementing real interface.",
+      "test_description": "Configure queue component to return `FULL` on enqueue; send valid webhook and assert HTTP 503 plus `Retry-After` header value/presence.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: behavior is protocol mapping, not real infra behavior; rejected Agentic/Workflow: no model steps.",
+      "level_probabilities": {
+        "Unit": 0.24,
+        "Integration": 0.69,
+        "System": 0.05,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This validates real queue implementation plus persistence/config interaction, beyond single-function logic. It needs module wiring with local storage semantics; no external network or subprocess is required. Mocking queue internals would hide real capacity-enforcement bugs.",
+      "test_description": "Instantiate the real persistent queue with small capacity, enqueue up to limit, then enqueue one more and assert a concrete rejection/error and no extra persisted record.",
+      "plan_consistent": true,
+      "plan_consistent_note": "Rejected System: can be reproduced with local in-process persistence without real external systems; rejected Agentic/Workflow: no AI/ML output dependence.",
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.77,
+        "System": 0.07,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    }
+  ]
+}

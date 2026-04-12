@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-04",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "The request sent to the external API always includes the complete list of valid taxonomy labels.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is at a module boundary (taxonomy/config -> request builder -> API client payload). REAL-INFRA: no real OS/network behavior is required; an in-process fake client can assert exact outbound payload. MOCK-HIDE: mocking at too high a level (only asserting function return) could miss dropped/omitted labels in the handoff. Rejection gate: rejected System because behavior is about request content, not real network effects; rejected Agentic because correctness does not depend on model output.",
+      "test_description": "Wire the classifier with a fake API transport that records outbound request JSON; run classify(doc, taxonomy) and assert every taxonomy label is present in the sent payload.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.35,
+        "Integration": 0.6,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "When the API returns a label that is not in the taxonomy, the module returns \"unknown\" instead of forwarding the unexpected value to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure appears at API-response -> normalization -> public return boundary. REAL-INFRA: no real network needed; stubbed response is enough. MOCK-HIDE: a pure unit test of only one helper could miss mapping failure in real response wiring. Rejection gate: rejected Agentic because this behavior validates fallback logic for an out-of-taxonomy value, not model-quality correctness.",
+      "test_description": "Use a stub API adapter returning a successful response with label=\"not_a_valid_label\"; call classify and assert returned label is exactly \"unknown\".",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.45,
+        "Integration": 0.5,
+        "System": 0.03,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "For identical raw API responses, the module's normalization step always produces the same final label.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: behavior targets one local normalization boundary with fixed input/output determinism. REAL-INFRA: none. MOCK-HIDE: mocking is irrelevant because no external interaction is needed. Rejection gate: rejected Integration because behavior text explicitly fixes input as \"identical raw API responses\" and scopes to \"normalization step\" only.",
+      "test_description": "Call normalization function/object repeatedly with the same raw API payload fixture and assert deterministic identical final label each run.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.9,
+        "Integration": 0.08,
+        "System": 0.01,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "On repeated live API calls for the same document and taxonomy, the returned label remains consistent unless the provider response itself changes.",
+      "minimum_level": "Agentic",
+      "justification": "LLM-DEP: correctness depends on real model/provider behavior across repeated calls; stubs cannot expose drift/variance. REAL-INFRA is also present (real external call), but the key failure boundary is model-output consistency, which is Agentic. Rejection gate: rejected Workflow because this is repeated single-step classification calls, not a multi-agent/multi-decision pipeline.",
+      "test_description": "Run N repeated classifications against the real provider for the same doc+taxonomy under controlled prompt/settings; record raw responses and final labels; assert label stability when raw provider output is unchanged, and only allow label changes when raw output changes.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.2,
+        "Agentic": 0.73,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Request construction enforces the configured token budget before dispatch (for example truncate/reject according to policy).",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is in handoff between tokenizer/budget policy and dispatch gate (whether request is truncated/rejected before send). REAL-INFRA: behavior explicitly says \"before dispatch\", so real network/OS is not required. Rejection gate: rejected System due explicit pre-dispatch scope; rejected Agentic because model output quality is not part of this behavior.",
+      "test_description": "Configure a small token budget and use a fake dispatch client; send oversized input and assert policy outcome (truncate or reject) plus that outbound request respects budget or is not sent.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.62,
+        "System": 0.05,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "Provider-reported token usage for a typical document stays within the configured per-call budget.",
+      "minimum_level": "Agentic",
+      "justification": "Behavior requires provider-reported usage from a real AI API call; mocks can hide tokenizer/model-side usage differences and evolving provider behavior. This is not just transport plumbing; the measured budget outcome depends on real model/provider execution. Rejection gate: rejected Workflow because behavior is one call-level budget check, not multiple agentic decisions in sequence.",
+      "test_description": "Execute real classification calls for representative documents, read provider usage metadata from responses, and assert reported total tokens <= configured per-call budget; track failures by model/version to detect drift.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.04,
+        "System": 0.35,
+        "Agentic": 0.58,
+        "Workflow": 0.02
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "When the API signals that the request rate is too high, the module waits and retries rather than returning an error to the caller.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: behavior is retry orchestration across client, backoff, and classifier return path. REAL-INFRA: real network/rate-limit service is not required to catch logic failure; controlled 429/\"rate limit\" stubs plus fake clock/timer suffice. Rejection gate: rejected System because no OS/network-specific failure is required by the behavior text; rejected Agentic because correctness does not depend on model judgment, only retry control flow.",
+      "test_description": "Stub provider to return rate-limit error on first call and success on retry; use controllable clock to verify wait/backoff occurs and final classify call succeeds without surfacing an error.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.75,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

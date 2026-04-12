@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler-to-queue handoff: reject path must both emit 401 and suppress enqueue. MOCK-MISS: not just hash math; it is cross-module control flow. REAL-INFRA: no real OS/network/subprocess required if exercised in-process. LLM-DEP/MULTI-STEP: none. Rejected System because behavior text is limited to HTTP status and forwarding decision, not real network conditions.",
+      "test_description": "Run handler with in-process HTTP test harness, real signature verifier, and queue spy/fake. Send mismatched body/signature; assert 401 and zero enqueue calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.76,
+        "System": 0.06,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "Behavior explicitly targets ordering across modules (handler response vs queue persistence), so Unit is too low by MOCK-MISS. REAL-INFRA: can be caught with controlled in-process queue implementation exposing write completion timing. Rejected System because behavior text does not require real network/OS effects, only sequencing: 'written ... before ... 200'.",
+      "test_description": "Use a queue adapter fake that blocks write completion until released. Invoke handler and verify 200 is not produced until write promise resolves; then assert enqueue persisted once.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.74,
+        "System": 0.19,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "This is async boundary behavior between request path and downstream worker trigger. Needs module interaction, not single-function logic. REAL-INFRA: no real subprocess/network required; controlled promises reproduce failure. Rejected System because behavior text is about wait semantics, not OS-level timing primitives.",
+      "test_description": "Wire handler with downstream processor promise that never resolves during assertion window. Assert HTTP response is sent promptly after enqueue/accept path while processor remains incomplete.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.8,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA applies directly: explicit '3 seconds wall-clock' under concurrency depends on runtime scheduling, server stack, and real timing; mocks/fake timers can hide queue starvation/backpressure effects (MOCK-HIDE). Rejected Integration because behavior text requires real-time latency under concurrent load, not just logical ordering.",
+      "test_description": "Start real Node HTTP server process and real queue/worker wiring. Generate slow concurrent prior events, then send a new valid webhook and measure end-to-end wall-clock latency; assert response <3s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.14,
+        "System": 0.85,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Dedup correctness is state handoff between handler and persistence/idempotency store, so Unit is too low. REAL-INFRA: typically testable with in-process modules + local persistence abstraction; no required OS/network boundary in behavior text. Rejected System because text does not require distributed race/network partitions, only duplicate-ID suppression.",
+      "test_description": "Submit same event ID twice through handler against test persistence-backed queue (or repo fake with state). Assert first accepted, second not enqueued, and stored count remains one.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.75,
+        "System": 0.13,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "Behavior is mapping of queue-capacity signal to HTTP contract across module boundary. Unit is too low because queue-to-handler translation is the failure mode. REAL-INFRA: no real OS/network needed; deterministic queue-full signal is sufficient. Rejected System because behavior token is 'queue reports it is full' (already abstracted signal), not real infra failure.",
+      "test_description": "Use handler with queue stub/fake that returns a 'full' error. Assert HTTP 503 and presence/value format of Retry-After header; assert no downstream processing started.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.16,
+        "Integration": 0.79,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "This is queue component + persistence interaction; must test real queue implementation (not mock) to avoid MOCK-HIDE. By level defs, local DB/filesystem-backed enforcement is Integration. Rejected System because no external network/subprocess/OS-specific primitive is required by behavior text beyond local persistence semantics.",
+      "test_description": "Instantiate real persistent queue backend in test environment with small configured capacity. Enqueue until limit, then enqueue one more; assert rejection and no stored count above capacity after reload/readback.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.72,
+        "System": 0.23,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

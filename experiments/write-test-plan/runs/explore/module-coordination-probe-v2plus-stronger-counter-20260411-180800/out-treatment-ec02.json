@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Unit",
+      "justification": "MOCK-MISS: this is primarily handler decision logic (verify HMAC result -> reject -> do not forward), which can fail inside one object boundary. REAL-INFRA: no real OS/network/subprocess is required to reproduce this failure. LLM-DEP/MULTI-STEP: none. Rejection-gate: I considered Integration because forwarding touches another module, but the behavior text is disqualified for higher level by the explicit single-decision logic: \"signature does not match\" -> \"401\" and \"not forwarded\"; a unit test with a spy/stub forwarder can catch real regressions.",
+      "test_description": "Call the webhook handler with a fixed raw body and a mismatched X-Signature-256 header, using an in-memory response double and a spy queue/forwarder. Assert status 401 and zero enqueue/forward calls.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.74,
+        "Integration": 0.23,
+        "System": 0.02,
+        "Agentic": 0.01,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: failure is an ordering/handoff bug across modules (handler response path vs persistent queue write). Unit stubs can miss persistence-path sequencing bugs. REAL-INFRA: this does not require real external network/OS primitives beyond local module wiring and local persistence. Integration-brake: (a) no required real OS/network/subprocess boundary in behavior text, (b) no AI output dependence, (c) no multi-agentic chain, (d) no LLM stage handoff. Rejection-gate: I considered System due the word \"persistent,\" but behavior text only requires write-before-ack ordering, not real external infra semantics.",
+      "test_description": "Run the handler wired to the real queue module against a local persistence backend (e.g., sqlite/file-backed test store). Delay queue commit completion; assert HTTP 200 is not sent until enqueue resolves, and persisted record exists when 200 is observed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.62,
+        "System": 0.16,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is cross-module orchestration (ingest/queue boundary vs downstream worker completion), not just a pure function. REAL-INFRA: no real external OS/network requirement to expose the bug; in-process modules with controlled async behavior are sufficient. Integration-brake: (a) no mandatory real subprocess/network in wording, (b) no model output dependency, (c) no multi-agentic sequence, (d) no LLM orchestration. Rejection-gate: I considered System for real HTTP timing, but behavior text is about wait semantics (not end-to-end infra conditions), so Integration is sufficient.",
+      "test_description": "Wire handler + queue + downstream processor module in-process. Make downstream processing block (or resolve late) after enqueue. Assert HTTP response is sent before downstream completion signal.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.3,
+        "Integration": 0.58,
+        "System": 0.1,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: this explicitly requires wall-clock latency under concurrency and slow prior work; real server runtime, scheduler/event-loop behavior, and real HTTP timing can produce failures hidden by in-process mocks/fake timers. MOCK-HIDE: mocked transport/clock often masks queue contention and runtime starvation. LLM-DEP/MULTI-STEP: none.",
+      "test_description": "Start the real Node service process and send concurrent HTTP webhook requests while earlier events are intentionally slow in downstream processing. Measure actual wall-clock response times; assert each new webhook response is <=3s.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.03,
+        "Integration": 0.1,
+        "System": 0.84,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: dedup correctness is state handoff across requests (handler -> persistence/queue uniqueness state), which is a module boundary failure. Unit-only tests can miss real state-store interaction bugs. REAL-INFRA: can be validated with local persistence wiring; no required external OS/network/subprocess. Integration-brake: (a) no mandatory real external infra, (b) no AI output, (c) no agentic chain, (d) no LLM stages. Rejection-gate: I considered System for multi-request behavior, but behavior text only requires duplicate-ID suppression at queue write boundary, which local integration can verify.",
+      "test_description": "With real handler + real persistent queue module in a test store, submit same event ID twice. Assert first enqueue succeeds and second is skipped/rejected such that only one persisted queue record exists.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.18,
+        "Integration": 0.67,
+        "System": 0.13,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this is an error-contract handoff between queue module and HTTP layer (capacity signal -> status/header mapping). A pure unit can miss mismatched error types/contracts across modules. REAL-INFRA: no external network/OS/subprocess is required; in-process module wiring is enough. Integration-brake: (a) no required real external infra in behavior text, (b) no AI output dependence, (c) no multi-agentic chain, (d) no LLM orchestration. Rejection-gate: I considered Unit, but behavior explicitly states cross-module condition \"queue reports it is full,\" so Integration is the safer minimum.",
+      "test_description": "Wire real handler with queue module configured to return a concrete \"full\" condition. Send webhook request and assert response is 503 and includes a valid Retry-After header.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.28,
+        "Integration": 0.64,
+        "System": 0.06,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "MOCK-MISS: this behavior targets queue implementation + persistence interaction under configured limits; mocking queue would trivially pass and hide real enforcement failures. REAL-INFRA: can be exercised with local persistence backend and queue module wiring; external OS/network/subprocess is not inherently required by wording. Integration-brake: (a) no explicit need for real external infra, (b) no AI dependency, (c) no agentic chain, (d) no LLM orchestration. Rejection-gate: I considered System because persistence can involve infra details, but behavior text only requires configured-capacity enforcement in the queue component, which local integration can verify.",
+      "test_description": "Instantiate the real persistent queue against its test persistence backend with capacity N, enqueue N events, then enqueue one more. Assert the final enqueue is rejected and stored count remains N.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.61,
+        "System": 0.29,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}

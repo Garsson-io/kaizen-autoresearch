@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "Reject webhook when `X-Signature-256` does not match raw body; do not forward body.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler+signature verifier+queue handoff, not a single pure function. MOCK-MISS: a unit test of HMAC compare alone can miss wiring bugs where handler still forwards on auth failure. INTEGRATION-BRAKE: no real OS/network/subprocess requirement, no AI output dependency, no multi-agent chain. REJECTION-GATE: System rejected because behavior only requires in-process request/response plus module wiring; real network is not required by the behavior text.",
+      "test_description": "Run the HTTP handler in-process with real body-parsing path and real signature-verification module, using a queue spy/fake. Send a request with mismatched signature over the in-process server harness; assert `401` and assert queue `enqueue` was never called.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "Write event to persistent queue before returning HTTP 200 acknowledgment.",
+      "minimum_level": "Integration",
+      "justification": "This is an ordering/handoff guarantee across modules (handler and persistent queue), so Unit is too low. REAL-INFRA does not force System: ordering can be verified with in-process server + real queue module (or local persistence) and controlled async timing. REJECTION-GATE: System rejected because behavior text is about call/order semantics, not real network/OS effects.",
+      "test_description": "Start handler with queue implementation instrumented to expose completion of durable write (e.g., promise resolves only after write). Issue request and capture timing/order events. Assert queue write completion happens before response `200` is observed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "Return HTTP response without waiting for downstream processing to finish.",
+      "minimum_level": "Integration",
+      "justification": "Failure appears at boundary between request path and async downstream consumer. A unit test of one function would miss real handoff behavior; integration wiring is needed. INTEGRATION-BRAKE: no need for real external network/OS primitives; no AI dependence; single-step non-agentic flow. REJECTION-GATE: System rejected because in-process timing with controlled slow processor reproduces the failure boundary.",
+      "test_description": "Wire handler to a downstream processor that intentionally blocks (e.g., deferred promise). Send valid event and assert HTTP response returns before processor completion signal. Also assert event was queued for async processing.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.78,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "Response arrives within 3 seconds wall-clock even when earlier downstream processing is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "REAL-INFRA: explicit wall-clock SLA under concurrency is sensitive to runtime scheduling, server behavior, and actual HTTP path; in-process fakes can hide queue contention/backpressure effects. MOCK-HIDE: mocked timing or single-threaded stubs can pass while real server misses deadline. REJECTION-GATE: Integration rejected because behavior text explicitly requires wall-clock under concurrent slow processing, a known Integration->System top-loss boundary.",
+      "test_description": "Run the real service process with actual HTTP listener. Create concurrent load where earlier events trigger slow downstream work, then send new valid requests and measure end-to-end response latency from client side. Assert each response is <=3s and record failures under repeated runs.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "Do not write duplicate event ID to queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "This is state handoff/idempotency across handler and persistent queue/storage; not a single-function assertion. Needs shared state across requests to catch real duplicate-write bugs. INTEGRATION-BRAKE: no real external network/OS primitive required beyond local module wiring/state store; no AI dependency. REJECTION-GATE: System rejected because duplicate detection can be validated with in-process requests against real dedupe/persistence modules.",
+      "test_description": "Issue two webhook requests with same event ID through in-process HTTP harness. Use real dedupe/persistence path (e.g., local DB/file-backed queue). Assert first request writes once; second does not create another queued record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.85,
+        "System": 0.07,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When queue is full, return 503 with `Retry-After` header.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is translation of queue-capacity signal into HTTP semantics across modules. Unit of one mapper function is insufficient if wiring swallows/rewrites the error. INTEGRATION-BRAKE: no real OS/network requirement, no AI, no multi-step agent pipeline. REJECTION-GATE: System rejected because full-queue condition and response mapping can be reproduced in-process.",
+      "test_description": "Configure queue module to report/full-error at capacity (or prefill to capacity), invoke handler request, and assert response status `503` plus correct `Retry-After` header presence/value.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "Persistent queue enforces configured capacity limit and rejects events exceeding it.",
+      "minimum_level": "Integration",
+      "justification": "Behavior targets queue component with real persistence semantics (state across writes), which is beyond pure Unit logic but still local module+storage integration. REAL-INFRA does not require System because local DB/filesystem integration is sufficient per level defs. REJECTION-GATE: System rejected because no subprocess/real external API/network condition is required by the behavior text.",
+      "test_description": "Instantiate real persistent queue against local test storage with capacity N. Enqueue N events successfully, then enqueue N+1 and assert explicit capacity rejection and no persisted extra record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.75,
+        "System": 0.1,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}

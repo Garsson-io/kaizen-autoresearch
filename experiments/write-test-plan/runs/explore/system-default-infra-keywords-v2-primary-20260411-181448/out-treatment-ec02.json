@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "minimum_level": "Integration",
+      "justification": "Failure boundary is handler orchestration: signature verifier + HTTP response + queue handoff. A unit test of only HMAC comparison can miss accidental forwarding. Rejected System: behavior text requires HTTP status and no-forwarding logic, not real network/OS/subprocess behavior.",
+      "test_description": "Run the webhook handler in-process with a malformed signature, assert `401`, and assert queue `enqueue` is never called (or queue remains unchanged).",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.25,
+        "Integration": 0.7,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "minimum_level": "Integration",
+      "justification": "This is an ordering bug at module handoff (handler -> persistent queue -> response). Need multiple modules wired with controllable queue write timing. Rejected System: text does not require real network or OS primitives; in-process integration can observe write-before-ack order.",
+      "test_description": "Use an in-process server/handler with a real queue module (or test persistence adapter) instrumented to signal write completion; assert HTTP `200` is not emitted until persistence write resolves.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.82,
+        "System": 0.08,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "minimum_level": "Integration",
+      "justification": "Behavior depends on decoupling enqueue from downstream worker completion, which is cross-module async orchestration. Rejected System: no requirement for real network/subprocess; blocking downstream can be simulated in-process.",
+      "test_description": "Wire handler + queue + a downstream consumer stub that intentionally blocks; send event, assert response completes quickly while consumer is still running.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.15,
+        "Integration": 0.8,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "minimum_level": "System",
+      "justification": "Behavior explicitly targets wall-clock latency under concurrency pressure, which depends on runtime scheduling, real HTTP handling, and timing effects that mocks can hide. REAL-INFRA and MOCK-HIDE push to System.",
+      "test_description": "Start the real Node HTTP service, preload slow concurrent downstream work, send webhook requests over real HTTP, and assert end-to-end response latency stays under 3 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.18,
+        "System": 0.8,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "minimum_level": "Integration",
+      "justification": "Dedup correctness is state handoff across handler and persistent queue state; single-function unit logic can miss persistence/uniqueness integration bugs. Rejected System: behavior text does not require real network/OS, only local persistence semantics.",
+      "test_description": "Send two requests with same event ID through handler wired to persistent queue storage; assert first is stored and second is rejected/skipped with no second queue record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.85,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "minimum_level": "Integration",
+      "justification": "This tests contract mapping between queue backpressure signal and HTTP response/header. Needs module interaction, not real OS/network. Rejected System: failure can be reproduced with in-process queue-full condition.",
+      "test_description": "Configure queue to return `full` on enqueue; call handler and assert `503` plus correct `Retry-After` header and no downstream dispatch.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.2,
+        "Integration": 0.75,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "minimum_level": "Integration",
+      "justification": "Capacity enforcement is in the queue+persistence boundary (stateful local DB/filesystem behavior), beyond pure function logic. Rejected System: behavior asks for persistence-capacity enforcement, not external network/subprocess/OS-specific effects.",
+      "test_description": "Instantiate queue against local persistent store with small capacity, enqueue until limit, then assert next enqueue is rejected and persisted count does not exceed configured limit.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.12,
+        "Integration": 0.83,
+        "System": 0.05,
+        "Agentic": 0,
+        "Workflow": 0
+      }
+    }
+  ]
+}
