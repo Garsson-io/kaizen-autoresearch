@@ -12,12 +12,12 @@ change_type: framing
 risk: Backfilled placeholder from historical run log; details need curation.
 prereqs: null
 related: [self-check-hypothetical-wiring-guard, integration-contract-invariant-gate, integration-handoff-not-unit-guard]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 66.68
+explore_delta: -1.06
+explore_date: 2026-04-11
 last_run: 20260328-201805
 last_iteration: 30
 last_outcome: discard
@@ -84,3 +84,17 @@ Run note: add MULTI-STEP retry/state wording for Workflow — loss worsened, rev
 ## Scathing Critique
 
 Current record is partially reconstructed from logs, so mechanism details are incomplete. Risk: retrying without reconstructing the exact prior wording may repeat failure modes or misattribute success. Require explicit diff reconstruction before retry.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 66.6754 | -1.0640 | improved 3, hurt 1, flat 2 | distributed |
+| v2plus-stronger-counter | 71.2774 | +3.5380 | improved 2, hurt 2, flat 2 | n/a |
+
+Winner: `v2-primary` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

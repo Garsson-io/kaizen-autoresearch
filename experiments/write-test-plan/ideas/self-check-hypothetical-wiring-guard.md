@@ -62,3 +62,15 @@ Current status: null.
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 71.0326 | +3.2931 | improved 1, hurt 2, flat 3 | n/a |
+| v2plus-stronger-counter | 70.4235 | +2.6840 | improved 1, hurt 2, flat 3 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.

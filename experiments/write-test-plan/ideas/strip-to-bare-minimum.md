@@ -71,3 +71,17 @@ Current status: null.
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 65.0246 | -2.7148 | improved 3, hurt 2, flat 1 | distributed |
+| v2plus-stronger-counter | 67.0278 | -0.7116 | improved 2, hurt 2, flat 2 | ec-07 drives 73% of gain |
+
+Winner: `v2-primary` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

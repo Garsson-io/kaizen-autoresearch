@@ -21,12 +21,12 @@ family: cross-behavior-consistency
 mechanism_signature: final-contradiction-sweep-single-revision
 max_followups: 1
 control_required: true
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 67.65
+explore_delta: -0.09
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -67,3 +67,15 @@ Current status: untested.
 ## Reusable Lesson
 Pending first run.
 
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 67.6487 | -0.0908 | improved 3, hurt 3, flat 0 | ec-07 drives 64% of gain |
+| v2plus-stronger-counter | 67.3263 | -0.4131 | improved 1, hurt 3, flat 2 | ec-07 drives 85% of gain |
+
+Winner: `v2-primary` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.

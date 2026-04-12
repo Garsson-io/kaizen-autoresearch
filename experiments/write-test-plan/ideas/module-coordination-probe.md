@@ -12,12 +12,12 @@ change_type: framing
 risk: Backfilled placeholder from historical run log; details need curation.
 prereqs: null
 related: [self-check-hypothetical-wiring-guard, integration-contract-invariant-gate, integration-handoff-not-unit-guard]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
+explore_status: no-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
 explore_loss: null
 explore_delta: null
-explore_date: null
+explore_date: 2026-04-11
 last_run: 20260328-150512
 last_iteration: 17
 last_outcome: discard
@@ -84,3 +84,15 @@ Run note: module-coordination-probe: add coordination-vs-logic Think line under 
 ## Scathing Critique
 
 Current record is partially reconstructed from logs, so mechanism details are incomplete. Risk: retrying without reconstructing the exact prior wording may repeat failure modes or misattribute success. Require explicit diff reconstruction before retry.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 68.7247 | +0.9853 | improved 2, hurt 1, flat 3 | n/a |
+| v2plus-stronger-counter | 73.0458 | +5.3064 | improved 2, hurt 3, flat 1 | n/a |
+
+No winner — all variations flat or worse. Classification: `no-signal`.

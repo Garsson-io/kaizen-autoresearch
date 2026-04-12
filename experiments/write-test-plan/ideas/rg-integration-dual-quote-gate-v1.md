@@ -12,12 +12,12 @@ change_type: meta-cognitive
 risk: Backfilled placeholder from crash-only historical run; mechanism and targets need curation before reuse.
 prereqs: null
 related: [system-environment-artifact-split, concrete-system-example, infra-probe-question]
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-02, ec-04, ec-06, ec-07, ec-03, ec-14]
+explore_baseline_loss: 67.74
+explore_loss: 64.75
+explore_delta: -2.99
+explore_date: 2026-04-11
 last_run: 20260331-022843
 last_iteration: 62
 last_outcome: crash
@@ -81,3 +81,17 @@ Current record is partially reconstructed from logs, so mechanism details are in
 - Primary targets: Integration-System.
 - Success criterion: improve weighted loss on these pairs without introducing a larger adjacent-pair regression.
 - Watch risk: Backfilled placeholder from crash-only historical run; mechanism and targets need curation before reuse..
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-04, ec-06, ec-07, ec-03, ec-14`  
+Baseline subset loss: `67.74`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 64.7535 | -2.9859 | improved 3, hurt 1, flat 2 | distributed |
+| v2plus-stronger-counter | 66.7193 | -1.0202 | improved 2, hurt 1, flat 3 | ec-07 drives 68% of gain |
+
+Winner: `v2-primary` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+

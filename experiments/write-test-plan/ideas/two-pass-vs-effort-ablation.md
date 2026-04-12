@@ -15,12 +15,12 @@ change_type: meta-cognitive
 risk: Can confuse mechanism attribution unless all cells are run on the same task subset and model.
 prereqs: Runner must support explicit reasoning-effort control and fixed task set.
 related: [two-step-review-loop, competitive-critique-seeding, hypothesis-validation-step]
-explore_status: null
+explore_status: concentrated-signal
 explore_tasks: [ec-02, ec-03, ec-04, ec-07, ec-13, ec-19, ec-32, ec-33]
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_baseline_loss: 105.54
+explore_loss: 102.60
+explore_delta: -2.94
+explore_date: 2026-04-11
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -102,3 +102,17 @@ Current status: null.
 ## Reusable Lesson
 
 TODO: record one portable lesson after each try.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-02, ec-03, ec-04, ec-07, ec-13, ec-19, ec-32, ec-33`  
+Baseline subset loss: `105.54`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v2-primary | 117.6345 | +12.0981 | improved 2, hurt 4, flat 2 | n/a |
+| v2plus-stronger-counter | 102.5966 | -2.9398 | improved 2, hurt 2, flat 4 | distributed |
+
+Winner: `v2plus-stronger-counter` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
