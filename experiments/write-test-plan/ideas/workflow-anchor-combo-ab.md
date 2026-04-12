@@ -1,7 +1,7 @@
 ---
 id: workflow-anchor-combo-ab
 title: Workflow Anchor Combo A+B
-status: proposed
+status: parked
 effort: low
 expected_impact: high
 targets:
