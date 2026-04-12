@@ -63,6 +63,7 @@ Every step is either **perception** (tools compute structured evidence), **cogni
 7. **Package context for IDEATE**: pre-run `ideas-index.ts --table`, read treatment.md, read top taxonomy files, read meta-failures.md. Paste everything into the IDEATE subagent prompt so the subagent does ZERO file reading.
 8. **META write-back is mandatory**: after each run, update `experiments/<name>/meta-failures.md` with whether the current result confirms, weakens, or falsifies a process hypothesis (with concrete run IDs and deltas). If no meta update is warranted, add a brief "no new meta evidence" note in the iteration log/commit message.
 9. **GT disagreement protocol is mandatory**: when a row is persistently disputed across recent runs, follow `program.md` GT adjudication policy and record keep/fix/split decisions in `taxonomy/gt-review.md` with task+behavior IDs and rationale.
+10. **Every 10th-iteration excuse audit is mandatory**: after LOG, if the just-logged iteration id `i` satisfies `i % 10 == 0`, execute the `audit-excuses` workflow (`.agents/skills/audit-excuses/SKILL.md`) before proceeding. Treat this as part of the current iteration's required loop work.
 
 **Subagent cognitive step** — IDEATE is pure creative generation:
 - Prefer a Codex subagent (`model: gpt-5.3-codex`) by default; Claude is also valid when explicitly chosen for this run

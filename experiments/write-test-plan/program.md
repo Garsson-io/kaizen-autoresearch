@@ -315,6 +315,17 @@ LOOP:
      → Step 3 is the compounding value: new taxonomy files retroactively categorize all historical
      evidence in unmatched.md. See `taxonomy/README.md` § "The three-step MINE taxonomy flow" for the
      full cognitive procedure (what to read, how to classify, validation checklist).
+  9.5. PERIODIC EXCUSE AUDIT (MANDATORY every 10th iteration)
+      After LOG, check the just-logged iteration number `i`.
+      If `i % 10 == 0`, run a focused last-12-runs excuse audit using
+      `.agents/skills/audit-excuses/SKILL.md` and apply any justified taxonomy re-homing updates.
+      Minimum required outcomes for checkpoint iterations:
+      - ranked excuse families (frequency + weighted impact)
+      - explicit routing decisions (`pair -> taxonomy file`)
+      - taxonomy backfill run (`taxonomy-append.ts --reprocess-unmatched`)
+      - before/after summary (`taxonomy-append.ts --summary`)
+      - doc codification updates in `taxonomy/README.md` and/or `justification-taxonomy.md` when rules changed
+      If `i % 10 != 0`, skip this step.
   10. COMMIT RUNS (MANDATORY, immediate) — git add the timestamped run dir and commit run artifacts right after scoring:
       ```bash
       git add experiments/write-test-plan/runs/<timestamp>/ \

@@ -6,6 +6,19 @@ argument-hint: "[experiment name, e.g. write-test-plan]"
 
 Mine the agent's prose reasoning from the latest experiment run to discover failure patterns and generate data-grounded ideas for prompt improvement.
 
+Cross-reference:
+- For a focused last-N-runs excuse audit and taxonomy re-homing workflow, use `audit-excuses` (`.agents/skills/audit-excuses/SKILL.md`).
+
+## Canonical ownership
+
+- Canonical here: latest-run mining workflow and idea generation.
+- Canonical for taxonomy routing mechanics and rules: `experiments/write-test-plan/taxonomy/README.md`.
+- Canonical for full iteration loop policy: `experiments/<name>/program.md` and `.agents/skills/run-experiment/SKILL.md`.
+
+## Periodic checkpoint
+
+If this skill is being run as part of the experiment loop and the current iteration id `i` is divisible by 10 (`i % 10 == 0`), also run the focused last-N excuse audit workflow from `audit-excuses` and fold its routing/doc updates into the same iteration.
+
 ## Steps
 
 ### 1. Determine the experiment
@@ -98,32 +111,16 @@ Also compute:
 
 ### 6. Update taxonomy/ folder (APPEND-ONLY)
 
-→ **Canonical reference**: `experiments/write-test-plan/taxonomy/README.md`
-  Covers: confusion_pair direction convention (always Pred-GT, never GT-Pred), block format, unmatched.md accumulation, tool commands, pattern discovery procedure, known pitfalls, validation checklist.
+Follow the canonical taxonomy procedure in `experiments/write-test-plan/taxonomy/README.md` ("The three-step MINE taxonomy flow"). Do not duplicate or override rules here.
 
-The `$EXPERIMENT_DIR/taxonomy/` folder has one `.md` file per reasoning pattern. **NEVER delete old lines — only append.**
-
-Follow the **3-step MINE taxonomy flow** from `taxonomy/README.md`:
-
-**Step 1 — Route (mechanical)**
+Minimum commands:
 ```bash
 npx tsx $EXPERIMENT_DIR/scripts/extract-thinking.ts --run-dir latest --taxonomy-lines | \
   npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts
-```
-Routes matched blocks to taxonomy files (full J: + T: text, no truncation). Unmatched blocks go to `taxonomy/unmatched.md` — never discarded.
-
-**Step 2 — Summarize (mechanical)**
-```bash
 npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts --summary
-```
-Shows cumulative confusion pair counts. Pairs flagged `← consider new category` have ≥3 cumulative unmatched occurrences and warrant the cognitive step.
-
-**Step 3 — Pattern discovery (LLM cognitive)**
-For each flagged pair, follow the classification procedure in `taxonomy/README.md` § "The three-step MINE taxonomy flow" step 3. In brief: read the full J: + T: blocks from `unmatched.md`, compare against existing file descriptions, classify as fit-existing or new-trap, then backfill:
-```bash
+# if pairs are re-homed by updating confusion_pair lists or adding files:
 npx tsx $EXPERIMENT_DIR/scripts/taxonomy-append.ts --reprocess-unmatched
 ```
-The compounding value: new taxonomy files retroactively categorize all prior evidence in `unmatched.md`.
 
 After routing, also update `$EXPERIMENT_DIR/justification-taxonomy.md` with summary counts and key insights.
 
