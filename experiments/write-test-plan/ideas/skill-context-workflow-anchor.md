@@ -20,10 +20,10 @@ mechanism_signature: skill-context-workflow-anchor
 max_followups: 1
 control_required: true
 explore_status: signal
-explore_tasks: [ec-10, ec-13, ec-15, ec-17, ec-11, ec-14]
-explore_baseline_loss: 78.32
-explore_loss: 70.47
-explore_delta: -7.86
+explore_tasks: [ec-24, ec-17, ec-16, ec-19, ec-29, ec-34]
+explore_baseline_loss: 72.72
+explore_loss: 65.79
+explore_delta: -6.92
 explore_date: 2026-04-12
 last_run: null
 last_iteration: null
@@ -37,13 +37,12 @@ Persistent Agentic↔Workflow errors are often tied to skill-context steering se
 
 ## Epistemological status
 
-Explore subset (stratified): `ec-10, ec-13, ec-15, ec-17, ec-11, ec-14`  
-Baseline subset loss: `78.32`
+Explore subset (stratified): `ec-24, ec-17, ec-16, ec-19, ec-29, ec-34`  
+Baseline subset loss: `72.72`
 
 | Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
 |---|---:|---:|---|---|
-| v1-skill-anchor | 70.4682 | -7.8562 | improved 4, hurt 1, flat 1 | distributed |
-| v2-skill-anchor-plus-agentic-guard | 74.8566 | -3.4678 | improved 3, hurt 1, flat 2 | ec-11 drives 66% of gain |
+| v1-skill-anchor | 65.6643 | -7.0546 | improved 3, hurt 0, flat 3 | distributed |
+| v2-skill-anchor-plus-agentic-guard | 65.7947 | -6.9242 | improved 4, hurt 0, flat 2 | distributed |
 
-Winner: `v1-skill-anchor` by aggregate loss, classification is `signal`.  
-
+Winner: `v2-skill-anchor-plus-agentic-guard` by aggregate loss, classification is `signal`.  
