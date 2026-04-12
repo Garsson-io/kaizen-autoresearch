@@ -1,7 +1,7 @@
 ---
 id: workflow-cross-step-state-anchor
 title: Workflow Cross-Step State Anchor
-status: proposed
+status: rejected
 effort: low
 expected_impact: medium
 targets:
