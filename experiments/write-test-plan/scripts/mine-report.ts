@@ -24,10 +24,7 @@ import {
   extractThinkingFromLog,
   extractBehaviorThinking,
 } from "./extract-thinking.js";
-
-const ROW_WEIGHT: Record<string, number> = {
-  Unit: 1, Integration: 2, System: 3, Agentic: 4, Workflow: 4,
-};
+import { ROW_WEIGHT, computeCrossEntropyLoss } from "./score.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +44,12 @@ interface IterRecord {
   run_dir: string | null;
   status: string;
   loss: number | null;
+}
+
+function getPredictedLevel(b: { required_reality_check_level?: string; minimum_level?: string; behavior_id: number }): string {
+  const level = b.required_reality_check_level ?? b.minimum_level;
+  if (!level) throw new Error(`Missing required_reality_check_level for behavior_id ${b.behavior_id}`);
+  return level;
 }
 
 // ─── Loaders ──────────────────────────────────────────────────────────────────
@@ -79,12 +82,13 @@ function loadRun(runDir: string, includeThinking = false): BehaviorRecord[] {
     }
 
     for (const b of output.behaviors ?? []) {
+      const predLevel = getPredictedLevel(b);
       const gtLevel = gt[b.behavior_id] ?? null;
-      const direction = gtLevel ? getDirection(b.minimum_level, gtLevel) : "unknown";
+      const direction = gtLevel ? getDirection(predLevel, gtLevel) : "unknown";
       const rec: BehaviorRecord = {
         task: taskId,
         bid: b.behavior_id,
-        predicted: b.minimum_level,
+        predicted: predLevel,
         gt: gtLevel,
         direction,
         justification: b.justification ?? "",
@@ -107,18 +111,8 @@ function loadRun(runDir: string, includeThinking = false): BehaviorRecord[] {
 function lossFor(r: BehaviorRecord): number {
   if (!r.gt) return 0;
   const w = ROW_WEIGHT[r.gt] ?? 1;
-  if (r.level_probs) {
-    const p = Math.max(r.level_probs[r.gt] ?? 0, 1e-10);
-    return w * -Math.log(p);
-  }
-  // Approximation when level_probs unavailable
-  if (r.direction === "correct") return w * -Math.log(0.92);
-  const levels = ["Unit", "Integration", "System", "Agentic", "Workflow"];
-  const predIdx = levels.indexOf(r.predicted);
-  const gtIdx = levels.indexOf(r.gt);
-  const dist = gtIdx - predIdx;
-  const prob = dist === 0 ? 0.92 : dist > 0 ? (dist === 1 ? 0.4 : dist === 2 ? 0.15 : 0.05) : 0.7;
-  return w * -Math.log(prob);
+  const { ceLoss } = computeCrossEntropyLoss(r.level_probs, r.gt, w);
+  return ceLoss;
 }
 
 function totalLoss(records: BehaviorRecord[]): number {

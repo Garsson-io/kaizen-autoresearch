@@ -31,10 +31,38 @@ function parseFile(path: string): unknown {
   return path.endsWith(".json") ? JSON.parse(raw) : parseYaml(raw);
 }
 
+function normalizeLegacyOutput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const obj = { ...(input as Record<string, unknown>) };
+  if (!Array.isArray(obj.behaviors)) return obj;
+  obj.behaviors = obj.behaviors.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const b = { ...(raw as Record<string, unknown>) };
+    if (b.required_reality_check_level == null && typeof b.minimum_level === "string") {
+      b.required_reality_check_level = b.minimum_level;
+    }
+    return b;
+  });
+  return obj;
+}
+
 export { LEVEL_INDEX } from "../src/schema.js";
-const ROW_WEIGHT: Record<string, number> = {
+export const ROW_WEIGHT: Record<string, number> = {
   Unit: 1, Integration: 2, System: 3, Agentic: 4, Workflow: 4,
 };
+
+export function computeCrossEntropyLoss(
+  probs: Record<string, number> | null | undefined,
+  gtLevel: string,
+  weight: number,
+): { pCorrect: number; ceLoss: number } {
+  const raw = probs ?? {};
+  const rawSum = Object.values(raw).reduce((a, v) => a + Math.max(0, v), 0);
+  const pCorrect = rawSum > 0 ? Math.max(0, raw[gtLevel] ?? 0) / rawSum : 0.2;
+  // Clamp to avoid -log(0) = Infinity.
+  const pClamped = Math.max(pCorrect, 0.001);
+  return { pCorrect, ceLoss: -Math.log(pClamped) * weight };
+}
 
 export function sufficiency(pred: string, gt: string): number {
   const diff = LEVEL_INDEX[pred] - LEVEL_INDEX[gt];
@@ -65,6 +93,20 @@ interface RowResult {
   ce_loss: number;    // -log(p_correct) * weight
 }
 
+function getPredictedLevel(
+  b: z.infer<typeof ProbeOutput>["behaviors"][number] & { minimum_level?: string },
+): string {
+  const level = b.required_reality_check_level ?? b.minimum_level;
+  if (!level) throw new Error(`Missing required_reality_check_level for behavior_id ${b.behavior_id}`);
+  return level;
+}
+
+function getGroundTruthLevel(
+  b: z.infer<typeof GroundTruth>["behaviors"][number],
+): string {
+  return b.ground_truth_reality_check_level ?? b.ground_truth_level;
+}
+
 interface ScoreResult {
   task_id: string;
   condition: string;
@@ -85,6 +127,9 @@ function loadAndValidate<T>(path: string, schema: z.ZodType<T>): T {
   let parsed: unknown;
   try {
     parsed = parseFile(path);
+    if (schema === ProbeOutput) {
+      parsed = normalizeLegacyOutput(parsed);
+    }
   } catch {
     console.error(`Cannot read file: ${path}`);
     process.exit(1);
@@ -105,7 +150,7 @@ export function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typ
     throw new Error(`task_id mismatch: output=${output.task_id} gt=${gt.task_id}`);
   }
 
-  const gtMap = new Map(gt.behaviors.map((b) => [b.behavior_id, b.ground_truth_level]));
+  const gtMap = new Map(gt.behaviors.map((b) => [b.behavior_id, getGroundTruthLevel(b)]));
   const rows: RowResult[] = [];
   let totalWeight = 0, wSuff = 0, wPrec = 0, wCons = 0;
   let underCount = 0, overCount = 0, critMiss = 0, critTotal = 0;
@@ -117,20 +162,17 @@ export function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typ
     if (!gtLevel) throw new Error(`No GT for behavior_id ${b.behavior_id} in ${output.task_id}`);
 
     const w = ROW_WEIGHT[gtLevel];
-    const s = sufficiency(b.minimum_level, gtLevel);
-    const p = precision(b.minimum_level, gtLevel);
+    const predLevel = getPredictedLevel(b);
+    const s = sufficiency(predLevel, gtLevel);
+    const p = precision(predLevel, gtLevel);
     // plan_consistent: true=1.0, false with note=0.5 (partial), false without note=0.0
     const c = b.plan_consistent ? 1.0 : (b.plan_consistent_note ? 0.5 : 0.0);
-    const diff = LEVEL_INDEX[b.minimum_level] - LEVEL_INDEX[gtLevel];
+    const diff = LEVEL_INDEX[predLevel] - LEVEL_INDEX[gtLevel];
     const dir = diff === 0 ? "exact" : diff > 0 ? "over" : "under";
 
-    // Cross-entropy loss from level_probabilities (mandatory field)
+    // Cross-entropy loss from level_probabilities (mandatory field).
     const probs = b.level_probabilities as Record<string, number>;
-    const rawSum = Object.values(probs).reduce((a, v) => a + Math.max(0, v), 0);
-    const pCorrect = rawSum > 0 ? Math.max(0, probs[gtLevel] ?? 0) / rawSum : 0.2;
-    // Clamp to avoid -log(0) = Infinity
-    const pClamped = Math.max(pCorrect, 0.001);
-    const ceLoss = -Math.log(pClamped) * w;
+    const { pCorrect, ceLoss } = computeCrossEntropyLoss(probs, gtLevel, w);
     totalLoss += ceLoss;
 
     totalWeight += w;
@@ -145,7 +187,7 @@ export function scoreOutput(output: z.infer<typeof ProbeOutput>, gt: z.infer<typ
       if (s < 1.0) critMiss++;
     }
 
-    rows.push({ behavior_id: b.behavior_id, predicted: b.minimum_level, ground_truth: gtLevel, suff: s, prec: p, cons: c, weight: w, direction: dir, p_correct: pCorrect, ce_loss: ceLoss });
+    rows.push({ behavior_id: b.behavior_id, predicted: predLevel, ground_truth: gtLevel, suff: s, prec: p, cons: c, weight: w, direction: dir, p_correct: pCorrect, ce_loss: ceLoss });
   }
 
   const sf = wSuff / totalWeight;
