@@ -1,0 +1,118 @@
+{
+  "task_id": "EC-02",
+  "condition": "treatment",
+  "behaviors": [
+    {
+      "behavior_id": 1,
+      "description": "A request whose signature does not match its body is rejected with a 401 response; the body is not forwarded.",
+      "required_reality_check_level": "Integration",
+      "justification": "Failure mode is at local handoff boundaries (HTTP handler -> signature verifier -> queue publisher). Unit tests on verifier logic alone can miss wiring mistakes where invalid requests still reach enqueue path. Rejected System: behavior text requires `401` and no forwarding, but does not explicitly require real network stack behavior beyond app-internal request/response handling.",
+      "test_description": "Run the handler with mismatched raw body/signature through the app stack (router + middleware + handler + queue adapter) using an in-process test server; assert status 401 and assert queue adapter received no enqueue call.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.08,
+        "Integration": 0.67,
+        "System": 0.23,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 2,
+      "description": "An event is written to the persistent queue before the HTTP 200 acknowledgment is returned to the sender.",
+      "required_reality_check_level": "System",
+      "justification": "This requires proving ordering of an externally visible side effect across boundaries: persistence write must complete before sender receives 200. That is SYSTEM TRIAD #3 (round-trip side-effect visibility). Integration fakes can hide flush/commit timing differences.",
+      "test_description": "Start real service with real persistent queue backend; send webhook; capture response completion time and then verify persisted event exists via queue readback/log position proving write happened before 200 was observed.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.23,
+        "System": 0.72,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 3,
+      "description": "The handler returns the HTTP response without waiting for downstream processing of the event to finish.",
+      "required_reality_check_level": "Integration",
+      "justification": "Core risk is async orchestration across local components (ack path decoupled from downstream worker completion). No explicit requirement for real OS/network/subprocess contracts. Rejected System: behavior text only requires non-blocking control flow, which can be validated with delayed local downstream module.",
+      "test_description": "Wire real handler + queue + downstream worker interface in-process; force downstream processing promise to resolve after a delay; assert HTTP response is sent before downstream completion signal.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.1,
+        "Integration": 0.74,
+        "System": 0.13,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 4,
+      "description": "The response arrives within 3 seconds wall-clock time even when downstream processing of earlier events is slow and concurrent.",
+      "required_reality_check_level": "System",
+      "justification": "Explicit wall-clock SLO under concurrency depends on real runtime scheduling, I/O contention, and request handling under load; unit/integration fakes can mask timing regressions. This is externally visible response-time behavior.",
+      "test_description": "Run service process and issue concurrent requests while prior events trigger intentionally slow downstream processing; measure real wall-clock response latency and assert each ack returns within 3 seconds.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.01,
+        "Integration": 0.14,
+        "System": 0.82,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 5,
+      "description": "An event whose ID was already received is not written to the queue a second time.",
+      "required_reality_check_level": "Integration",
+      "justification": "Dedup correctness is a local multi-module handoff problem (ID extraction -> dedup store/check -> enqueue decision). Unit tests of dedup function alone miss wiring/transaction ordering mistakes. Rejected System: behavior text does not require real network/subprocess or external contract beyond local queue write count.",
+      "test_description": "With app stack wired to real dedup storage abstraction and queue adapter, send same event ID twice and assert exactly one persisted/enqueued record.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.07,
+        "Integration": 0.78,
+        "System": 0.12,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 6,
+      "description": "When the queue reports it is full, the handler returns 503 with a Retry-After header.",
+      "required_reality_check_level": "System",
+      "justification": "Behavior explicitly requires external error response contract (`503` + `Retry-After`) conditioned on queue capacity state, matching SYSTEM TRIAD #2 (real external error-path contract). Mock-only tests can miss real header/status propagation at HTTP boundary.",
+      "test_description": "Run service over real HTTP with queue configured to full state; submit webhook and assert actual response status is 503 and `Retry-After` header is present with expected value format.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.02,
+        "Integration": 0.16,
+        "System": 0.79,
+        "Agentic": 0.02,
+        "Workflow": 0.01
+      }
+    },
+    {
+      "behavior_id": 7,
+      "description": "The persistent queue actually enforces its configured capacity limit and rejects events that would exceed it.",
+      "required_reality_check_level": "Integration",
+      "justification": "Risk is within queue module + persistence backend interaction (capacity accounting + reject path). Requires more than unit logic but can be validated with local real DB/filesystem integration; no explicit external HTTP/subprocess contract required. Rejected System: behavior text focuses on queue-internal enforcement, not an external response contract.",
+      "test_description": "Instantiate queue against real local persistence backend with small configured capacity; enqueue until limit, then enqueue one more and assert deterministic rejection and unchanged persisted count.",
+      "plan_consistent": true,
+      "plan_consistent_note": null,
+      "level_probabilities": {
+        "Unit": 0.05,
+        "Integration": 0.76,
+        "System": 0.17,
+        "Agentic": 0.01,
+        "Workflow": 0.01
+      }
+    }
+  ]
+}
