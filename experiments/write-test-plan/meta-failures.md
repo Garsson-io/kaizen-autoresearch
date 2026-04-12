@@ -6,6 +6,22 @@ Read this before iterating. These are the ways the process itself broke, not the
 
 ---
 
+### "Function called" mistaken for "effect achieved"
+
+**What happened**: Disputed rows were repeatedly justified as Integration by proving internal calls/hook paths ran, while intended GT semantics required proving that the side effect is externally visible after handoff.
+
+**Symptom**: Persistent `System↔Integration` disagreements with justifications like "endpoint/hook called" but no real readback/visibility proof in external boundary.
+
+**Fix**:
+- Codified GT adjudication policy in `program.md`:
+  - Integration = internal wiring/contract proof.
+  - System = real-boundary + externally observable round-trip effect.
+- Added prompt wording that invocation alone is insufficient when behavior requires externally visible side effects.
+
+**Lesson**: "I called the function" is not System evidence. System requires proving the requested effect is observable where users/consumers see it.
+
+---
+
 ### GT labeled wrong — model penalized for being correct
 
 **What happened**: EC-18 b1/b2/b3 (pure algorithms: trace ID grouping, timestamp sorting, p99 computation) and EC-25 b4/b5 (boolean OR gate, output formatting) were labeled Integration. The model predicted Unit and was scored as wrong. The model was right.

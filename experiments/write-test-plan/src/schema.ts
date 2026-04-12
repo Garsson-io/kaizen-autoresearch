@@ -30,10 +30,11 @@ export const BehaviorOutput = z.object({
   description: z.string().min(5),
 
   /**
-   * The LOWEST level that can catch a real failure for this behavior.
-   * One of: Unit | Integration | System | Agentic | Workflow
+   * Required additional reality-check level for this behavior.
+   * Interpreted as the minimum non-hallucinatory proof level needed beyond
+   * local logic confidence (Unit means no additional level above Unit).
    */
-  minimum_level: Level,
+  required_reality_check_level: Level,
 
   /**
    * One or more sentences explaining why the next lower level would miss
@@ -49,7 +50,8 @@ export const BehaviorOutput = z.object({
 
   /**
    * Self-assessment: does your test_description actually exercise the
-   * minimum_level you declared? Set false and explain in plan_consistent_note
+   * required_reality_check_level you declared? Set false and explain in
+   * plan_consistent_note
    * if there is a gap.
    */
   plan_consistent: z.boolean(),
@@ -188,7 +190,13 @@ export type ExploreResult = z.infer<typeof ExploreResult>;
 
 export const GroundTruthBehavior = z.object({
   behavior_id: z.number().int().min(1).max(20),
+  /** Canonical target for scoring under the clean-break metric. */
   ground_truth_level: Level,
+  /**
+   * Optional alias for future GT migrations.
+   * If present, scorers may prefer this over ground_truth_level.
+   */
+  ground_truth_reality_check_level: Level.optional(),
   /** Why this level is the minimum — what failure would a lower level miss? */
   reasoning: z.string().optional(),
 });

@@ -149,9 +149,15 @@ export function loadGT(taskId: string): Record<number, string> {
   const data = JSON.parse(readFileSync(gtPath, "utf8"));
   const map: Record<number, string> = {};
   for (const b of data.behaviors ?? []) {
-    map[b.behavior_id] = b.ground_truth_level;
+    map[b.behavior_id] = b.ground_truth_reality_check_level ?? b.ground_truth_level;
   }
   return map;
+}
+
+function getPredictedLevel(b: { required_reality_check_level?: string; minimum_level?: string; behavior_id: number }): string {
+  const level = b.required_reality_check_level ?? b.minimum_level;
+  if (!level) throw new Error(`Missing required_reality_check_level for behavior_id ${b.behavior_id}`);
+  return level;
 }
 
 export function getDirection(predicted: string, gt: string): "correct" | "under" | "over" {
@@ -178,15 +184,16 @@ export function processRun(runDir: string): BehaviorThinking[] {
     const gt = loadGT(taskId);
 
     for (const b of output.behaviors ?? []) {
+      const predLevel = getPredictedLevel(b);
       const thinkingExcerpt = extractBehaviorThinking(thinking, b.behavior_id, b.description ?? "");
       const gtLevel = gt[b.behavior_id] ?? null;
-      const direction = gtLevel ? getDirection(b.minimum_level, gtLevel) : "unknown";
-      const { selfAware, evidence } = checkSelfAware(thinkingExcerpt, b.minimum_level, gtLevel);
+      const direction = gtLevel ? getDirection(predLevel, gtLevel) : "unknown";
+      const { selfAware, evidence } = checkSelfAware(thinkingExcerpt, predLevel, gtLevel);
 
       results.push({
         task: taskId,
         behavior_id: b.behavior_id,
-        predicted: b.minimum_level,
+        predicted: predLevel,
         gt: gtLevel,
         direction,
         justification: b.justification ?? "",

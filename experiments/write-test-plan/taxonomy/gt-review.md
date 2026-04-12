@@ -3,6 +3,29 @@
 Analysis of every behavior in the taxonomy where the model disagreed with GT.
 Verdict: GT_CORRECT (keep GT), GT_WRONG (fix GT), DEBATABLE (flag for discussion).
 
+Canonical policy for adjudication lives in `program.md`:
+- "GT adjudication policy (agent disagreement vs GT)"
+- Integration/System boundary uses the round-trip observability rule.
+- Agentic/Workflow boundary uses single-step vs multi-step model dependence.
+
+Recent adjudication updates (2026-04-11):
+- **EC-19** relabeled to match clarified semantics:
+  - b1 `Unit -> Agentic`
+  - b3 `Agentic -> Workflow`
+  - b5 `Agentic -> Workflow`
+  - b6 `Unit -> Integration`
+  - b7 `System -> Integration`
+- **EC-29** updates:
+  - b1 `Unit -> Integration`
+  - b12 `System -> Integration`
+  - split old b13 into:
+    - b13 `Agentic` (single live submission scope)
+    - b14 `Workflow` (wider context/history consistency scope)
+- **EC-31** updates:
+  - b4 `System -> Integration`
+  - b5 `System -> Integration`
+  (kept as Integration because behavior text targets hook contract/wiring, not mandatory external round-trip boundary proof)
+
 Already fixed: EC-18 b1/b2/b3, EC-25 b4/b5 (Integration → Unit).
 
 ## U1: "Can mock the API" (predicted Unit/Integration, GT=Agentic)

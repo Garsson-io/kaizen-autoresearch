@@ -32,7 +32,7 @@ import { getFlagValue } from "./cli-args.js";
 import { runCommandSync } from "./process-utils.js";
 
 const LEVEL_DEFS = `
-Level definitions — choose the LOWEST level that can catch a real failure:
+Level definitions — choose required_reality_check_level (additional proof beyond unit confidence):
   Unit        — one local function or object boundary, no I/O
   Integration — several modules wired together, local DB or filesystem
   System      — subprocess, OS behavior, real HTTP, or real external API call
@@ -47,7 +47,7 @@ For each behavior listed in the issue below, determine what infrastructure is
 actually needed to observe a real failure. Use the StructuredOutput tool to
 record your answer — one entry per behavior.
 
-Definitions for minimum_level — pick the LOWEST that applies:
+Definitions for required_reality_check_level — pick the LOWEST additional level needed beyond unit confidence:
   Unit        — in-process only, no I/O, pure function boundary
   Integration — needs local filesystem, real database, or wired real modules
   System      — needs subprocess, OS behavior, real HTTP, real external API
@@ -55,7 +55,7 @@ Definitions for minimum_level — pick the LOWEST that applies:
   Workflow    — multiple agentic steps or full pipeline in sequence
 
 For plan_consistent: set true only if your test_description actually exercises
-the minimum_level you declared (not a lower level).
+the required_reality_check_level you declared (not a lower level).
 
 Issue (task_id: ${taskId}):
 ---
@@ -64,7 +64,7 @@ ${issueBody}`;
 const TREATMENT_PROMPT = (taskId: string, issueBody: string) => `\
 You are writing a test plan for a software engineering issue.
 
-For each behavior, reason about the minimum test infrastructure needed to catch
+For each behavior, reason about the required additional reality-check test infrastructure needed to catch
 a real failure — not just to verify happy-path logic.
 
 ${LEVEL_DEFS}
@@ -194,6 +194,21 @@ function extractJsonObject(text: string): unknown {
   throw new Error("Could not parse JSON object from model output");
 }
 
+function normalizeLegacyFields(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const obj = { ...(input as Record<string, unknown>) };
+  const behaviors = Array.isArray(obj.behaviors) ? obj.behaviors : [];
+  obj.behaviors = behaviors.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const b = { ...(raw as Record<string, unknown>) };
+    if (b.required_reality_check_level == null && typeof b.minimum_level === "string") {
+      b.required_reality_check_level = b.minimum_level;
+    }
+    return b;
+  });
+  return obj;
+}
+
 function runProbe(opts: {
   taskId: string;
   condition: "baseline" | "treatment";
@@ -217,7 +232,7 @@ function runProbe(opts: {
   }
 
   // Append probability instruction (measurement concern — NOT part of treatment.md)
-  prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the minimum needed to catch a real failure. The 5 values must sum to 1.0.`;
+  prompt += `\n\nFor each behavior, also provide level_probabilities: your confidence (0.0 to 1.0) that each of the 5 levels is the required_reality_check_level. The 5 values must sum to 1.0.`;
 
   let stdout = "";
   let structuredInput: unknown = null;
@@ -325,7 +340,7 @@ function runProbe(opts: {
   }
 
   // Inject task_id and condition, then validate with Zod
-  const raw = { ...(structuredInput as object), task_id: opts.taskId, condition: opts.condition };
+  const raw = normalizeLegacyFields({ ...(structuredInput as object), task_id: opts.taskId, condition: opts.condition });
   const parsed = ProbeOutput.parse(raw);
 
   writeFileSync(opts.outFile, JSON.stringify(parsed, null, 2), "utf-8");

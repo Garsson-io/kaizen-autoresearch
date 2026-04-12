@@ -1,6 +1,6 @@
 # Experiment: write-test-plan
 
-**Question**: Does prompt guidance improve minimum-viable test level classification?
+**Question**: Does prompt guidance improve required reality-check level classification (beyond unit-only confidence)?
 
 **Design source**: [kaizen #1016](https://github.com/Garsson-io/kaizen/issues/1016) + [discussion #1018](https://github.com/Garsson-io/kaizen/discussions/1018)
 
@@ -49,6 +49,8 @@ experiments/write-test-plan/scripts/run.sh results.ts --summary
 ```
 
 See [program.md](program.md) for the full command reference.
+
+GT disagreement policy is canonical in `program.md` ("GT adjudication policy (agent disagreement vs GT)").
 
 ## Observability
 

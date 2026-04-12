@@ -22,10 +22,10 @@ Do not `cd experiments/write-test-plan` and then use `experiments/write-test-pla
 ---
 
 You are an autonomous research agent improving a prompt that classifies
-software behaviors by minimum test level (Unit / Integration / System /
+software behaviors by required reality-check level (Unit / Integration / System /
 Agentic / Workflow).
 
-**Primary objective**: minimize weighted loss from `experiments/write-test-plan/scripts/verify.ts`.
+**Primary objective**: minimize weighted loss on `required_reality_check_level` from `experiments/write-test-plan/scripts/verify.ts`.
 Use score only as a secondary, legacy metric.
 
 **CRITICAL — treatment.md MUST keep these template variables** (run-probe.ts replaces them):
@@ -216,9 +216,9 @@ LOOP:
        **PROMOTION GATE (MANDATORY):**
        - Explore is for quick winner selection only; do not rerun the same idea/variant in the same cycle.
        - Pick winner = variant with lower aggregate explore loss (more negative delta).
-       - Promote winner to full 36-task RUN only if:
-         - `delta <= -2.0`, and
-         - `hurt <= 1` (at most one worsened task).
+       - Promote winner to full 36-task RUN if:
+         - `delta <= -2.0`.
+       - `hurt` is diagnostic only (risk tag), not a promotion blocker.
        - Side-effect cluster guard (mandatory): define 1-2 expected side-effect confusion pairs before explore.
          Reject promotion if the winner materially worsens those named pairs on the explore slice.
          Material worsening default: net loss increase > `+1.0` on any named side-effect pair.
@@ -226,7 +226,7 @@ LOOP:
          (`66.7%` winner/no-winner flip on repeated ideas; winner-delta std ~`2.58` loss),
          so do not treat a single narrow win as sufficient when regressions are broad.
        - Concentration is non-blocking: even if concentrated, promotion is allowed; tag as `high-risk` in notes.
-       - `no-promote` if both variants fail the gate above.
+       - `no-promote` if both variants fail the delta gate above.
        Already-set: use the recorded explore result — no new run needed.
        After any explore run, commit the output dirs:
        ```bash
@@ -659,6 +659,38 @@ Use the scripts above — they all handle naming correctly. Don't hardcode `ec01
 "does the *content* of the response matter and can it vary non-deterministically."
 A deterministic REST API = System. A language model = Agentic.
 
+### GT adjudication policy (agent disagreement vs GT)
+
+Persistent model disagreement is a **signal to review GT**, not automatic proof that GT is wrong.
+Use this rule set when predicted labels and GT diverge:
+
+- **Integration vs System boundary (canonical)**:
+  - `Integration`: proves internal wiring/contract correctness (module handoff, local state, deterministic fakes).
+  - `System`: proves real-boundary behavior **and externally observable round-trip effect**.
+    A function/endpoint call alone is insufficient; success must be observable via real readback/surface
+    (API read, report/export, UI/web view, downstream consumer-visible state).
+  - **System trigger triad (any one => System)**:
+    1. Real external **happy-path** shape/contract must be verified.
+    2. Real external **error-path** shape/contract must be verified (e.g. not-found, timeout, rate-limit).
+    3. Requested side effect must be proven via **external round-trip observability** (write/call -> visible readback).
+
+- **Agentic vs Workflow boundary (canonical)**:
+  - `Agentic`: one model-dependent decision/output quality check.
+  - `Workflow`: multiple model-dependent steps where earlier outputs/state influence later steps.
+
+- **Adjudication workflow for contested rows**:
+  1. Collect disagreement distribution over recent runs (e.g., 8-10 unique runs).
+  2. Read the exact behavior text and GT reasoning side-by-side with representative agent justifications.
+  3. Decide whether disagreement is:
+     - GT ambiguity/under-specification (fix GT or split behavior), or
+     - model bias (keep GT, improve prompt).
+  4. If behavior conflates scopes, split into narrower rows (for example single-step Agentic vs multi-step Workflow).
+  5. Record decisions in `taxonomy/gt-review.md` with rationale and concrete task/behavior ids.
+
+Current practical lesson:
+- Models often stop at "function called / hook invoked". For side-effect assertions that must be visible in
+  external systems, require System-level round-trip proof in GT and prompt wording.
+
 ### Canonical semantics (taxonomy lock)
 
 Use these meanings consistently across GT review, taxonomy, prompt edits, and IDEATE:
@@ -680,6 +712,7 @@ Guardrail:
 GT policy implication:
 - When a behavior says "single model step should be correct" -> prefer Agentic.
 - When a behavior says "the multi-step agent run should converge/coordinate across steps" -> Workflow.
+- Skills policy: when a behavior tests whether `SKILL.md`/skill-context changes alter agent behavior, default to Workflow because skills define multi-step agent execution, not a single prompt step.
 
 Prompting policy implication:
 - A future treatment can include this aliasing explicitly ("Agentic Step" vs "Agentic Workflow")
