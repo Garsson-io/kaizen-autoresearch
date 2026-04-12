@@ -143,3 +143,36 @@ The adversarial "misleading surface" tasks (EC-12, EC-16, EC-18) were designed t
 | U3 | 30 | observable-behavior-framing, counterfactual-mock |
 | O1 | 22 | strip-to-bare-minimum (removing guidance may reduce over-prediction) |
 | U4 | 12 | challenge-your-choice, top-down-elimination |
+
+---
+
+## 2026-04-12 Audit Addendum (iterations 63-74)
+
+Scope: 12 latest iterations (63-74), 843 unique error entries after de-duplicating repeated iteration/run-dir combinations.
+
+### Dominant "excuse families" that lacked proper routing
+
+1. `Agentic->Integration` (18 lines, weighted impact 36)
+- Recurring excuse: "real AI call on path + semantic behavior => Agentic minimum."
+- Dominant behaviors: `EC-21 b5` (11), `EC-15 b4` (7).
+- New rule home: O3 (`Looks like AI so must be Agentic`).
+
+2. `Workflow->System` (15 lines, weighted impact 45)
+- Recurring excuse: "MULTI-STEP + LLM-DEP + end-to-end pipeline => Workflow."
+- Dominant behaviors: `EC-13 b4` (8), `EC-15 b5` (7).
+- New rule home: O4 (`Workflow overreach from pipeline breadth`).
+
+3. `Agentic->Unit` (10 lines, weighted impact 10)
+- Recurring excuse: "embedding/model output contract must be real Agentic even for deterministic shape assertions."
+- Dominant behavior: `EC-15 b1` (10).
+- New rule home: O3 (same overreach family as above).
+
+### Codified routing updates
+
+- Expanded O3 confusion pairs:
+  - `Agentic-System` -> `Agentic-System, Agentic-Integration, Agentic-Unit`
+- Expanded O4 confusion pairs:
+  - `Workflow-Agentic` -> `Workflow-Agentic, Workflow-System`
+- Reprocessed unmatched taxonomy lines:
+  - moved 34 lines to O3/O4
+  - unmatched reduced to 0

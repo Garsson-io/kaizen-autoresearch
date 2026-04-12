@@ -186,17 +186,17 @@ For each confusion pair flagged in step 2:
 
 | File | Direction | Confusion pairs | Pattern |
 |------|-----------|----------------|---------|
-| U1-can-mock-the-api | under | Integration-Agentic | Model says stubs/mocks are sufficient, missing that mock hides real model output variability |
+| U1-can-mock-the-api | under | Integration-Agentic, Unit-Agentic, System-Agentic | Model says stubs/mocks are sufficient, missing that mock hides real model output variability |
 | U2-pure-logic-no-io | under | Unit-Integration | Model treats behavior as pure function logic, misses module boundary |
 | U3-integration-suffices | under | Integration-System | Model says in-process wiring catches it, missing that real OS/network/subprocess is needed |
-| U4-single-step-enough | under | Agentic-Workflow | Model says one real-model call is enough, missing that multiple sequential agentic steps are required |
+| U4-single-step-enough | under | Agentic-Workflow, System-Workflow, Integration-Workflow | Model says one real-model call is enough, missing that multiple sequential agentic steps are required |
 | O1-needs-real-wiring | over | Integration-Unit | Model over-escalates to Integration, manufacturing a module boundary from single-function behavior |
 | O2-needs-external-service | over | System-Integration | Model over-escalates to System, applying REAL-INFRA when in-process stubs suffice |
-| O3-looks-like-ai | over | Agentic-System | Model over-escalates to Agentic when the real failure boundary is deterministic OS/network behavior |
-| O4-agentic-to-workflow-overreach | over | Workflow-Agentic | Model over-escalates to Workflow for single agentic step behaviors |
+| O3-looks-like-ai | over | Agentic-System, Agentic-Integration, Agentic-Unit | Model over-escalates to Agentic when any real AI call appears, even if the assertion is deterministic contract/wiring |
+| O4-agentic-to-workflow-overreach | over | Workflow-Agentic, Workflow-System | Model over-escalates to Workflow from pipeline breadth ("MULTI-STEP + LLM-DEP") even when System or Agentic suffices |
 | unmatched.md | — | (none yet) | Accumulator for pairs with no taxonomy file |
 
-**Note on `confusion_pair` lists**: U1 currently has `confusion_pair: Integration-Agentic` in frontmatter but contains manually-added `Unit-Agentic` and `System-Agentic` entries from old runs. The frontmatter needs updating to include all three pairs so new entries route correctly.
+**Rule of thumb for pair expansion**: when the excuse is structurally the same and only the Pred→GT pair changed, expand `confusion_pair` on the existing file and backfill with `--reprocess-unmatched` instead of creating a new file.
 
 ---
 
@@ -208,13 +208,10 @@ O2 contains 11 `Integration→System` entries (wrong direction, duplicates of U3
 ### 2. Pattern drift — same confusion pair, different reasoning traps
 A taxonomy file with a single `confusion_pair` will collect ALL entries for that pair, even if different runs exhibit different reasoning traps. Example: U1 (`Integration-Agentic`) contains "can mock" reasoning (old runs) AND "REJECTION-GATE quality escape" reasoning (new runs). If the traps require different fixes, the file needs to be split. The cognitive review step should detect this.
 
-### 3. confusion_pair list gaps
-U1 `confusion_pair` only lists `Integration-Agentic` but the file body also has `Unit-Agentic` (8 entries) and `System-Agentic` (3 entries) from manual curation. New Unit-Agentic and System-Agentic errors will route to `unmatched.md` until U1's frontmatter is updated. Same issue for U4 (`Integration-Workflow`, `System-Workflow` entries present but not in confusion_pair).
+### 3. Pattern-family expansion can be missed
+Same trap can appear under new Pred→GT pairs. Recent example (runs 63-74): O3 absorbed `Agentic-Integration` + `Agentic-Unit`, and O4 absorbed `Workflow-System`. If this step is skipped, those lines accumulate in `unmatched.md` even though no new trap exists.
 
-### 4. Summary undercounts legacy entries
-`--summary` uses regex `\[run(\d+)\]` which only matches integer run labels. The ~400 entries using timestamp format (`[run-204623]`, `[run-203945]`) are invisible to the counter. The matched/unmatched counts are undercounts. This does not affect routing — routing works on any `[run...]` format. The summary fix would change the regex to `\[run\S+\]`.
-
-### 5. Never-delete means contamination is permanent
+### 4. Never-delete means contamination is permanent
 Wrong entries from mis-routing cannot be removed by the tooling. Manual cleanup (with an explicit note in a commit message explaining why entries were removed) is acceptable for demonstrably misrouted entries, but must be deliberate.
 
 ---
@@ -235,5 +232,5 @@ grep "^confusion_pair:" experiments/write-test-plan/taxonomy/[UO]*.md
 npx tsx experiments/write-test-plan/scripts/taxonomy-append.ts --summary
 
 # 4. Verify unmatched.md block count matches summary report
-grep -c "^\[run" experiments/write-test-plan/taxonomy/unmatched.md
+rg -n '^\{' experiments/write-test-plan/taxonomy/unmatched.md | wc -l
 ```

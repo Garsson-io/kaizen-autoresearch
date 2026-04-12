@@ -1,12 +1,13 @@
 ---
 id: O4
-name: "Agentic assumed to require Workflow"
+name: "Workflow overreach from pipeline breadth"
 direction: over
 predicted: Workflow
-ground_truth: Agentic
+ground_truth: Agentic or System
 weight: 4
-confusion_pair: Workflow-Agentic
-description: Model upgrades single-step model-quality checks to multi-step workflow without evidence of sequential agentic dependency.
+confusion_pair: Workflow-Agentic, Workflow-System
+description: Model upgrades broad pipelines or latency SLO checks to Workflow by default, even when the true minimum is Agentic or System.
+note: Expanded in 2026-04 audit of runs 63-74 to include Workflow-System overreach ("MULTI-STEP + LLM-DEP => Workflow" applied where GT is System).
 ---
 
 {"run":"run-014020","task":"EC-13","b":6,"pred":"Workflow","gt":"Agentic","w":4,"j":"Requires repeated agentic decisions over time plus stateful consistency behavior within a window (e.g., cache/memoization/policy carryover). A single-call agentic test is insufficient to catch sequence consistency failures. Rejected lower Agentic-only level because behavior text requires multiple submissions \"multiple times within a short window,\" i.e., sequenced steps."}
@@ -30,4 +31,23 @@ description: Model upgrades single-step model-quality checks to multi-step workf
 {"run":"run-011347","task":"EC-19","b":3,"pred":"Workflow","gt":"Agentic","w":4,"j":"Requires multiple real agentic steps in sequence (initial generation, failure-informed refinement(s), eventual pass). A single live call test cannot expose the iterative recovery behavior. Rejected lower level (Agentic): behavior explicitly requires loop success across attempts, not one model decision."}
 
 {"run":"run-011347","task":"EC-19","b":5,"pred":"Workflow","gt":"Agentic","w":4,"j":"Needs at least two real agentic generations with state carryover (fail context -> revised code). Mocked model responses cannot validate genuine responsiveness to context. Rejected lower level (Agentic): behavior text requires sequenced comparison between attempts, i.e., multi-step agentic loop."}
+{"run":"6","task":"EC-14","b":4,"pred":"Workflow","gt":"System","w":3,"j":"Failure requires chained behavior across multiple agentic steps (per-segment transcription/summarization + merge coherence). Single-step Agentic misses cross-segment drift, duplication, or contradiction introduced during sequential merge (MULTI-STEP => Workflow). System concerns may exist, but the defining risk is multi-step agentic composition."}
+
+{"run":"7","task":"EC-14","b":4,"pred":"Workflow","gt":"System","w":3,"j":"Failure requires chained behavior across multiple agentic steps (per-segment transcription/summarization + merge coherence). Single-step Agentic misses cross-segment drift, duplication, or contradiction introduced during sequential merge (MULTI-STEP => Workflow). System concerns may exist, but the defining risk is multi-step agentic composition."}
+
+{"run":"run-014020","task":"EC-13","b":4,"pred":"Workflow","gt":"System","w":3,"j":"Behavior explicitly requires the full sequenced pipeline (image model step + text model step + decision). It is a multi-agentic sequence with an end-to-end latency SLO, so lower levels miss cross-step timing failures. Rejected lower System-only framing because behavior text requires full chained moderation flow, not one external call."}
+
+{"run":"run-014020","task":"EC-14","b":4,"pred":"Workflow","gt":"System","w":3,"j":"This behavior is about sequential multi-stage processing with handoff across segment-level model outputs and final merged summary coherence. It involves multiple agentic decisions in sequence, so Agentic-only is too low. Rejected System-only: real subprocess/OS concerns may exist, but behavior text emphasizes sequential agent pipeline correctness and coherent merged output across stages."}
+
+{"run":"run-014020","task":"EC-15","b":5,"pred":"Workflow","gt":"System","w":3,"j":"This is full-pipeline SLO validation across multiple agentic steps in sequence (embedding call then LLM re-rank) plus retrieval/orchestration. Isolated system tests of single components miss cross-step interaction and compounded latency distribution. Rejected lower levels: Integration cannot capture real infra timing; System at single-boundary scope is insufficient for multi-agentic-step end-to-end median behavior."}
+
+{"run":"run-002056","task":"EC-14","b":6,"pred":"Workflow","gt":"System","w":3,"j":"Behavior requires sequential multi-step processing across segments plus merged final output quality; this is multiple agentic decisions in sequence (MULTI-STEP yes). Mocking segment results hides real cross-segment coherence and carryover failures (MOCK-HIDE yes). Adversarial critique: if this only verified split counts and merge invocation order, Integration/System would suffice; behavior text includes 'single coherent summary,' which depends on real sequential model outputs and their merge."}
+
+{"run":"run-010159","task":"EC-14","b":6,"pred":"Workflow","gt":"System","w":3,"j":"This is explicitly multi-step orchestration across repeated model calls (segment STT/summarization) plus merge/coherence across stages. Single-step tests miss handoff and accumulation failures between steps."}
+
+{"run":"run-011347","task":"EC-13","b":4,"pred":"Workflow","gt":"System","w":3,"j":"MOCK-MISS: end-to-end latency failures emerge from sequential stage interaction, queueing, and real model response times. REAL-INFRA: yes, timing behavior depends on real service/process/network conditions. LLM-DEP: yes, includes real AI calls. MULTI-STEP: explicitly multiple agentic steps in sequence (image model then text model then decision), so Workflow. CANDIDATE-TEST-CHECK: Agentic candidate measuring one model call latency cannot catch cumulative pipeline overruns; Workflow candidate measuring submission-to-final-decision across full path catches stage-composition bottlenecks. Rejection gate for System/Agentic: behavior text explicitly requires 'full moderation pipeline' with multiple model stages, which disqualifies lower single-step levels."}
+
+{"run":"run-011347","task":"EC-14","b":6,"pred":"Workflow","gt":"System","w":3,"j":"MULTI-STEP: behavior explicitly requires segmented sequential processing and merge, typically invoking repeated STT/LLM steps whose handoff affects coherence. LLM-DEP is present for merged-summary coherence; mocks hide cross-segment drift and loss. CANDIDATE-TEST-CHECK: Workflow candidate runs real long recording through segmentation + per-segment processing + merge and asserts final summary covers cross-segment tasks/decisions consistently. Lower Agentic candidate with single model call cannot catch segmentation/merge chain failures. REJECTION-GATE: Agentic rejected because behavior text explicitly includes sequential segmented processing and merged end result (multi-step pipeline)."}
+
+{"run":"run-011347","task":"EC-15","b":5,"pred":"Workflow","gt":"System","w":3,"j":"MOCK-MISS: mocked embedding/LLM/vector DB latencies can hide real bottlenecks and queueing effects. REAL-INFRA: yes, this is true end-to-end latency and needs real process/network timing behavior. LLM-DEP + MULTI-STEP: pipeline includes at least two real AI/ML stages (embedding + LLM re-rank) in sequence, so this is multiple real agentic steps; Workflow is the failure boundary. CANDIDATE-TEST-CHECK: (System alt) setup real HTTP load test with one model call stubbed, assert p50<2s, catches infra latency but misses full agent pipeline contention. (Workflow chosen) setup production-like stack with real embedding+vector search+real LLM rerank, run representative batch, assert median total latency <2s, catches cross-stage latency accumulation/regressions."}
 
