@@ -19,12 +19,12 @@ family: definition-alignment
 mechanism_signature: remove-generic-workflow-alias
 max_followups: 1
 control_required: true
-explore_status: null
-explore_tasks: []
-explore_baseline_loss: null
-explore_loss: null
-explore_delta: null
-explore_date: null
+explore_status: concentrated-signal
+explore_tasks: [ec-01, ec-02, ec-05, ec-06, ec-03, ec-11]
+explore_baseline_loss: 63.63
+explore_loss: 60.14
+explore_delta: -3.49
+explore_date: 2026-04-12
 last_run: null
 last_iteration: null
 last_outcome: null
@@ -72,3 +72,17 @@ New hypothesis after 2026-04-11 GT/definition refresh and baseline iteration 70.
 
 ## Reusable Lesson
 Prefer removing ambiguous aliases over adding new explanatory blocks when taxonomy shows over-escalation and low self-aware contradictions.
+
+## Epistemological status
+
+Explore subset (stratified): `ec-01, ec-02, ec-05, ec-06, ec-03, ec-11`  
+Baseline subset loss: `63.63`
+
+| Variation | Loss | Delta vs baseline | Per-task direction | Concentration |
+|---|---:|---:|---|---|
+| v1-remove-alias | 60.1384 | -3.4922 | improved 2, hurt 2, flat 2 | ec-11 drives 65% of gain |
+| v2-remove-alias-plus-brake-prune | 68.1227 | +4.4921 | improved 2, hurt 2, flat 2 | n/a |
+
+Winner: `v1-remove-alias` by aggregate loss, classification is `concentrated-signal`.  
+Recommendation: do not treat this as broad signal without either a second stratified explore set or full-corpus confirmation.
+
